@@ -3705,7 +3705,7 @@
                 <h4>${AI_NEWS_ENDPOINT ? '🤖 AI 뉴스 기사' : '📰 뉴스'}</h4>
                 <p style="margin: 0 0 4px;">${aiText}</p>
                 ${AI_NEWS_ENDPOINT && !aiNewsUnavailable ? `<p class="muted" style="margin-top: 0;">아직 AI 기사로 바뀌지 않은 뉴스 ${pending}건 (자동으로 계속 다시 시도해요) · 학생 화면에는 AI 기사만 보여요.</p>` : ''}
-                <button class="admin-btn" onclick="adminForceNews()">📰 뉴스 1건 지금 발생${AI_NEWS_ENDPOINT ? ' (AI 기사)' : ''}</button>
+                <button class="admin-btn" onclick="adminForceNews()">📰 회사별 뉴스 ${COMPANIES.length}건 지금 발생${AI_NEWS_ENDPOINT ? ' (AI 기사)' : ''}</button>
             </div>
             <div class="card">
                 <h4>🔄 주식시장 새로 시작</h4>
@@ -3742,25 +3742,30 @@
     }
 
     async function adminForceNews() {
-        if (!confirm(`지금 바로 뉴스 1건을 발생시킬까요? 주가가 뉴스에 따라 바로 움직여요.${AI_NEWS_ENDPOINT ? ' AI가 바로 기사를 써요.' : ''}`)) return;
+        if (!confirm(`지금 바로 네 회사의 뉴스를 1건씩 발생시킬까요? 주가가 뉴스에 따라 바로 움직여요.${AI_NEWS_ENDPOINT ? ' AI가 바로 기사를 써요.' : ''}`)) return;
         await loadData();
-        const item = runStockEvent(Date.now());
+        // 30분마다 나오는 뉴스처럼 회사마다 1건씩
+        const now = Date.now();
+        const items = COMPANIES.map(c => runStockEvent(now, c.id));
         await saveData();
         renderAdminSection();
 
+        const created = `뉴스 ${items.length}건이 발생했어요.\n${items.map(n => `· ${n.title}`).join('\n')}`;
         if (!AI_NEWS_ENDPOINT) {
-            alert(`뉴스가 발생했어요: ${item.title}`);
+            alert(created);
             return;
         }
         if (location.protocol === 'file:') {
-            alert(`뉴스가 발생했어요: ${item.title}\n(로컬 파일에서는 AI 기사를 요청할 수 없어요. 기본 문장으로 표시돼요.)`);
+            alert(`${created}\n(로컬 파일에서는 AI 기사를 요청할 수 없어요. 기본 문장으로 표시돼요.)`);
             return;
         }
-        const result = await convertNewsBatchToAi([item.id]);
-        const written = db.stocks.news.find(n => n.id === item.id);
-        if (result.outcome === 'ok' && written && written.ai) alert(`🤖 AI 기사: ${written.title}`);
-        else if (result.outcome === '404') alert(`뉴스가 발생했어요: ${item.title}\n(이 주소에서 AI 기사 함수(${AI_NEWS_ENDPOINT})를 찾지 못했어요. 기본 문장으로 표시돼요.)`);
-        else alert(`뉴스가 발생했어요: ${item.title}\n(AI 기사 생성에 실패해서 잠시 후 자동으로 다시 시도해요${result.data && result.data.error ? ': ' + result.data.error : ''})`);
+        const result = await convertNewsBatchToAi(items.map(n => n.id));
+        const written = items.map(n => db.stocks.news.find(x => x.id === n.id)).filter(n => n && n.ai);
+        const writtenTitles = written.map(n => `· ${n.title}`).join('\n');
+        if (result.outcome === '404') alert(`${created}\n(이 주소에서 AI 기사 함수(${AI_NEWS_ENDPOINT})를 찾지 못했어요. 기본 문장으로 표시돼요.)`);
+        else if (written.length === items.length) alert(`🤖 AI 기사 ${written.length}건\n${writtenTitles}`);
+        else if (written.length > 0) alert(`🤖 AI 기사 ${written.length}건을 받았어요. 나머지 ${items.length - written.length}건은 잠시 후 자동으로 다시 시도해요.\n${writtenTitles}`);
+        else alert(`${created}\n(AI 기사 생성에 실패해서 잠시 후 자동으로 다시 시도해요${result.data && result.data.error ? ': ' + result.data.error : ''})`);
         renderAdminSection();
     }
 

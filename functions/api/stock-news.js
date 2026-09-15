@@ -41,24 +41,29 @@ const SYSTEM_PROMPT = `너는 학생들이 참여하는 학급 경제 게임의 
   (예: 인터뷰 한마디, 소비자 반응, 앞으로의 계획, 업계 분위기 등 기사마다 다른 각도를 고른다)`;
 
 // Gemini responseSchema 형식 (타입 이름은 대문자)
-const RESPONSE_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    articles: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          id: { type: "STRING" },
-          title: { type: "STRING" },
-          body: { type: "STRING" },
+// 여러 건을 한 번에 부탁하면 일부만 쓰는 경우가 있어서, 요청한 id만 쓸 수 있고 개수도 정확히 맞추도록 매번 만듦
+function responseSchemaFor(ids) {
+  return {
+    type: "OBJECT",
+    properties: {
+      articles: {
+        type: "ARRAY",
+        minItems: ids.length,
+        maxItems: ids.length,
+        items: {
+          type: "OBJECT",
+          properties: {
+            id: { type: "STRING", enum: ids },
+            title: { type: "STRING" },
+            body: { type: "STRING" },
+          },
+          required: ["id", "title", "body"],
         },
-        required: ["id", "title", "body"],
       },
     },
-  },
-  required: ["articles"],
-};
+    required: ["articles"],
+  };
+}
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -141,8 +146,26 @@ export async function onRequest({ request, env }) {
     .filter((title) => typeof title === "string" && title.length <= 80)
     .slice(0, 8);
 
+  const first = await writeArticles(apiKey, items, recent);
+  if (first.error) return json({ error: first.error }, first.status);
+
+  // 빠진 기사가 있으면 그것만 한 번 더 부탁함 (다시 실패하면 받은 기사만 돌려주고, 나머지는 화면이 나중에 다시 요청)
+  const articles = [...first.articles];
+  const missing = items.filter((item) => !articles.some((a) => a.id === item.id));
+  if (missing.length > 0) {
+    const second = await writeArticles(apiKey, missing, [...articles.map((a) => a.title), ...recent].slice(0, 8));
+    if (!second.error) articles.push(...second.articles);
+  }
+  if (articles.length === 0) return json({ error: "Gemini 응답에 쓸 수 있는 기사가 없어요." }, 502);
+
+  return json({ articles });
+}
+
+// Gemini에 한 번 요청해서 { articles } 또는 { error, status }를 돌려줌
+async function writeArticles(apiKey, items, recent) {
+  const ids = items.map((item) => item.id);
   const prompt = [
-    `다음 ${items.length}개 사건으로 기사를 하나씩 써줘.`,
+    `다음 ${items.length}개 사건으로 기사를 하나씩, 빠짐없이 모두 ${items.length}개 써줘.`,
     "",
     items.map(describeItem).join("\n\n"),
     ...(recent.length ? ["", "최근 기사 제목 (겹치지 않게 쓸 것):", ...recent.map((title) => `- ${title}`)] : []),
@@ -156,36 +179,37 @@ export async function onRequest({ request, env }) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA },
+        generationConfig: { responseMimeType: "application/json", responseSchema: responseSchemaFor(ids) },
       }),
     });
   } catch (error) {
-    return json({ error: `Gemini 서버에 연결하지 못했어요: ${error.message}` }, 502);
+    return { error: `Gemini 서버에 연결하지 못했어요: ${error.message}`, status: 502 };
   }
 
   const data = await geminiResponse.json().catch(() => null);
   if (!geminiResponse.ok) {
-    return json({ error: geminiErrorMessage(geminiResponse.status, data) }, geminiResponse.status === 429 ? 429 : 502);
+    return { error: geminiErrorMessage(geminiResponse.status, data), status: geminiResponse.status === 429 ? 429 : 502 };
   }
 
   const parts = (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
   const text = parts.filter((part) => !part.thought && typeof part.text === "string").map((part) => part.text).join("");
   if (!text) {
     const reason = (data && data.promptFeedback && data.promptFeedback.blockReason) || (data && data.candidates && data.candidates[0] && data.candidates[0].finishReason) || "응답 없음";
-    return json({ error: `Gemini가 기사를 만들지 않았어요 (${reason})` }, 422);
+    return { error: `Gemini가 기사를 만들지 않았어요 (${reason})`, status: 422 };
   }
 
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return json({ error: "Gemini 응답이 JSON 형식이 아니에요." }, 502);
+    return { error: "Gemini 응답이 JSON 형식이 아니에요.", status: 502 };
   }
-  const wanted = new Set(items.map((item) => item.id));
-  const articles = (parsed && Array.isArray(parsed.articles) ? parsed.articles : [])
-    .filter((a) => a && wanted.has(a.id) && typeof a.title === "string" && typeof a.body === "string" && a.title.trim() && a.body.trim())
-    .map((a) => ({ id: a.id, title: clean(a.title, 40), body: clean(a.body, 160) }));
-  if (articles.length === 0) return json({ error: "Gemini 응답에 쓸 수 있는 기사가 없어요." }, 502);
-
-  return json({ articles });
+  const articles = [];
+  (parsed && Array.isArray(parsed.articles) ? parsed.articles : []).forEach((a) => {
+    // 같은 id를 두 번 쓴 경우 첫 번째만 사용
+    if (!a || !ids.includes(a.id) || articles.some((x) => x.id === a.id)) return;
+    if (typeof a.title !== "string" || typeof a.body !== "string" || !a.title.trim() || !a.body.trim()) return;
+    articles.push({ id: a.id, title: clean(a.title, 40), body: clean(a.body, 160) });
+  });
+  return { articles };
 }
