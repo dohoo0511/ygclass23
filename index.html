@@ -3385,7 +3385,7 @@
 
     // 학생 화면: AI가 기사를 다 쓸 때까지(최대 AI_NEWS_GRACE_MS) 임시 문장 대신 "준비 중" 표시 (AI를 못 쓰는 주소면 바로 보여줌)
     function visibleStockNews(list, now = Date.now()) {
-        if (!AI_NEWS_ENDPOINT) return list;
+        if (!AI_NEWS_ENDPOINT || aiNewsUnavailable) return list;
         return list.filter(n => n.ai || n.kind === 'open' || now - n.t > AI_NEWS_GRACE_MS);
     }
     // 회사별로 나눠 보여줄 뉴스: 계약 뉴스는 두 회사 모두에 보임
@@ -3659,6 +3659,8 @@
         const ai = st.aiStatus;
         const aiText = !AI_NEWS_ENDPOINT
             ? 'GitHub Pages 주소에서는 AI 기사를 쓸 수 없어서, 게임에 들어 있는 기본 뉴스 문장을 보여줘요.'
+            : aiNewsUnavailable
+            ? `❌ 이 주소에서 AI 기사 함수(${AI_NEWS_ENDPOINT})를 찾지 못해서 기본 뉴스 문장을 보여줘요. Cloudflare Pages라면 GitHub 저장소에 functions 폴더가 올라갔는지 확인해주세요. (GitHub Pages에서는 AI 기사를 쓸 수 없어요)`
             : !ai
             ? '아직 AI 기사 요청 기록이 없어요.'
             : (ai.ok ? `✅ 정상 작동 중 (마지막 성공 ${fmtDateTime(ai.t)})` : `❌ 실패 (${fmtDateTime(ai.t)}): ${esc(ai.message)}`);
@@ -3702,7 +3704,7 @@
             <div class="card">
                 <h4>${AI_NEWS_ENDPOINT ? '🤖 AI 뉴스 기사' : '📰 뉴스'}</h4>
                 <p style="margin: 0 0 4px;">${aiText}</p>
-                ${AI_NEWS_ENDPOINT ? `<p class="muted" style="margin-top: 0;">아직 AI 기사로 바뀌지 않은 뉴스 ${pending}건 (자동으로 계속 다시 시도해요) · 학생 화면에는 AI 기사만 보여요.</p>` : ''}
+                ${AI_NEWS_ENDPOINT && !aiNewsUnavailable ? `<p class="muted" style="margin-top: 0;">아직 AI 기사로 바뀌지 않은 뉴스 ${pending}건 (자동으로 계속 다시 시도해요) · 학생 화면에는 AI 기사만 보여요.</p>` : ''}
                 <button class="admin-btn" onclick="adminForceNews()">📰 뉴스 1건 지금 발생${AI_NEWS_ENDPOINT ? ' (AI 기사)' : ''}</button>
             </div>
             <div class="card">
@@ -3757,7 +3759,7 @@
         const result = await convertNewsBatchToAi([item.id]);
         const written = db.stocks.news.find(n => n.id === item.id);
         if (result.outcome === 'ok' && written && written.ai) alert(`🤖 AI 기사: ${written.title}`);
-        else if (result.outcome === '404') alert(`뉴스가 발생했어요: ${item.title}\n(AI 기사 함수가 아직 배포되지 않았어요. 기본 문장으로 표시돼요.)`);
+        else if (result.outcome === '404') alert(`뉴스가 발생했어요: ${item.title}\n(이 주소에서 AI 기사 함수(${AI_NEWS_ENDPOINT})를 찾지 못했어요. 기본 문장으로 표시돼요.)`);
         else alert(`뉴스가 발생했어요: ${item.title}\n(AI 기사 생성에 실패해서 잠시 후 자동으로 다시 시도해요${result.data && result.data.error ? ': ' + result.data.error : ''})`);
         renderAdminSection();
     }
@@ -3858,7 +3860,8 @@
         if (items.length === 0) return { outcome: 'ok', applied: 0 };
 
         const { status, data } = await requestAiArticles(items);
-        if (status === 404) {
+        // 404: 함수 파일이 없음, 405: 함수를 실행할 수 없는 곳(예: GitHub Pages)에 POST를 보냄 (우리 함수는 POST에 405를 주지 않음)
+        if (status === 404 || status === 405) {
             // AI 기사 함수가 배포되지 않은 상태 → 기본 문장 뉴스를 그대로 사용
             aiNewsUnavailable = true;
             return { outcome: '404' };
