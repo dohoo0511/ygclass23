@@ -1,0 +1,3957 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>학급 화폐 & 로또 시스템</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Gowun Dodum', 'Malgun Gothic', sans-serif;
+            background: linear-gradient(160deg, #FFF8F0 0%, #FFE0B2 100%);
+            background-attachment: fixed;
+            margin: 0; padding: 20px; color: #4E342E;
+        }
+        .container { max-width: 800px; margin: 0 auto; background: #FFFFFF; padding: 26px; border-radius: 28px; box-shadow: 0 12px 28px rgba(230, 81, 0, 0.18); border: 1px solid #FFE9D2; }
+        h1, h2, h3 { font-family: 'Jua', 'Malgun Gothic', sans-serif; color: #E65100; margin-top: 0; letter-spacing: .5px; }
+        h4 { font-family: 'Jua', 'Malgun Gothic', sans-serif; color: #E65100; letter-spacing: .3px; }
+
+        button {
+            background: linear-gradient(135deg, #FFA726 0%, #FF9800 100%);
+            color: white; border: none; padding: 10px 18px; cursor: pointer; border-radius: 14px; margin: 5px 0; font-weight: bold;
+            box-shadow: 0 3px 8px rgba(255, 152, 0, 0.3); font-family: inherit;
+            transition: background-color .15s ease, transform .12s ease, box-shadow .12s ease;
+        }
+        button:hover { background: linear-gradient(135deg, #FFB74D 0%, #FB8C00 100%); transform: translateY(-2px); box-shadow: 0 6px 14px rgba(255, 152, 0, 0.35); }
+        button:active { transform: translateY(0); box-shadow: 0 2px 4px rgba(255, 152, 0, 0.3); }
+        button:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+        button.admin-btn { background: linear-gradient(135deg, #FF7043 0%, #F4511E 100%); box-shadow: 0 3px 8px rgba(244, 81, 30, 0.3); }
+        button.admin-btn:hover { background: linear-gradient(135deg, #FF8A65 0%, #E64A19 100%); box-shadow: 0 6px 14px rgba(244, 81, 30, 0.35); }
+        button.small-btn { padding: 6px 14px; font-size: 13px; margin-right: 5px; background: #FFB74D; color: #6D4C1A; border-radius: 10px; box-shadow: 0 2px 5px rgba(255, 183, 77, 0.4); }
+        button.small-btn:hover { background: #FFA726; }
+        button.danger-btn { padding: 6px 12px; font-size: 13px; border-radius: 10px; background: linear-gradient(135deg, #EF5350, #E53935); box-shadow: 0 3px 8px rgba(229, 57, 53, .3); }
+        button.danger-btn:hover { background: linear-gradient(135deg, #E57373, #D32F2F); box-shadow: 0 6px 14px rgba(229, 57, 53, .35); }
+
+        input, select, textarea {
+            padding: 10px 12px; margin: 8px 0; border: 1px solid #FFCC80; border-radius: 12px; box-sizing: border-box;
+            background-color: #FFFDFB; font-family: inherit; font-size: 14px; transition: border-color .15s ease, box-shadow .15s ease;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #FF9800; box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.15); }
+
+        /* 화면 숨김 및 표시 제어 */
+        .page { display: none; }
+        .page.active { display: block; }
+        .section { display: none; }
+        .section.active { display: block; }
+
+        /* 로그인 창 전용 스타일 */
+        #loginPage.active { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40vh; }
+
+        /* 테이블 스타일 */
+        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 10px; text-align: center; background: white; border-radius: 16px; overflow: hidden; }
+        th, td { border: 1px solid #FFE9D2; padding: 12px; }
+        th { background: linear-gradient(180deg, #FFECD1 0%, #FFE0B2 100%); font-weight: bold; color: #6D4C1A; }
+        tr:hover td { background-color: #FFF8F0; }
+        .table-scroll { overflow-x: auto; }
+        .table-container { max-height: 460px; overflow: auto; border: 1px solid #FFE9D2; border-radius: 16px; margin-top: 10px; }
+        .table-container thead th { position: sticky; top: 0; z-index: 1; background: #FFE0B2; }
+        .table-container table { border-radius: 0; margin-top: 0; }
+        .clickable-row { cursor: pointer; }
+
+        .header {
+            display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center;
+            background: linear-gradient(135deg, #FFB74D 0%, #FF9800 60%, #FB8C00 100%);
+            padding: 16px 22px; border-radius: 20px; margin-bottom: 24px;
+            box-shadow: 0 6px 16px rgba(255, 152, 0, 0.3);
+        }
+        .header, .header h2 { color: #fff; }
+        .header span { color: #fff; }
+
+        .login-form {
+            display: flex; flex-direction: column; width: 100%; max-width: 300px;
+            background: #FFF8F0; padding: 28px 24px; border-radius: 22px;
+            box-shadow: 0 8px 20px rgba(255, 152, 0, 0.15); border: 1px solid #FFE0B2;
+        }
+        .login-form input { font-size: 16px; text-align: center; }
+        .login-form button { font-size: 16px; padding: 12px; margin-top: 10px; border-radius: 16px; }
+
+        /* 학생 다중 선택 그리드 스타일 */
+        .student-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; max-height: 190px; overflow-y: auto;
+            border: 1px solid #FFCC80; padding: 10px; border-radius: 16px; background-color: #FFF8F0; margin-bottom: 10px;
+            box-shadow: inset 0 2px 6px rgba(230, 81, 0, 0.06);
+        }
+        .student-grid label { display: flex; align-items: center; cursor: pointer; font-size: 14px; }
+        .student-grid input[type="checkbox"] { margin: 0 5px 0 0; width: 16px; height: 16px; cursor: pointer; accent-color: #FF9800; }
+
+        hr { border: none; border-top: 2px dashed #FFCC80; opacity: .7; }
+
+        /* 메인 메뉴 */
+        .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
+        .menu-card {
+            position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+            min-height: 112px; margin: 0; background: #FFF8F0; color: #6D4C1A; border: 2px solid #FFE0B2; border-radius: 20px;
+            font-family: 'Jua', 'Malgun Gothic', sans-serif; font-size: 17px; font-weight: normal; box-shadow: 0 4px 10px rgba(230, 81, 0, .1);
+        }
+        .menu-card:hover { background: #FFF3E0; border-color: #FFB74D; box-shadow: 0 8px 16px rgba(230, 81, 0, .15); }
+        .menu-emoji { font-size: 34px; line-height: 1; }
+        .menu-card[hidden] { display: none; }
+        .badge-count {
+            position: absolute; top: 8px; right: 10px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+            background: #E53935; color: #fff; font-size: 12px; line-height: 22px; font-family: sans-serif; font-weight: bold;
+        }
+        .badge-count:empty { display: none !important; }
+
+        .section-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; }
+        button.back-btn { background: #FFF3E0; color: #E65100; border: 1px solid #FFCC80; box-shadow: none; padding: 8px 14px; margin: 0; }
+        button.back-btn:hover { background: #FFE0B2; box-shadow: none; }
+
+        /* 회원 등급 */
+        .grade-badge {
+            display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: bold;
+            color: #fff; vertical-align: middle; white-space: nowrap; font-family: 'Gowun Dodum', sans-serif;
+        }
+        .grade-badge.grade-bronze { background: linear-gradient(135deg, #C68B59, #8D5524); color: #fff; }
+        .grade-badge.grade-silver { background: linear-gradient(135deg, #ECEFF1, #90A4AE); color: #37474F; }
+        .grade-badge.grade-gold { background: linear-gradient(135deg, #FFE082, #FFB300); color: #5D4037; }
+        .grade-badge.grade-diamond { background: linear-gradient(135deg, #80D8FF, #2979FF); color: #fff; }
+        .grade-badge.grade-emerald { background: linear-gradient(135deg, #69F0AE, #00A152); color: #fff; }
+        .grade-card { background: linear-gradient(135deg, #FFF3E0, #FFE0B2); border-radius: 20px; padding: 16px 18px; box-shadow: 0 4px 12px rgba(230, 81, 0, .12); }
+        .grade-card-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 15px; }
+        .exp-bar { height: 12px; background: #fff; border-radius: 999px; overflow: hidden; margin: 10px 0 8px; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08); }
+        .exp-fill { height: 100%; background: linear-gradient(90deg, #FFB74D, #FF7043); border-radius: 999px; transition: width .4s ease; }
+        .grade-card-info { font-size: 13px; color: #6D4C41; line-height: 1.6; }
+        .my-grade-row td { background: #FFF3E0; font-weight: bold; }
+
+        /* 카드 / 기록 */
+        .card { background: #FFF8F0; border: 1px solid #FFE0B2; border-radius: 18px; padding: 16px; margin-bottom: 14px; }
+        .card h4 { margin: 0 0 10px; font-size: 1.05em; }
+        .card-danger, .record-danger { border-color: #EF9A9A !important; background: #FFEBEE !important; }
+        .record { background: #fff; border: 1px solid #FFE0B2; border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+        .record-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; font-weight: bold; }
+        .record-head .status { margin-left: auto; font-size: 13px; }
+        .kv { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 0; font-size: 14px; border-bottom: 1px dashed #FFE0B2; }
+        .kv:last-child { border-bottom: none; }
+        .kv .big { font-size: 1.2em; color: #E65100; }
+        .kv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px 12px; font-size: 13px; margin-bottom: 6px; }
+        .form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+        .form-row input, .form-row select, .form-row button { margin: 0; }
+        .form-row input[type="number"] { width: 110px; }
+        .rule-list { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: #6D4C41; line-height: 1.7; }
+        .muted { color: #8D6E63; font-size: 13px; }
+        .preview { margin-top: 8px; font-size: 14px; color: #E65100; }
+        .warn-box { margin-top: 10px; background: #FFEBEE; color: #C62828; border: 1px solid #EF9A9A; border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: bold; }
+        .benefit-box { background: #E8F5E9; color: #2E7D32; border: 1px solid #A5D6A7; border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-bottom: 8px; }
+        .old-price { color: #BDBDBD; }
+        .sale-price { color: #E53935; }
+
+        /* 탭 */
+        .tab-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+        button.tab-btn { background: #FFF3E0; color: #8D6E63; border: 1px solid #FFE0B2; box-shadow: none; margin: 0; }
+        button.tab-btn:hover { background: #FFE0B2; box-shadow: none; }
+        button.tab-btn.active { background: linear-gradient(135deg, #FFA726, #FF9800); color: #fff; border-color: transparent; }
+        .tab-btn .badge-count, .filter-btn .badge-count { position: static; display: inline-block; margin-left: 4px; height: 18px; line-height: 18px; min-width: 18px; font-size: 11px; }
+
+        /* 파이 지급 사유 */
+        .reason-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-bottom: 12px; }
+        button.reason-btn {
+            display: flex; justify-content: space-between; align-items: center; gap: 6px; margin: 0;
+            background: #fff; color: #4E342E; border: 2px solid #C8E6C9; box-shadow: none; font-weight: normal; text-align: left;
+        }
+        button.reason-btn b { color: #2E7D32; }
+        button.reason-btn:hover { background: #F1F8E9; box-shadow: none; }
+        button.reason-btn.minus { border-color: #FFCDD2; }
+        button.reason-btn.minus b { color: #C62828; }
+        button.reason-btn.minus:hover { background: #FFEBEE; }
+        button.reason-btn.selected { background: #E8F5E9; border-color: #43A047; box-shadow: 0 0 0 3px rgba(67, 160, 71, .2); }
+        button.reason-btn.minus.selected { background: #FFEBEE; border-color: #E53935; box-shadow: 0 0 0 3px rgba(229, 57, 53, .2); }
+        .grant-panel { border: 2px dashed #FFB74D; border-radius: 18px; padding: 16px; background: #FFFDF8; margin-top: 10px; }
+        .plus-text { color: #2E7D32; font-weight: bold; }
+        .minus-text { color: #C62828; font-weight: bold; }
+
+        /* 알림 / 거래 내역 */
+        .log-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 9px 12px; border-radius: 12px; background: #fff; border: 1px solid #F5E6D3; margin-bottom: 6px; font-size: 14px; }
+        .log-item.unread { background: #FFF3E0; border-color: #FFB74D; }
+        button.notice-banner {
+            display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; margin: 10px 0 0;
+            background: #fff; color: #4E342E; border: 2px solid #FFB74D; box-shadow: none; text-align: left; font-weight: normal;
+        }
+        button.notice-banner:hover { background: #FFF8F0; box-shadow: none; }
+        .notice-banner b { color: #E65100; white-space: nowrap; }
+        .log-text { flex: 1 1 220px; }
+        .log-time { color: #A1887F; font-size: 12px; }
+        .log-type { font-size: 11px; padding: 2px 8px; border-radius: 999px; color: #fff; background: #8D6E63; white-space: nowrap; }
+        .log-type.type-loan { background: #EF6C00; }
+        .log-type.type-savings { background: #EC407A; }
+        .log-type.type-transfer { background: #1E88E5; }
+        .log-type.type-grade { background: #43A047; }
+        button.filter-btn { background: #fff; color: #6D4C41; border: 1px solid #FFE0B2; box-shadow: none; padding: 6px 12px; font-size: 13px; margin: 0; }
+        button.filter-btn:hover { background: #FFF3E0; box-shadow: none; }
+        button.filter-btn.active { background: #6D4C41; color: #fff; border-color: #6D4C41; }
+
+        /* 랜덤상자 연출 */
+        .random-box-stage {
+            position: relative; text-align: center; padding: 22px 10px; margin: 10px 0;
+            background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); border-radius: 20px;
+            box-shadow: inset 0 2px 8px rgba(230, 81, 0, 0.08); overflow: hidden; min-height: 100px;
+        }
+        .random-box-icon { font-size: 48px; display: inline-block; }
+        .random-box-icon.shaking { animation: rb-shake .22s infinite; }
+        .random-box-icon.opened { animation: rb-pop .5s ease; }
+        @keyframes rb-shake {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            25% { transform: rotate(-14deg) scale(1.08); }
+            75% { transform: rotate(14deg) scale(1.08); }
+        }
+        @keyframes rb-pop {
+            0% { transform: scale(.3) rotate(-15deg); opacity: 0; }
+            60% { transform: scale(1.25) rotate(5deg); opacity: 1; }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        .random-box-reel { margin-top: 8px; font-family: 'Jua', 'Malgun Gothic', sans-serif; font-size: 15px; color: #a1887f; min-height: 20px; letter-spacing: .5px; }
+        .random-box-result { margin-top: 10px; font-family: 'Jua', 'Malgun Gothic', sans-serif; font-size: 1.35em; font-weight: bold; opacity: 0; }
+        .random-box-result.show { animation: rb-result-in .55s cubic-bezier(.34,1.56,.64,1) forwards; }
+        @keyframes rb-result-in {
+            0% { opacity: 0; transform: scale(.4) translateY(10px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .random-box-result.tier-none { color: #9e9e9e; }
+        .random-box-result.tier-common { color: #EF6C00; }
+        .random-box-result.tier-rare { color: #6A1B9A; text-shadow: 0 0 10px rgba(106,27,154,.35); }
+        .random-box-result.tier-legendary {
+            color: #E65100;
+            background: linear-gradient(90deg, #FFD54F, #FF6D00, #FFD54F);
+            background-size: 200% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+            animation: rb-result-in .55s cubic-bezier(.34,1.56,.64,1) forwards, rb-shine 1s linear infinite .55s;
+        }
+        @keyframes rb-shine { to { background-position: 200% center; } }
+        .random-box-result.tier-hidden {
+            font-size: 1.5em;
+            background: linear-gradient(90deg, #7C4DFF, #E040FB, #FFD740, #00E5FF, #7C4DFF);
+            background-size: 300% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+            animation: rb-result-in .55s cubic-bezier(.34,1.56,.64,1) forwards, rb-shine 1.4s linear infinite .55s;
+        }
+        .random-box-stage.hidden-hit { animation: rb-hidden-glow 1.2s ease-in-out 3; }
+        @keyframes rb-hidden-glow {
+            0%, 100% { box-shadow: inset 0 2px 8px rgba(230, 81, 0, 0.08); }
+            50% { box-shadow: 0 0 28px 6px rgba(224, 64, 251, .55), inset 0 0 24px rgba(255, 215, 64, .6); }
+        }
+        .confetti-piece {
+            position: absolute; top: -10px; font-size: 20px; pointer-events: none;
+            animation-name: rb-confetti-fall; animation-timing-function: ease-in; animation-fill-mode: forwards;
+        }
+        @keyframes rb-confetti-fall { to { transform: translateY(150px) rotate(360deg); opacity: 0; } }
+        .random-box-prob-table { width: 100%; margin-top: 4px; font-size: 13px; }
+        .random-box-prob-table td, .random-box-prob-table th { padding: 8px; }
+
+        /* 공지사항 */
+        .notice-board {
+            width: 100%; max-width: 300px; margin-bottom: 20px;
+            background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%);
+            padding: 18px 20px; border-radius: 20px;
+            box-shadow: 0 4px 12px rgba(230, 81, 0, 0.12); border: 1px solid #FFE0B2;
+        }
+        .notice-board h3 { font-size: 1.05em; }
+        .notice-board p { font-size: 14px; color: #5d4037; line-height: 1.5; }
+
+        /* 학생 상세 정보 모달 */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(78, 52, 46, 0.45); align-items: center; justify-content: center;
+            z-index: 100; padding: 20px;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-box {
+            background: #FFFFFF; border-radius: 24px; padding: 26px;
+            max-width: 520px; width: 100%; max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.25);
+        }
+        .detail-row {
+            display: flex; justify-content: space-between; align-items: center; gap: 8px;
+            background: #FFF8F0; padding: 10px 14px; border-radius: 12px; margin-bottom: 8px;
+            border: 1px solid #FFE0B2; font-size: 14px;
+        }
+
+        /* 주식 */
+        .stock-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+        .stat { background: #FFF8F0; border: 1px solid #FFE0B2; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+        .stat-value { font-size: 1.5em; color: #3E2723; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+        .stock-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0 10px; }
+        .toolbar-divider { width: 1px; height: 22px; background: #FFE0B2; margin: 0 4px; }
+        .stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+        .stock-card { background: #fff; border: 1px solid #F0E0CC; border-radius: 18px; padding: 14px; box-shadow: 0 3px 10px rgba(230, 81, 0, .08); min-width: 0; }
+        .stock-card-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+        .series-key { display: inline-block; width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0; vertical-align: middle; }
+        .stock-price-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 8px; margin: 6px 0 4px; }
+        .stock-price { font-size: 1.9em; font-weight: bold; color: #3E2723; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+        .delta { font-size: 13px; font-weight: bold; white-space: nowrap; }
+        .delta.up, .up-text { color: #C62828; }
+        .delta.down, .down-text { color: #1565C0; }
+        .delta.flat { color: #898781; }
+        .stock-chart { position: relative; margin: 4px 0; }
+        .stock-chart svg { display: block; overflow: visible; }
+        .stock-chart svg:focus { outline: 2px solid #FFB74D; outline-offset: 2px; border-radius: 8px; }
+        .chart-tick { font-size: 11px; fill: #898781; font-variant-numeric: tabular-nums; }
+        .chart-empty { font-size: 12px; fill: #898781; }
+        .chart-tip {
+            position: absolute; pointer-events: none; background: #fff; border: 1px solid rgba(11, 11, 11, .1); border-radius: 10px;
+            padding: 5px 9px; box-shadow: 0 4px 12px rgba(0, 0, 0, .12); font-size: 12px; display: flex; flex-direction: column; min-width: 84px; color: #52514e;
+        }
+        .chart-tip b { color: #0b0b0b; font-size: 14px; }
+        .chart-tip[hidden] { display: none; }
+        .stock-hold { font-size: 13px; color: #6D4C41; margin: 6px 0 2px; line-height: 1.6; }
+        .flow-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+        .flow-row > span:first-child { font-weight: bold; }
+        .trade-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+        .trade-row input { width: 70px; margin: 0; }
+        .trade-row button { margin: 0; padding: 8px 14px; }
+        button.sell-btn { background: linear-gradient(135deg, #42A5F5, #1E88E5); box-shadow: 0 3px 8px rgba(30, 136, 229, .3); }
+        button.sell-btn:hover { background: linear-gradient(135deg, #64B5F6, #1976D2); box-shadow: 0 6px 14px rgba(30, 136, 229, .35); }
+        .trade-quote { margin-top: 4px; }
+        .num { font-variant-numeric: tabular-nums; }
+        .stock-table td { vertical-align: middle; }
+        .contract-chip { display: inline-block; background: #FFF8F0; border: 1px solid #FFE0B2; border-radius: 999px; padding: 6px 12px; margin: 0 6px 6px 0; font-size: 14px; }
+        .news-item { background: #fff; border: 1px solid #F0E0CC; border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; }
+        .news-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 4px; }
+        .news-tag { font-size: 12px; font-weight: bold; padding: 2px 8px; border-radius: 999px; }
+        .news-tag.up { background: #FFEBEE; color: #C62828; }
+        .news-tag.down { background: #E3F2FD; color: #1565C0; }
+        .news-tag.neutral { background: #FFF3E0; color: #E65100; }
+        .ai-badge { font-size: 11px; color: #6A1B9A; background: #F3E5F5; padding: 2px 8px; border-radius: 999px; }
+        .news-title { font-weight: bold; font-size: 15px; margin-bottom: 2px; }
+        .news-body { font-size: 14px; color: #5D4037; line-height: 1.55; }
+        .news-impact { font-size: 12px; color: #8D6E63; margin-top: 6px; }
+        .tab-count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: rgba(0, 0, 0, .08); font-size: 11px; line-height: 18px; text-align: center; }
+        button.card-headline {
+            display: block; width: 100%; margin: 2px 0 4px; padding: 6px 10px; text-align: left; font-size: 13px; font-weight: normal;
+            background: #FFF8F0; color: #5D4037; border: 1px solid #F0E0CC; border-radius: 10px; box-shadow: none;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        button.card-headline:hover { background: #FFF3E0; box-shadow: none; transform: none; }
+        .log-type.type-stock-buy { background: #C62828; }
+        .log-type.type-stock-sell { background: #1565C0; }
+        .log-type.type-stock-div { background: #2E7D32; }
+
+        @media (max-width: 520px) {
+            body { padding: 10px; }
+            .container { padding: 16px; border-radius: 20px; }
+            .header { padding: 12px 14px; }
+            th, td { padding: 8px; }
+            .menu-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- 공통 헤더 -->
+    <div class="header">
+        <h2 id="headerTitle" style="margin: 0;">학급 화폐 상점</h2>
+        <div id="userInfoDisplay" style="display: none;">
+            <span id="welcomeMsg" style="font-weight: bold;"></span>
+            <span id="headerGrade"></span>
+            <span id="piDisplayArea"><strong>(<span id="currentPi" style="color: #FFF176; font-size: 1.2em;"></span> π)</strong></span>
+        </div>
+        <div>
+            <button id="logoutBtn" style="display:none; background: #D84315; box-shadow: 0 3px 8px rgba(216,67,21,0.35);" onclick="logout()">로그아웃</button>
+        </div>
+    </div>
+
+    <!-- 페이지 1: 로그인 화면 -->
+    <div id="loginPage" class="page active">
+        <div class="notice-board" id="noticeBoard">
+            <h3 style="margin: 0 0 8px 0;">📢 공지사항</h3>
+            <p id="noticeContent" style="margin: 0; white-space: pre-wrap;">불러오는 중...</p>
+        </div>
+        <div class="login-form">
+            <h2 style="text-align: center; margin-bottom: 20px;">🍊 로그인</h2>
+            <input type="text" id="loginId" placeholder="아이디" autocomplete="off">
+            <input type="password" id="loginPw" placeholder="비밀번호" autocomplete="off">
+            <button onclick="login()">접속하기</button>
+        </div>
+    </div>
+
+    <!-- 페이지 2: 학생 화면 -->
+    <div id="studentPage" class="page">
+
+        <!-- 학생 메인 메뉴 -->
+        <div id="stu-main" class="section active">
+            <div id="myGradeCard" class="grade-card"></div>
+            <div class="menu-grid">
+                <button class="menu-card" onclick="openStudentSection('notices')"><span class="menu-emoji">🔔</span>알림<span class="badge-count" id="noticeBadge"></span></button>
+                <button class="menu-card" onclick="openStudentSection('shop')"><span class="menu-emoji">🎁</span>쿠폰 상점</button>
+                <button class="menu-card" onclick="openStudentSection('lotto')"><span class="menu-emoji">🎲</span>로또</button>
+                <button class="menu-card" onclick="openStudentSection('randombox')"><span class="menu-emoji">🎰</span>랜덤상자</button>
+                <button class="menu-card" onclick="openStudentSection('bank')"><span class="menu-emoji">🏦</span>은행</button>
+                <button class="menu-card" onclick="openStudentSection('stock')"><span class="menu-emoji">📈</span>주식</button>
+                <button class="menu-card" onclick="openStudentSection('inventory')"><span class="menu-emoji">🎒</span>내 인벤토리</button>
+                <button class="menu-card" onclick="openStudentSection('myinfo')"><span class="menu-emoji">👤</span>내 정보</button>
+            </div>
+        </div>
+
+        <!-- 쿠폰 상점 -->
+        <div id="stu-shop" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>🎁 쿠폰 상점</h3>
+            <div id="shopBenefitInfo"></div>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>쿠폰명</th><th>가격 (π)</th><th>구매</th></tr></thead>
+                    <tbody id="shopTableBody"></tbody>
+                </table>
+            </div>
+            <p class="muted">쿠폰을 사면 기본 가격만큼 경험치가 쌓여요. (1π = 경험치 1)</p>
+        </div>
+
+        <!-- 로또 -->
+        <div id="stu-lotto" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>🎲 학급 로또 (장당 <span id="lottoPriceLabel">4</span> π)</h3>
+            <div id="lottoRewardInfo" style="margin: 15px 0;"></div>
+            <div id="myLottoResult" style="margin: 15px 0;"></div>
+            <p style="font-size: 14px; color: #555;">1~20 사이의 숫자 5개를 쉼표(,)로 구분하여 입력 (주 최대 15장) · 로또를 사면 경험치 +4</p>
+            <input type="text" id="lottoNumbersInput" placeholder="예: 3, 7, 12, 16, 19" style="width: 250px;">
+            <button onclick="buyLotto()">구매하기</button>
+            <div id="myLottoList" style="margin-top: 15px; background: #FFF8F0; padding: 15px; border-radius: 16px; font-size: 14px; box-shadow: inset 0 2px 6px rgba(230,81,0,0.06);"></div>
+        </div>
+
+        <!-- 랜덤상자 -->
+        <div id="stu-randombox" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>🎰 랜덤상자 (<span id="randomBoxPriceLabel">3</span> π)</h3>
+            <p style="font-size: 14px; color: #555;">무엇이 나올지는 아무도 몰라요! 운이 좋으면 대박이 터질 수도 있어요.</p>
+            <div class="random-box-stage" id="randomBoxStage">
+                <div class="random-box-icon" id="randomBoxIcon">🎁</div>
+                <div class="random-box-reel" id="randomBoxReel"></div>
+                <div class="random-box-result" id="randomBoxResult"></div>
+            </div>
+            <button id="randomBoxBtn" onclick="buyRandomBox()">랜덤상자 열기 (3 π)</button>
+            <button class="small-btn" style="background-color: #FFCC80;" onclick="toggleRandomBoxProbs()">확률표 보기</button>
+            <div id="randomBoxProbTable" style="display: none; margin-top: 12px;"></div>
+        </div>
+
+        <!-- 은행 -->
+        <div id="stu-bank" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>🏦 학급 은행</h3>
+            <div class="tab-bar">
+                <button class="tab-btn active" data-tab="loan" onclick="openBankTab('loan')">💸 대출</button>
+                <button class="tab-btn" data-tab="savings" onclick="openBankTab('savings')">🐷 적금</button>
+                <button class="tab-btn" data-tab="transfer" onclick="openBankTab('transfer')">📤 송금</button>
+                <button class="tab-btn" data-tab="history" onclick="openBankTab('history')">🧾 거래 내역</button>
+            </div>
+            <div id="bankTab-loan" class="bank-tab"></div>
+            <div id="bankTab-savings" class="bank-tab" hidden></div>
+            <div id="bankTab-transfer" class="bank-tab" hidden></div>
+            <div id="bankTab-history" class="bank-tab" hidden></div>
+        </div>
+
+        <!-- 알림 -->
+        <div id="stu-notices" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>🔔 알림</h3>
+            <p class="muted">로또 당첨, 입금, 파이 지급·차감, 적금 만기, 배당금, 환불 소식이 여기에 쌓여요. (최근 10개까지 보관)</p>
+            <div id="noticeList"></div>
+        </div>
+
+        <!-- 주식 -->
+        <div id="stu-stock" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>📈 학급 주식</h3>
+            <div id="stockSummary"></div>
+            <div class="stock-toolbar">
+                <button class="filter-btn stock-view-btn" data-view="chart" onclick="setStockView('chart')">📈 그래프</button>
+                <button class="filter-btn stock-view-btn" data-view="table" onclick="setStockView('table')">📋 표</button>
+                <span class="toolbar-divider"></span>
+                <button class="filter-btn stock-range-btn" data-range="24" onclick="setStockRange(24)">24시간</button>
+                <button class="filter-btn stock-range-btn" data-range="168" onclick="setStockRange(168)">7일</button>
+            </div>
+            <div id="stockBoard"></div>
+
+            <h4 style="margin: 20px 0 8px;">📊 지난주 학생 거래 결과</h4>
+            <div id="stockFlow"></div>
+
+            <h4 style="margin: 20px 0 8px;">🤝 기업 관계</h4>
+            <div id="stockContracts"></div>
+
+            <h4 style="margin: 20px 0 8px;">📰 경제 뉴스</h4>
+            <div id="stockNews"></div>
+
+            <h4 style="margin: 20px 0 8px;">🧾 내 주식 거래 내역</h4>
+            <div id="stockMyTrades"></div>
+
+            <div class="card" style="margin-top: 16px;">
+                <h4>📘 주식 규칙</h4>
+                <ul class="rule-list">
+                    <li>30분마다 네 회사의 경제 뉴스가 하나씩 나오고, 좋은 뉴스면 주가가 오르고 나쁜 뉴스면 내려가요.</li>
+                    <li>계약을 맺은 회사끼리는 한 회사의 소식에 함께 영향을 받아요.</li>
+                    <li>주식은 지금 주가 그대로 사고팔아요. 사거나 팔아도 주가가 바로 바뀌지 않아요.</li>
+                    <li>일주일 동안 학생들이 사고판 주식을 모아서 매주 월요일 0시에 주가에 반영해요. 산 주식이 판 주식보다 1주 많을 때마다 주가가 1% 오르고, 1주 적을 때마다 1% 내려요. (한 주에 최대 20%, 1π 단위로 반올림)</li>
+                    <li>뉴스 하나에 주가는 작은 소식 1π, 보통 소식 3π, 큰 소식 5π 움직여요. 너무 많이 오르거나 내리면 반대 방향 뉴스가 나오기 쉬워져요.</li>
+                    <li>주가는 1π부터 200π 사이에서만 움직여요. 한 번에 최대 50주까지 주문할 수 있어요.</li>
+                    <li>산 주식을 2주 동안 가지고 있으면 (현재 주가의 3% × 보유 수량)만큼 배당금을 받아요. 계속 가지고 있으면 2주마다 또 받아요.</li>
+                    <li>팔 때는 가장 최근에 산 주식부터 팔려서, 오래 가진 주식의 배당 기간은 그대로 이어져요.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 인벤토리 -->
+        <div id="stu-inventory" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>🎒 내 인벤토리</h3>
+            <ul id="inventoryList" style="list-style-type: none; padding-left: 0;"></ul>
+        </div>
+
+        <!-- 내 정보 -->
+        <div id="stu-myinfo" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openStudentSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshStudentData()">🔄 새로고침</button>
+            </div>
+            <h3>👤 내 정보</h3>
+            <div id="myInfoContent"></div>
+
+            <h3 style="margin-top: 24px;">🔒 비밀번호 변경</h3>
+            <div style="display: flex; flex-direction: column; max-width: 280px; background: #FFF8F0; padding: 15px; border-radius: 16px; box-shadow: inset 0 2px 6px rgba(230,81,0,0.06);">
+                <input type="password" id="currentPwInput" placeholder="현재 비밀번호">
+                <input type="password" id="newPwInput" placeholder="새 비밀번호">
+                <input type="password" id="confirmPwInput" placeholder="새 비밀번호 확인">
+                <button onclick="changePassword()" style="margin-top: 8px;">비밀번호 변경</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 페이지 3: 관리자 화면 -->
+    <div id="adminPage" class="page">
+
+        <!-- 관리자 메인 메뉴 -->
+        <div id="adm-main" class="section active">
+            <div class="menu-grid">
+                <button class="menu-card" data-section="notice" onclick="openAdminSection('notice')"><span class="menu-emoji">📢</span>공지사항</button>
+                <button class="menu-card" data-section="usage" onclick="openAdminSection('usage')"><span class="menu-emoji">🔔</span>쿠폰 사용 요청<span class="badge-count" id="usageBadge"></span></button>
+                <button class="menu-card" data-section="grant" onclick="openAdminSection('grant')"><span class="menu-emoji">💰</span>파이 지급 / 차감</button>
+                <button class="menu-card" data-section="lotto" onclick="openAdminSection('lotto')"><span class="menu-emoji">🎲</span>로또 관리</button>
+                <button class="menu-card" data-section="bank" onclick="openAdminSection('bank')"><span class="menu-emoji">🏦</span>은행 관리<span class="badge-count" id="bankBadge"></span></button>
+                <button class="menu-card" data-section="students" onclick="openAdminSection('students')"><span class="menu-emoji">📊</span>학생 현황</button>
+                <button class="menu-card" data-section="stock" onclick="openAdminSection('stock')"><span class="menu-emoji">📈</span>주식 관리</button>
+            </div>
+        </div>
+
+        <!-- 공지사항 관리 -->
+        <div id="adm-notice" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>📢 공지사항 관리</h3>
+            <textarea id="noticeInput" rows="10" style="width: 100%; resize: vertical;" placeholder="학생들에게 보여줄 공지사항을 입력하세요."></textarea>
+            <button class="admin-btn" onclick="saveNotice()">공지사항 저장</button>
+        </div>
+
+        <!-- 쿠폰 사용 요청 -->
+        <div id="adm-usage" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>🔔 쿠폰 사용 확인 요청</h3>
+            <div id="usageRequestList"></div>
+        </div>
+
+        <!-- 파이 지급 / 차감 -->
+        <div id="adm-grant" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>💰 파이 지급 / 차감</h3>
+            <p class="muted">① 사유 버튼을 누르고 → ② 학생을 선택한 뒤 → ③ 적용 버튼을 눌러주세요.</p>
+
+            <h4 style="margin: 12px 0 8px;">➕ 지급 목록</h4>
+            <div id="rewardReasonGrid" class="reason-grid"></div>
+
+            <h4 style="margin: 12px 0 8px;">➖ 감소 목록</h4>
+            <div id="penaltyReasonGrid" class="reason-grid"></div>
+
+            <div class="card" style="margin-top: 6px;">
+                <h4>✏️ 직접 입력</h4>
+                <div class="form-row">
+                    <input type="text" id="customPiLabel" placeholder="사유 (선택)" style="width: 150px;">
+                    <input type="number" id="customPiAmount" placeholder="±금액">
+                    <span>π</span>
+                    <button class="small-btn" onclick="selectReason('custom', 0)">이 금액으로 선택</button>
+                </div>
+            </div>
+
+            <div id="grantPanel" class="grant-panel" hidden>
+                <div style="margin-bottom: 10px; font-size: 16px;">선택한 사유: <span id="grantReasonLabel"></span></div>
+                <div style="margin-bottom: 10px;">
+                    <button class="small-btn" onclick="selectAllStudents(true)">전체 선택</button>
+                    <button class="small-btn" style="background-color: #FFAB91;" onclick="selectAllStudents(false)">선택 해제</button>
+                </div>
+                <div id="studentCheckboxList" class="student-grid"></div>
+                <button id="grantApplyBtn" class="admin-btn" style="width: 100%;" onclick="applyReason()">선택한 학생에게 적용</button>
+                <p class="muted" style="margin-bottom: 0;">차감 시 보유 파이보다 많이 빠지면 파이가 0보다 적어질 수 있어요.</p>
+            </div>
+        </div>
+
+        <!-- 로또 관리 -->
+        <div id="adm-lotto" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>🎲 로또 추첨 및 정산</h3>
+            <p>현재 누적 상금(Pot): <strong id="adminPot" style="color: #ff5722; font-size: 1.2em;">0</strong> π
+            <span style="font-size: 13px; color: #888;">(이월금 <span id="adminRollover">0</span> π 포함)</span></p>
+            <p class="muted">기본 당첨금: 1등 <span id="adminBasePrize1"></span>π · 2등 <span id="adminBasePrize2"></span>π (상금 Pot 분배와 별도로 지급)</p>
+            당첨 번호 입력:
+            <input type="text" id="winningNumbersInput" placeholder="1~20 숫자 5개 (예: 1, 5, 10, 15, 20)" style="width: 250px;">
+            <button class="admin-btn" style="background-color: #ff5722;" onclick="drawLotto()">추첨 실행</button>
+            <div id="lottoResultArea" style="margin-top: 20px; padding: 15px; background-color: #fff3e0; border-radius: 16px; box-shadow: 0 4px 12px rgba(230,81,0,0.1); display: none;"></div>
+        </div>
+
+        <!-- 은행 관리 -->
+        <div id="adm-bank" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>🏦 은행 관리</h3>
+            <div class="tab-bar">
+                <button class="tab-btn active" data-tab="loans" onclick="openAdminBankTab('loans')">💸 대출 관리</button>
+                <button class="tab-btn" data-tab="savings" onclick="openAdminBankTab('savings')">🐷 적금 관리</button>
+                <button class="tab-btn" data-tab="grades" onclick="openAdminBankTab('grades')">🏅 회원등급 관리</button>
+                <button class="tab-btn" data-tab="alerts" onclick="openAdminBankTab('alerts')">🔔 알림<span class="badge-count" id="alertTabBadge"></span></button>
+            </div>
+            <div id="adminBankContent"></div>
+        </div>
+
+        <!-- 주식 관리 -->
+        <div id="adm-stock" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>📈 주식 관리</h3>
+            <div id="adminStockContent"></div>
+        </div>
+
+        <!-- 학생 현황 -->
+        <div id="adm-students" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>📊 전체 학생 현황표</h3>
+            <p class="muted">학생을 누르면 쿠폰·로또·은행 세부 내용을 볼 수 있어요.</p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>이름</th>
+                            <th>보유 화폐 (π)</th>
+                            <th>보유 쿠폰</th>
+                            <th>이번 주 로또</th>
+                            <th>대출 잔액</th>
+                            <th>적금</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminStudentTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- 학생 상세 정보 모달 (관리자 전용) -->
+<div id="studentDetailModal" class="modal-overlay">
+    <div class="modal-box">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 id="studentDetailName" style="margin: 0;"></h3>
+            <button class="small-btn" style="margin: 0; background-color: #FFAB91;" onclick="closeStudentDetail()">닫기</button>
+        </div>
+        <div id="studentDetailSummary" class="card"></div>
+
+        <h4 style="margin-bottom: 8px;">🎁 보유 쿠폰</h4>
+        <ul id="studentDetailCoupons" style="list-style: none; padding-left: 0; margin-top: 0;"></ul>
+
+        <h4 style="margin-bottom: 8px;">🎲 이번 주 로또</h4>
+        <ul id="studentDetailLotto" style="list-style: none; padding-left: 0; margin-top: 0;"></ul>
+
+        <h4 style="margin-bottom: 8px;">🏦 은행</h4>
+        <div id="studentDetailBank"></div>
+
+        <h4 style="margin-bottom: 8px;">📈 주식</h4>
+        <div id="studentDetailStock"></div>
+    </div>
+</div>
+
+<script>
+    // ⚙️ 설정값
+    const BIN_ID = "6a6dfa71da38895dfeaca6df";
+    const API_KEY = "$2a$10$1vUEwfxTb/KEjjRvdB2EneV8kJHW9N3YPTUZXbG5tH.bNookiSSJq"; // 본인의 Master Key 입력
+
+    const STUDENT_COUNT = 30;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const WEEK_MS = 7 * DAY_MS;
+
+    let db = { users: {}, lotto: { currentPot: 0, rolloverPot: 0 }, usageRequests: [], notice: '', bank: { loans: [], savings: [], logs: [] } };
+    let currentUser = null;
+
+    /* ===================== 설정: 로또 ===================== */
+    // 1등/2등 기본 당첨금 (상금 Pot 분배와 별도로 항상 지급)
+    const BASE_PRIZE_1ST = 22;
+    const BASE_PRIZE_2ND = 13;
+    const LOTTO_TICKET_PRICE = 4;
+    const LOTTO_WEEKLY_LIMIT = 15;
+
+    /* ===================== 설정: 쿠폰 ===================== */
+    // price = 상점 기본가 (등급 할인 전). 관리자 환불도 이 가격 기준으로 계산
+    const COUPONS = [
+        { name: '짝꿍 선택권',      price: 80 },
+        { name: '자리 지정권',      price: 65 },
+        { name: '3일 자리 선택권',  price: 25 },
+        { name: '청소 면제권',      price: 10 },
+        { name: '반장 간식 갈취권', price: 7 },
+        { name: '간식 교환권',      price: 5 },
+        { name: '음악 우선 신청권', price: 3 }
+    ];
+
+    /* ===================== 설정: 파이 지급 / 차감 사유 ===================== */
+    const PI_REWARD_REASONS = [
+        { icon: '🧹', label: '정기 청소',     amount: 1 },
+        { icon: '✨', label: '자진 청소',     amount: 3 },
+        { icon: '✅', label: '정상 출석',     amount: 1 },
+        { icon: '📦', label: '학급 정리',     amount: 3 },
+        { icon: '📖', label: '아침 독서',     amount: 2 },
+        { icon: '🎤', label: '아침시간 발표', amount: 5 },
+        { icon: '📚', label: '독서 인증',     amount: 4 }
+    ];
+    const PI_PENALTY_REASONS = [
+        { icon: '⏰', label: '지각',      amount: -2 },
+        { icon: '🚫', label: '문제 학생', amount: -10 },
+        { icon: '👕', label: '복장 불량', amount: -10 }
+    ];
+
+    /* ===================== 설정: 회원 등급 ===================== */
+    // 쿠폰·로또를 살 때 기본 가격 1π당 경험치 1. 등급은 경험치로 결정됨
+    const GRADES = [
+        { key: 'bronze',  name: '브론즈',   icon: '🥉', minExp: 0,   loanLimit: 10, benefit: '' },
+        { key: 'silver',  name: '실버',     icon: '🥈', minExp: 30,  loanLimit: 20, benefit: '' },
+        { key: 'gold',    name: '골드',     icon: '🥇', minExp: 80,  loanLimit: 30, benefit: '' },
+        { key: 'diamond', name: '다이아',   icon: '💎', minExp: 180, loanLimit: 50, benefit: '모든 쿠폰 1π 할인' },
+        { key: 'emerald', name: '에메랄드', icon: '💚', minExp: 350, loanLimit: 80, benefit: '음악 우선 신청권 1π · 나머지 쿠폰 2π 할인, 랜덤상자 · 로또 1π 할인' }
+    ];
+    const DIAMOND_INDEX = 3;
+    const EMERALD_INDEX = 4;
+
+    /* ===================== 설정: 은행 ===================== */
+    const LOAN_WEEKLY_INTEREST_PCT = 10;   // 1주마다 원금의 10%
+    const LOAN_TERM_DAYS = 14;             // 상환 기한: 대출일로부터 2주
+    const LOAN_OVERDUE_EXP_PENALTY = 30;   // 1주 연체 시 경험치 감소량
+    const SAVINGS_MIN_AMOUNT = 20;
+    const SAVINGS_TERM_WEEKS = [2, 4, 6, 8];   // 2주 단위, 최대 2달
+    const SAVINGS_CANCEL_PENALTY_PCT = 20;
+    // JSONBin 무료 플랜은 저장 크기 100KB 제한이 있어서 기록 개수를 제한함
+    const MAX_BANK_LOGS = 80;
+    const MAX_CLOSED_RECORDS = 60;
+    const MAX_COMPLETED_USAGE_REQUESTS = 30;
+    const MAX_USER_NOTICES = 10;
+
+    /* ===================== 설정: 매니저 계정 ===================== */
+    // 매니저는 관리자 기능 중 아래 화면만 쓸 수 있음
+    const MANAGER_ACCOUNTS = [
+        { id: 'mn1', name: '매니저1' },
+        { id: 'mn2', name: '매니저2' },
+        { id: 'mn3', name: '매니저3' }
+    ];
+    const MANAGER_DEFAULT_PASSWORD = 'mnmn1234';
+    const MANAGER_SECTIONS = ['main', 'grant', 'usage', 'students', 'bank'];
+
+    /* ===================== 설정: 랜덤상자 ===================== */
+    const RANDOM_BOX_PRICE = 3;
+    // 가중치 합계 100 = 확률(%). 꽝·1파이·2파이·음악 우선 신청권 합계 70, 나머지 합계 30
+    // 실질 가치(파이 금액 또는 상점 판매가)가 클수록 확률이 낮아지도록 설계
+    const RANDOM_BOX_REWARDS = [
+        { name: '꽝',              weight: 25,   tier: 'none',      type: 'none' },
+        { name: '1파이',           weight: 20,   tier: 'common',    type: 'pi',   amount: 1 },
+        { name: '2파이',           weight: 15,   tier: 'common',    type: 'pi',   amount: 2 },
+        { name: '음악 우선 신청권', weight: 10,   tier: 'common',    type: 'item' },
+        { name: '로또 1장',        weight: 7,    tier: 'common',    type: 'lotto' },
+        { name: '간식 교환권',      weight: 6,    tier: 'common',    type: 'item' },
+        { name: '6파이',           weight: 5,    tier: 'rare',      type: 'pi',   amount: 6 },
+        { name: '반장 간식 갈취권', weight: 4,    tier: 'rare',      type: 'item' },
+        { name: '9파이',           weight: 3,    tier: 'rare',      type: 'pi',   amount: 9 },
+        { name: '청소 면제권',      weight: 2,    tier: 'rare',      type: 'item' },
+        { name: '12파이',          weight: 1.3,  tier: 'rare',      type: 'pi',   amount: 12 },
+        { name: '15파이',          weight: 0.8,  tier: 'legendary', type: 'pi',   amount: 15 },
+        { name: '20파이',          weight: 0.5,  tier: 'legendary', type: 'pi',   amount: 20 },
+        { name: '3일 자리 선택권',  weight: 0.2,  tier: 'legendary', type: 'item' },
+        { name: '30파이',          weight: 0.12, tier: 'legendary', type: 'pi',   amount: 30 },
+        { name: '자리 지정권',      weight: 0.05, tier: 'legendary', type: 'item' },
+        { name: '짝꿍 선택권',      weight: 0.03, tier: 'legendary', type: 'item', hiddenTrigger: true }
+    ];
+    // hiddenTrigger 보상이 뽑혔을 때 이 확률로 히든 보상으로 바뀜 (확률표에는 ???로 표시)
+    const HIDDEN_REWARD_CHANCE = 0.05;
+    const HIDDEN_REWARD = { name: '100파이', tier: 'hidden', type: 'pi', amount: 100 };
+
+    /* ===================== 설정: 주식 ===================== */
+    const HOUR_MS = 60 * 60 * 1000;
+    const STOCK_TICK_MS = 30 * 60 * 1000; // 30분마다 회사별 뉴스 1개씩
+    const STOCK_MIN_PRICE = 1;
+    const STOCK_MAX_PRICE = 200;
+    const STOCK_MAX_ORDER = 50;
+    // 학생 거래는 지금 가격 그대로 체결되고, 일주일치 거래를 모아 매주 월요일 0시(한국 시간)에 주가에 반영
+    const STOCK_FLOW_PCT_PER_SHARE = 1;   // 산 주식이 판 주식보다 1주 많을 때마다 +1% (적으면 -1%)
+    const STOCK_FLOW_MAX_PCT = 20;        // 한 주에 거래로 움직이는 최대 비율 (많이 사서 한 주 만에 두 배가 되는 일을 막음)
+    const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+    const STOCK_HISTORY_TICKS = 336;      // 그래프용 30분 간격 가격 보관 (7일)
+    const STOCK_MAX_CATCHUP_TICKS = 144;  // 오래 아무도 접속하지 않았을 때 따라잡는 최대 회차 (3일), 그 이전은 가격 그대로
+    const STOCK_NEWS_TICKS_ON_CATCHUP = 2; // 한꺼번에 따라잡을 때 뉴스로 남기는 최근 회차 수 (그 전 회차는 주가만 반영)
+    const STOCK_MAX_NEWS = 32;
+    const STOCK_MAX_TRADES = 60;
+    const AI_BATCH_SIZE = 8;              // AI에 한 번에 보내는 뉴스 수
+    const AI_RETRY_COOLDOWN_MS = 3 * 60 * 1000;
+    const STOCK_SPILLOVER_PCT = 50;       // 계약 상대 회사가 함께 움직이는 비율 (소수점 버림 → 1π짜리 뉴스는 옮겨가지 않음)
+    // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
+    const NEWS_MAGNITUDES = [
+        { level: 'small',  chance: 0.5,  amount: 1 },
+        { level: 'medium', chance: 0.85, amount: 3 },
+        { level: 'large',  chance: 1,    amount: 5 }
+    ];
+    const STOCK_MOOD_STRENGTH = 0.2;      // 시장·회사 분위기가 호재 확률에 주는 영향
+    const STOCK_REVERSION_STRENGTH = 0.4; // 기준가에서 멀어질수록 반대 방향 뉴스가 나올 확률을 높임
+    const STOCK_ANCHOR_FOLLOW = 0.01;     // 기준가가 실제 가격을 따라가는 속도 (뉴스 1건마다)
+    const DIVIDEND_PERIOD_DAYS = 14;
+    const DIVIDEND_RATE_PCT = 3;          // 2주 보유마다 (현재 주가 × 3%) × 보유 수량
+    const STOCK_SEED = 20260915;          // 모든 기기에서 같은 뉴스가 나오도록 고정한 난수 시드
+    // Netlify 주소에서 열면 Netlify 함수, GitHub Pages는 서버 함수를 실행할 수 없어 AI 기사 없이 기본 뉴스 문장 사용(null),
+    // 그 밖(Cloudflare Pages)에서는 Cloudflare 함수를 사용
+    const AI_NEWS_ENDPOINT = location.hostname.endsWith('netlify.app') ? '/.netlify/functions/stock-news'
+        : (location.hostname.endsWith('github.io') ? null : '/api/stock-news');
+
+    // 색은 색각이상 검증기(모든 쌍 비교)를 통과한 4색
+    const COMPANIES = [
+        { id: 'taehoon',  name: '태훈전자',    industry: '전자기기', icon: '📱', color: '#2a78d6', startPrice: 5 },
+        { id: 'ttaek',    name: '땍이네 땍배', industry: '택배',     icon: '📦', color: '#eb6834', startPrice: 3 },
+        { id: 'dohoo',    name: '도후식품',    industry: '식품',     icon: '🍜', color: '#1baf7a', startPrice: 4 },
+        { id: 'pharma23', name: '23제약',      industry: '제약',     icon: '💊', color: '#4a3aa7', startPrice: 6 }
+    ];
+
+    // AI 기사가 없을 때(또는 아직 안 왔을 때) 쓰는 기본 뉴스 소재 (AI 기사도 이 소재를 참고해서 씀)
+    const NEWS_REASONS = {
+        taehoon: {
+            good: ['신형 스마트폰이 출시 첫날 모두 팔렸다', '배터리가 이틀 가는 노트북을 공개했다', '해외 전자제품 박람회에서 최고상을 받았다', '초고속 충전 기술 특허를 따냈다', '학생용 태블릿 주문이 크게 늘었다', '새 반도체 공장을 완공했다', '접히는 화면 기술을 새로 선보였다', '인공지능 번역 이어폰이 큰 인기를 끌었다', '무선 충전 속도를 두 배로 높였다', '재활용 부품으로 만든 친환경 제품을 내놨다', '해외 대형 매장과 납품 계약을 새로 맺었다', '신제품 사전 예약자가 목표치를 넘어섰다'],
+            bad: ['신제품 화면 불량으로 교환 요청이 이어졌다', '핵심 부품 공급이 늦어져 생산이 멈췄다', '경쟁사의 값싼 제품에 밀려 판매가 줄었다', '업데이트 오류로 기기가 꺼지는 문제가 생겼다', '공장 설비 고장으로 출고가 늦어졌다', '신제품 발표회가 연기됐다', '배터리 과열 문제로 일부 제품을 회수했다', '해외 공장 노동자들이 파업에 나섰다', '신제품 디자인이 예전 제품과 비슷하다는 비판을 받았다', '소프트웨어 오류로 고객센터에 문의가 폭주했다', '원자재 가격이 올라 생산비가 늘었다', '유명 유튜버가 신제품을 혹평했다']
+        },
+        ttaek: {
+            good: ['당일 배송 지역을 전국으로 넓혔다', '로봇 분류 시스템으로 배송 속도를 두 배로 높였다', '명절 택배 물량이 역대 최고를 기록했다', '고객 만족도 조사에서 1위를 차지했다', '전기 배송 트럭 100대를 새로 들였다', '새 물류센터가 문을 열었다', '반려동물 전용 배송 서비스를 시작했다', '배송 기사 처우 개선으로 이직률이 크게 줄었다', '야간 배송 서비스가 큰 호응을 얻었다', '파손 없는 포장 기술로 상까지 받았다', '실시간 배송 위치 추적 서비스를 새로 열었다', '대형 쇼핑몰과 전속 배송 계약을 맺었다'],
+            bad: ['물류센터 전산 오류로 배송이 하루 늦어졌다', '폭설로 배송 차량 운행이 멈췄다', '택배 상자 파손 신고가 크게 늘었다', '기름값이 올라 배송 비용이 늘었다', '큰 거래처가 계약 연장을 미뤘다', '분류 기계 고장으로 택배가 쌓였다', '배송 기사 인력이 부족해 배송이 지연됐다', '오배송 신고가 크게 늘었다', '물류센터 화재로 일부 물량을 처리하지 못했다', '파업으로 일부 지역 배송이 멈췄다', '도로 공사로 배송 경로가 막혀 지연이 잦아졌다', '배송 요금 인상에 고객 불만이 커졌다']
+        },
+        dohoo: {
+            good: ['새로 나온 컵라면이 학생들 사이에서 인기를 끌고 있다', '건강 간식이 나오자마자 품절됐다', '해외 수출 계약을 따냈다', '학교 급식 납품 업체로 선정됐다', '유명 요리사와 함께 만든 즉석밥이 인기를 끌었다', '공장 자동화로 생산량이 크게 늘었다', '무설탕 음료가 큰 인기를 끌고 있다', '친환경 포장재로 바꿔 소비자들의 호평을 받았다', '편의점 단독 신제품이 완판 행진을 이어갔다', '지역 농가와 손잡고 특산물 과자를 내놨다', '해외 식품 박람회에서 최우수상을 받았다', '온라인 주문량이 크게 늘어 매출이 올랐다'],
+            bad: ['원재료 가격이 올라 이익이 줄었다', '포장 표기 실수로 제품을 회수하게 됐다', '신제품 맛 평가가 좋지 않았다', '날씨 탓에 과일 수확량이 줄었다', '냉동 창고 고장으로 재고 일부를 버렸다', '인기 과자의 판매가 줄었다', '위생 점검에서 보완 지시를 받았다', '유통기한 표기 오류로 논란이 됐다', '물류 차질로 신제품 출시가 미뤄졌다', '경쟁사 신제품에 밀려 매출이 줄었다', '공장 기계 고장으로 생산이 잠시 멈췄다', '원가 상승으로 일부 제품 가격을 올렸다']
+        },
+        pharma23: {
+            good: ['새 감기약이 임상시험에서 좋은 결과를 얻었다', '비타민 제품이 약국 판매 1위에 올랐다', '연구소가 신약 특허를 등록했다', '해외 제약사에 기술을 수출했다', '알레르기 치료제 허가를 받았다', '연구 인력을 두 배로 늘렸다', '어린이용 시럽 감기약이 큰 인기를 끌었다', '친환경 포장으로 바꾼 영양제가 호평을 받았다', '해외 학회에서 연구 성과를 발표해 주목받았다', '새 유산균 제품이 매장 판매 1위에 올랐다', '정부 지원 연구 과제에 선정됐다', '국내 대형 약국 체인과 납품 계약을 맺었다'],
+            bad: ['신약 임상시험 일정이 미뤄졌다', '약 포장 불량으로 일부 제품을 회수했다', '연구비가 크게 늘어 이익이 줄었다', '주력 약품의 특허 기간이 곧 끝난다', '공장 위생 점검에서 보완 지시를 받았다', '원료 수입이 늦어져 생산량이 줄었다', '신제품 부작용 신고가 접수됐다', '경쟁 제약사의 신약에 밀려 판매가 줄었다', '연구 결과가 기대에 못 미쳤다', '원료 가격 상승으로 생산비가 늘었다', '약사들 사이에서 사용 후기가 엇갈렸다', '신제품 허가 절차가 예상보다 오래 걸리고 있다']
+        }
+    };
+
+    // 회사 두 곳이 함께 할 수 있는 사업 (id를 알파벳순으로 이은 키). 계약이 새로 생길 때마다 이 중 하나를 무작위로 골라 씀
+    const CONTRACT_PROJECTS = {
+        'taehoon|ttaek': ['스마트 택배함 공동 개발', '배송 추적 스마트폰 앱 공동 개발', '드론 배송 시범 사업', '택배함 잠금장치 부품 공급'],
+        'dohoo|taehoon': ['스마트 냉장고 전용 간편식 개발', '식품 보관 온도 센서 공동 개발', '가전 매장 시식 행사 공동 진행', '전자레인지 전용 조리식품 개발'],
+        'pharma23|taehoon': ['건강 측정 스마트워치 공동 개발', '약 복용 알림 앱 공동 개발', '체온계 신제품 공동 개발', '수면 측정 기기 공동 개발'],
+        'dohoo|ttaek': ['신선식품 새벽배송', '냉동식품 전용 배송 서비스', '농산물 직거래 배송', '지역 특산물 택배 상품 개발'],
+        'pharma23|ttaek': ['의약품 안전 배송', '냉장 의약품 전용 배송', '약국 당일 배송 서비스', '건강기능식품 정기 배송'],
+        'dohoo|pharma23': ['건강기능식품 공동 개발', '유산균 식품 공동 개발', '어린이 영양제 공동 개발', '다이어트 식품 공동 개발']
+    };
+
+    const AI_NEWS_GRACE_MS = 90 * 1000; // 학생 화면에는 AI 기사가 준비될 때까지(최대 이 시간) 뉴스를 보여주지 않음
+
+    /* ===================== 공통 유틸 ===================== */
+    function esc(value) {
+        return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    function makeId() {
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+    }
+    function studentIds() {
+        return Array.from({ length: STUDENT_COUNT }, (_, i) => String(i + 1));
+    }
+    function parsePositiveInt(value) {
+        const n = Number(value);
+        return Number.isInteger(n) && n > 0 ? n : null;
+    }
+    function startOfDay(ms) {
+        const d = new Date(ms);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime();
+    }
+    function fmtDate(ms) {
+        return new Date(ms).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+    }
+    function fmtDateTime(ms) {
+        return new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    function toDateInputValue(ms) {
+        const d = new Date(ms);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+    function signed(n) {
+        return (n > 0 ? '+' : '') + n;
+    }
+
+    /* ===================== 회원 등급 / 할인 ===================== */
+    function gradeIndexOf(exp) {
+        let idx = 0;
+        GRADES.forEach((g, i) => { if ((exp || 0) >= g.minExp) idx = i; });
+        return idx;
+    }
+    function getGrade(user) {
+        return GRADES[gradeIndexOf(user.exp)];
+    }
+    function gradeBadgeByIndex(idx) {
+        const g = GRADES[idx];
+        return `<span class="grade-badge grade-${g.key}">${g.icon} ${g.name}</span>`;
+    }
+    function gradeBadge(user) {
+        return gradeBadgeByIndex(gradeIndexOf(user.exp));
+    }
+
+    // 경험치를 더하고(음수 가능), 등급이 바뀌면 기록. 등급이 올랐다면 새 등급을 반환
+    function addExp(userId, amount, reason) {
+        const user = db.users[userId];
+        const before = gradeIndexOf(user.exp);
+        user.exp = Math.max(0, (user.exp || 0) + amount);
+        const after = gradeIndexOf(user.exp);
+        if (after !== before) {
+            addBankLog('grade', `[${reason}] ${user.name} 회원 등급 ${after > before ? '상승' : '하락'}: ${GRADES[before].name} → ${GRADES[after].name}`, [userId]);
+        }
+        return after > before ? GRADES[after] : null;
+    }
+    function demoteOneGrade(userId, reason) {
+        const user = db.users[userId];
+        const idx = gradeIndexOf(user.exp);
+        const targetExp = idx > 0 ? GRADES[idx - 1].minExp : 0;
+        addExp(userId, targetExp - user.exp, reason);
+    }
+    function promotionText(grade) {
+        return grade ? `\n\n🎉 축하해요! 회원 등급이 ${grade.icon} ${grade.name}(으)로 올랐어요!` : '';
+    }
+
+    function couponPriceFor(userId, coupon) {
+        const idx = gradeIndexOf(db.users[userId].exp);
+        let discount = 0;
+        if (idx >= EMERALD_INDEX) discount = coupon.name === '음악 우선 신청권' ? 1 : 2;
+        else if (idx >= DIAMOND_INDEX) discount = 1;
+        return Math.max(0, coupon.price - discount);
+    }
+    function isEmerald(userId) {
+        return gradeIndexOf(db.users[userId].exp) >= EMERALD_INDEX;
+    }
+    function lottoPriceFor(userId) {
+        return LOTTO_TICKET_PRICE - (isEmerald(userId) ? 1 : 0);
+    }
+    function randomBoxPriceFor(userId) {
+        return RANDOM_BOX_PRICE - (isEmerald(userId) ? 1 : 0);
+    }
+    function priceHtml(base, actual) {
+        return actual < base ? `<s class="old-price">${base}</s> <b class="sale-price">${actual}</b>` : `${base}`;
+    }
+
+    /* ===================== 은행 계산 ===================== */
+    function loanInterest(loan, now = Date.now()) {
+        const weeks = Math.max(0, Math.floor((now - loan.startAt) / WEEK_MS));
+        return Math.round(loan.principal * LOAN_WEEKLY_INTEREST_PCT * weeks / 100);
+    }
+    function loanRemaining(loan, now = Date.now()) {
+        return Math.max(0, loan.principal + loanInterest(loan, now) - loan.paid);
+    }
+    function loanOverdueWeeks(loan, now = Date.now()) {
+        return now > loan.dueAt ? Math.floor((now - loan.dueAt) / WEEK_MS) : 0;
+    }
+    function loanStatusText(loan, now = Date.now()) {
+        if (now <= loan.dueAt) {
+            const days = Math.round((startOfDay(loan.dueAt) - startOfDay(now)) / DAY_MS);
+            return days === 0 ? '⏳ 오늘까지' : `⏳ D-${days}`;
+        }
+        const weeks = loanOverdueWeeks(loan, now);
+        return weeks === 0 ? '⚠️ 연체 중 (1주 미만)' : `⛔ ${weeks}주 연체`;
+    }
+    function activeLoanOf(userId) {
+        return db.bank.loans.find(l => l.status === 'active' && l.studentId === userId);
+    }
+    function activeSavingsOf(userId) {
+        return db.bank.savings.filter(s => s.status === 'active' && s.studentId === userId);
+    }
+
+    function savingsRatePct(weeks) {
+        return 5 * (weeks / 2);
+    }
+    function savingsPayout(s) {
+        return Math.round(s.principal * (100 + s.weeklyRatePct * s.weeks) / 100);
+    }
+    function savingsAccrued(s, now = Date.now()) {
+        const weeksDone = Math.min(s.weeks, Math.max(0, Math.floor((now - s.startAt) / WEEK_MS)));
+        return Math.round(s.principal * s.weeklyRatePct * weeksDone / 100);
+    }
+
+    /* ===================== 학생 알림 ===================== */
+    // 저장 크기를 줄이려고 문장 대신 짧은 정보만 저장: k(종류) a(금액) x(사유/내용) from(보낸 학생) c(회사)
+    function notifyStudent(userId, notice) {
+        const user = db.users[userId];
+        if (!user || user.role !== 'student') return;
+        if (!Array.isArray(user.notices)) user.notices = [];
+        user.notices.unshift({ t: Date.now(), ...notice });
+        if (user.notices.length > MAX_USER_NOTICES) user.notices.length = MAX_USER_NOTICES;
+    }
+
+    function noticeText(n) {
+        switch (n.k) {
+            case 'grant':
+                return n.a >= 0 ? `💰 [${n.x}] 사유로 ${n.a}π를 받았어요.` : `⚠️ [${n.x}] 사유로 ${-n.a}π가 차감됐어요.`;
+            case 'transfer': {
+                const sender = db.users[n.from];
+                return `📥 ${sender ? sender.name : n.from}에게서 ${n.a}π가 입금됐어요.`;
+            }
+            case 'lotto':
+                return `🎉 로또 당첨! ${n.x}${n.a > 0 ? ` (+${n.a}π)` : ''}${/[34]등/.test(n.x) ? ' · 쿠폰은 인벤토리를 확인하세요' : ''}`;
+            case 'savings':
+                return `🐷 적금 만기! ${n.a}π를 받았어요.`;
+            case 'dividend': {
+                const company = companyById(n.c);
+                return `💹 ${company ? company.name : '주식'} 배당금 ${n.a}π를 받았어요.`;
+            }
+            case 'refund':
+                return `↩️ [${n.x}] 환불로 ${n.a}π를 돌려받았어요.`;
+            case 'bank':
+                return `🏦 ${n.x} (${signed(n.a)}π)`;
+            default:
+                return '알림';
+        }
+    }
+
+    function unreadNoticeCount(user) {
+        return (user.notices || []).filter(n => n.t > (user.noticeReadAt || 0)).length;
+    }
+
+    function addBankLog(type, text, relatedIds) {
+        db.bank.logs.unshift({ id: makeId(), type, text, studentIds: relatedIds, createdAt: Date.now(), read: false });
+        if (db.bank.logs.length > MAX_BANK_LOGS) db.bank.logs.length = MAX_BANK_LOGS;
+    }
+    function pruneClosed(list) {
+        const active = list.filter(x => x.status === 'active');
+        const closed = list.filter(x => x.status !== 'active')
+            .sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0))
+            .slice(0, MAX_CLOSED_RECORDS);
+        return [...active, ...closed];
+    }
+    function pruneBankRecords() {
+        db.bank.loans = pruneClosed(db.bank.loans);
+        db.bank.savings = pruneClosed(db.bank.savings);
+    }
+
+    // 시간이 지나면 일어나는 일(대출 연체 벌칙, 적금 만기 지급)을 반영. 바뀐 게 있으면 true
+    function applyTimeBasedUpdates() {
+        const now = Date.now();
+        let changed = false;
+
+        if (!db.stocks || typeof db.stocks !== 'object') {
+            db.stocks = initStockMarket(now);
+            changed = true;
+        }
+        if (applyStockTicks(now)) changed = true;
+        if (applyDividends(now)) changed = true;
+
+        db.bank.loans.filter(l => l.status === 'active').forEach(loan => {
+            const user = db.users[loan.studentId];
+            if (!user) return;
+            const overdueWeeks = loanOverdueWeeks(loan, now);
+            while ((loan.penaltiesApplied || 0) < overdueWeeks) {
+                loan.penaltiesApplied = (loan.penaltiesApplied || 0) + 1;
+                if (loan.penaltiesApplied === 1) {
+                    addExp(loan.studentId, -LOAN_OVERDUE_EXP_PENALTY, '대출 연체');
+                    addBankLog('loan', `⚠️ ${user.name} 대출 1주 연체 → 경험치 -${LOAN_OVERDUE_EXP_PENALTY}`, [loan.studentId]);
+                } else {
+                    const before = getGrade(user).name;
+                    demoteOneGrade(loan.studentId, '대출 연체');
+                    addBankLog('loan', `⛔ ${user.name} 대출 ${loan.penaltiesApplied}주 연체 → 회원 등급 한 단계 하락 (${before} → ${getGrade(user).name})`, [loan.studentId]);
+                }
+                changed = true;
+            }
+        });
+
+        db.bank.savings.filter(s => s.status === 'active' && now >= s.maturesAt).forEach(s => {
+            const user = db.users[s.studentId];
+            if (!user) return;
+            const payout = savingsPayout(s);
+            user.pi += payout;
+            s.status = 'completed';
+            s.closedAt = now;
+            s.paidOut = payout;
+            notifyStudent(s.studentId, { k: 'savings', a: payout });
+            addBankLog('savings', `🎉 ${user.name} 적금 만기 → ${payout}π 지급 (원금 ${s.principal}π + 이자 ${payout - s.principal}π)`, [s.studentId]);
+            changed = true;
+        });
+
+        if (changed) pruneBankRecords();
+        return changed;
+    }
+
+    /* ===================== 서버 데이터 ===================== */
+    // 성공하면 true. silent면 실패해도 알림창을 띄우지 않음 (백그라운드 작업용)
+    async function loadData({ silent = false } = {}) {
+        try {
+            const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
+                headers: { 'X-Master-Key': API_KEY }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const result = await response.json();
+            if (!result.record || typeof result.record !== 'object') throw new Error('데이터 형식 오류');
+            db = result.record;
+
+            if (!db.users || !db.users["1"]) {
+                initDefaultData();
+                await saveData();
+            }
+            const migrated = migrateData();
+            const timeChanged = applyTimeBasedUpdates();
+            if (migrated || timeChanged) await saveData();
+            scheduleAiNews();
+            return true;
+        } catch (error) {
+            console.error("데이터 로드 실패:", error);
+            if (!silent) alert("서버 연결에 실패했습니다. 잠시 후 다시 시도해주세요.");
+            return false;
+        }
+    }
+
+    async function saveData() {
+        try {
+            const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': API_KEY
+                },
+                body: JSON.stringify(db)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        } catch (error) {
+            console.error("데이터 저장 실패:", error);
+            alert("서버 저장 중 오류가 발생했습니다. 새로고침 후 다시 확인해주세요.");
+        }
+    }
+
+    // 예전 데이터에 없던 항목을 채워 넣음 (기존 값은 건드리지 않음). 서버에 저장해야 할 변화가 있으면 true
+    function migrateData() {
+        let changed = false;
+        if (!db.lotto) db.lotto = { currentPot: 0, rolloverPot: 0 };
+        if (!Array.isArray(db.usageRequests)) db.usageRequests = [];
+        if (typeof db.notice !== 'string') db.notice = '';
+        if (!db.bank || typeof db.bank !== 'object') db.bank = {};
+        if (!Array.isArray(db.bank.loans)) db.bank.loans = [];
+        if (!Array.isArray(db.bank.savings)) db.bank.savings = [];
+        if (!Array.isArray(db.bank.logs)) db.bank.logs = [];
+        if (db.stocks && typeof db.stocks === 'object') {
+            if (!db.stocks.contractProjects || typeof db.stocks.contractProjects !== 'object') db.stocks.contractProjects = {};
+            if (migrateStockTicks(db.stocks)) changed = true;
+            if (!db.stocks.flow || typeof db.stocks.flow.week !== 'number') {
+                db.stocks.flow = emptyStockFlow(stockWeekOf(db.stocks.lastTick * STOCK_TICK_MS));
+                changed = true;
+            }
+            // 최저 주가가 0π → 1π로 바뀜
+            COMPANIES.forEach(c => {
+                const s = db.stocks.companies[c.id];
+                if (!s) return;
+                if (s.price < STOCK_MIN_PRICE) { s.price = STOCK_MIN_PRICE; changed = true; }
+                if (typeof s.anchor === 'number' && s.anchor < STOCK_MIN_PRICE) { s.anchor = STOCK_MIN_PRICE; changed = true; }
+                if (s.history.some(p => p < STOCK_MIN_PRICE)) { s.history = s.history.map(p => Math.max(p, STOCK_MIN_PRICE)); changed = true; }
+            });
+        }
+        MANAGER_ACCOUNTS.forEach(m => {
+            if (db.users[m.id]) return;
+            db.users[m.id] = { name: m.name, role: 'manager', password: MANAGER_DEFAULT_PASSWORD, pi: 0, exp: 0, inventory: [], lottoTickets: [], stocks: {} };
+            changed = true;
+        });
+        Object.values(db.users).forEach(u => {
+            if (typeof u.exp !== 'number') u.exp = 0;
+            if (!Array.isArray(u.inventory)) u.inventory = [];
+            if (!Array.isArray(u.lottoTickets)) u.lottoTickets = [];
+            if (!u.stocks || typeof u.stocks !== 'object') u.stocks = {};
+            if (u.role === 'student' && !Array.isArray(u.notices)) u.notices = [];
+        });
+        return changed;
+    }
+
+    function isStaff(user) {
+        return !!user && (user.role === 'admin' || user.role === 'manager');
+    }
+    function isManager(user) {
+        return !!user && user.role === 'manager';
+    }
+    // 은행 기록 등에 남길 처리자 이름 (관리자 / 매니저1 …)
+    function actorName() {
+        return currentUser && db.users[currentUser] ? db.users[currentUser].name : '관리자';
+    }
+
+    function initDefaultData() {
+        db.users = {
+            "admin": { name: "관리자", role: "admin", password: "00", pi: 0, exp: 0, inventory: [], lottoTickets: [], stocks: {} }
+        };
+        studentIds().forEach(id => {
+            db.users[id] = { name: id + "번 학생", role: "student", password: id, pi: 10, exp: 0, inventory: [], lottoTickets: [], stocks: {} };
+        });
+        db.lotto = { currentPot: 0, rolloverPot: 0 };
+        db.usageRequests = [];
+        db.notice = '';
+        db.bank = { loans: [], savings: [], logs: [] };
+    }
+
+    /* ===================== 로그인 / 화면 제어 ===================== */
+    async function login() {
+        const inputId = document.getElementById('loginId').value.trim();
+        const inputPw = document.getElementById('loginPw').value.trim();
+        await loadData();
+
+        if (!db.users[inputId]) {
+            alert("존재하지 않는 아이디입니다.");
+            return;
+        }
+        if (db.users[inputId].password !== inputPw) {
+            alert("비밀번호가 일치하지 않습니다.");
+            return;
+        }
+
+        currentUser = inputId;
+        document.getElementById('loginId').value = '';
+        document.getElementById('loginPw').value = '';
+        document.getElementById('userInfoDisplay').style.display = 'block';
+        document.getElementById('logoutBtn').style.display = 'inline-block';
+
+        switchPage('loginPage', false);
+        renderNotice();
+
+        if (isStaff(db.users[currentUser])) {
+            switchPage('adminPage', true);
+            setupAdminCheckboxList();
+            applyStaffMenuPermissions();
+            openAdminSection('main');
+        } else {
+            switchPage('studentPage', true);
+            openStudentSection('main');
+        }
+        updateHeader();
+    }
+
+    function logout() {
+        currentUser = null;
+        selectedReason = null;
+        closeStudentDetail();
+        document.getElementById('userInfoDisplay').style.display = 'none';
+        document.getElementById('logoutBtn').style.display = 'none';
+        switchPage('studentPage', false);
+        switchPage('adminPage', false);
+        switchPage('loginPage', true);
+    }
+
+    function switchPage(pageId, show) {
+        document.getElementById(pageId).classList.toggle('active', show);
+    }
+
+    function updateHeader() {
+        if (!currentUser) return;
+        const user = db.users[currentUser];
+        const staff = isStaff(user);
+        document.getElementById('welcomeMsg').innerText = staff ? `${user.name} 계정` : user.name;
+        document.getElementById('headerGrade').innerHTML = staff ? '' : gradeBadge(user);
+        document.getElementById('piDisplayArea').style.display = staff ? 'none' : 'inline';
+        if (!staff) document.getElementById('currentPi').innerText = user.pi;
+    }
+
+    // 매니저는 허용된 관리자 메뉴만 보이게 함
+    function applyStaffMenuPermissions() {
+        const manager = isManager(db.users[currentUser]);
+        document.querySelectorAll('#adm-main .menu-card[data-section]').forEach(card => {
+            card.hidden = manager && !MANAGER_SECTIONS.includes(card.dataset.section);
+        });
+    }
+
+    function renderNotice() {
+        const content = document.getElementById('noticeContent');
+        if (content) content.innerText = (db.notice && db.notice.trim()) ? db.notice : '등록된 공지사항이 없습니다.';
+        const input = document.getElementById('noticeInput');
+        if (input) input.value = db.notice || '';
+    }
+
+    /* ===================== 학생: 화면 이동 ===================== */
+    let currentStudentSection = 'main';
+    const STUDENT_SECTION_RENDERERS = {
+        main: renderStudentMain,
+        shop: renderShop,
+        lotto: renderLottoSection,
+        randombox: renderRandomBoxSection,
+        bank: renderBank,
+        stock: renderStockSection,
+        inventory: renderInventory,
+        myinfo: renderMyInfo,
+        notices: renderNoticeList
+    };
+
+    function openStudentSection(name) {
+        currentStudentSection = name;
+        document.querySelectorAll('#studentPage .section').forEach(el => {
+            el.classList.toggle('active', el.id === 'stu-' + name);
+        });
+        renderStudentSection();
+        window.scrollTo(0, 0);
+        if (name === 'notices') markNoticesRead();
+    }
+
+    function renderStudentSection() {
+        updateHeader();
+        document.getElementById('noticeBadge').textContent = unreadNoticeCount(db.users[currentUser]) || '';
+        STUDENT_SECTION_RENDERERS[currentStudentSection]();
+    }
+
+    // 목록을 그릴 때 이미 읽음 처리가 끝났어도 방금 들어온 알림은 강조가 남도록, 화면을 연 시점의 기준을 기억함
+    let noticeHighlightSince = 0;
+
+    function renderNoticeList() {
+        const user = db.users[currentUser];
+        const notices = user.notices || [];
+        document.getElementById('noticeList').innerHTML = notices.length === 0
+            ? '<p class="muted">아직 알림이 없어요.</p>'
+            : notices.map(n => `
+                <div class="log-item ${n.t > noticeHighlightSince ? 'unread' : ''}">
+                    <span class="log-text">${esc(noticeText(n))}</span>
+                    <span class="log-time">${fmtDateTime(n.t)}</span>
+                </div>`).join('');
+    }
+
+    async function markNoticesRead() {
+        const user = db.users[currentUser];
+        noticeHighlightSince = user.noticeReadAt || 0;
+        renderNoticeList();
+        if (unreadNoticeCount(user) === 0) return;
+        await loadData();
+        const fresh = db.users[currentUser];
+        fresh.noticeReadAt = Date.now();
+        await saveData();
+        if (currentStudentSection === 'notices') renderStudentSection();
+    }
+
+    async function refreshStudentData() {
+        await loadData();
+        renderStudentSection();
+    }
+
+    function renderStudentMain() {
+        const user = db.users[currentUser];
+        const idx = gradeIndexOf(user.exp);
+        const grade = GRADES[idx];
+        const next = GRADES[idx + 1];
+        const progress = next ? Math.min(100, Math.round((user.exp - grade.minExp) / (next.minExp - grade.minExp) * 100)) : 100;
+        const loan = activeLoanOf(currentUser);
+
+        let html = `
+            <div class="grade-card-top">
+                <span>${gradeBadge(user)} <b>${esc(user.name)}</b></span>
+                <span>경험치 <b>${user.exp}</b>${next ? ` / ${next.minExp}` : ' (최고 등급)'}</span>
+            </div>
+            <div class="exp-bar"><div class="exp-fill" style="width: ${progress}%;"></div></div>
+            <div class="grade-card-info">
+                ${next ? `${next.icon} ${next.name}까지 경험치 ${next.minExp - user.exp} 남음` : '🎉 최고 등급을 달성했어요!'}
+                · 대출 한도 ${grade.loanLimit}π
+                ${grade.benefit ? `<br>🎁 등급 혜택: ${grade.benefit}` : ''}
+            </div>`;
+        if (loan && Date.now() > loan.dueAt) {
+            html += `<div class="warn-box">⚠️ 대출 상환 기한이 지났어요! 은행에서 갚아주세요. (남은 금액 ${loanRemaining(loan)}π · ${loanStatusText(loan)})</div>`;
+        }
+        const unread = unreadNoticeCount(user);
+        if (unread > 0) {
+            html += `<button class="notice-banner" onclick="openStudentSection('notices')">
+                <span>🔔 ${esc(noticeText(user.notices[0]))}</span><b>새 알림 ${unread}개 →</b>
+            </button>`;
+        }
+        document.getElementById('myGradeCard').innerHTML = html;
+    }
+
+    /* ===================== 학생: 쿠폰 상점 ===================== */
+    function renderShop() {
+        const user = db.users[currentUser];
+        const grade = getGrade(user);
+        document.getElementById('shopBenefitInfo').innerHTML = grade.benefit
+            ? `<div class="benefit-box">${grade.icon} ${grade.name} 등급 혜택 적용 중: ${grade.benefit}</div>`
+            : '';
+        document.getElementById('shopTableBody').innerHTML = COUPONS.map((coupon, idx) => `
+            <tr>
+                <td>${esc(coupon.name)}</td>
+                <td>${priceHtml(coupon.price, couponPriceFor(currentUser, coupon))}</td>
+                <td><button onclick="buyItem(${idx})">구매</button></td>
+            </tr>`).join('');
+    }
+
+    async function buyItem(couponIdx) {
+        const coupon = COUPONS[couponIdx];
+        await loadData();
+        const user = db.users[currentUser];
+        const price = couponPriceFor(currentUser, coupon);
+        if (user.pi < price) {
+            alert("파이(π)가 부족합니다.");
+            return;
+        }
+        user.pi -= price;
+        user.inventory.push(coupon.name);
+        const promoted = addExp(currentUser, coupon.price, '쿠폰 구매');
+        await saveData();
+        alert(`${coupon.name} 구매가 완료되었습니다. (${price}π · 경험치 +${coupon.price})` + promotionText(promoted));
+        renderStudentSection();
+    }
+
+    /* ===================== 학생: 인벤토리 ===================== */
+    function renderInventory() {
+        const list = document.getElementById('inventoryList');
+        const user = db.users[currentUser];
+        if (user.inventory.length === 0) {
+            list.innerHTML = '<li style="color: #888;">보유한 쿠폰이 없습니다.</li>';
+            return;
+        }
+        list.innerHTML = user.inventory.map((item, index) => `
+            <li class="detail-row">
+                ${esc(item)} <button style="margin: 0; padding: 5px 10px;" onclick="useItem(${index})">사용</button>
+            </li>`).join('');
+    }
+
+    async function useItem(index) {
+        await loadData();
+        const user = db.users[currentUser];
+        const itemName = user.inventory[index];
+        if (itemName === undefined) {
+            renderStudentSection();
+            return;
+        }
+        if (!confirm(`[${itemName}] 쿠폰을 사용하시겠습니까?\n(선생님께 사용 확인 요청이 전송됩니다)`)) return;
+
+        user.inventory.splice(index, 1);
+        db.usageRequests.push({
+            id: makeId(),
+            studentId: currentUser,
+            studentName: user.name,
+            item: itemName,
+            requestedAt: new Date().toISOString(),
+            status: 'pending'
+        });
+        await saveData();
+        alert("선생님에게 쿠폰 사용 확인 요청을 보냈습니다.");
+        renderStudentSection();
+    }
+
+    /* ===================== 학생: 랜덤상자 ===================== */
+    function renderRandomBoxSection() {
+        const price = randomBoxPriceFor(currentUser);
+        document.getElementById('randomBoxPriceLabel').innerHTML = priceHtml(RANDOM_BOX_PRICE, price);
+        document.getElementById('randomBoxBtn').textContent = `랜덤상자 열기 (${price} π)`;
+        const table = document.getElementById('randomBoxProbTable');
+        if (table.style.display !== 'none') renderRandomBoxProbTable();
+    }
+
+    function drawRandomBoxReward() {
+        const totalWeight = RANDOM_BOX_REWARDS.reduce((sum, r) => sum + r.weight, 0);
+        let rand = Math.random() * totalWeight;
+        for (const reward of RANDOM_BOX_REWARDS) {
+            if (rand < reward.weight) {
+                if (reward.hiddenTrigger && Math.random() < HIDDEN_REWARD_CHANCE) return HIDDEN_REWARD;
+                return reward;
+            }
+            rand -= reward.weight;
+        }
+        return RANDOM_BOX_REWARDS[0];
+    }
+
+    function renderRandomBoxProbTable() {
+        const container = document.getElementById('randomBoxProbTable');
+        const totalWeight = RANDOM_BOX_REWARDS.reduce((sum, r) => sum + r.weight, 0);
+        let html = `<table class="random-box-prob-table"><tr><th>보상</th><th>확률</th></tr>`;
+        RANDOM_BOX_REWARDS.forEach(r => {
+            const pct = parseFloat((r.weight / totalWeight * 100).toFixed(2));
+            html += `<tr><td>${esc(r.name)}</td><td>${pct}%</td></tr>`;
+        });
+        html += `<tr><td>🌟 히든 보상</td><td>???</td></tr></table>`;
+        container.innerHTML = html;
+    }
+
+    function toggleRandomBoxProbs() {
+        const container = document.getElementById('randomBoxProbTable');
+        if (container.style.display === 'none') {
+            renderRandomBoxProbTable();
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
+    }
+
+    function spawnConfetti(stage, count, emojis = ['🎉', '✨', '⭐', '🎊', '💰']) {
+        for (let i = 0; i < count; i++) {
+            const span = document.createElement('span');
+            span.className = 'confetti-piece';
+            span.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+            span.style.left = Math.random() * 90 + '%';
+            span.style.animationDuration = (0.8 + Math.random() * 0.6) + 's';
+            span.style.animationDelay = (Math.random() * 0.2) + 's';
+            stage.appendChild(span);
+            setTimeout(() => span.remove(), 1800);
+        }
+    }
+
+    async function buyRandomBox() {
+        const btn = document.getElementById('randomBoxBtn');
+        if (btn.disabled) return;
+        btn.disabled = true;
+
+        await loadData();
+        const user = db.users[currentUser];
+        const price = randomBoxPriceFor(currentUser);
+        if (user.pi < price) {
+            alert("파이(π)가 부족합니다.");
+            btn.disabled = false;
+            return;
+        }
+
+        user.pi -= price;
+        const reward = drawRandomBoxReward();
+
+        const stage = document.getElementById('randomBoxStage');
+        const icon = document.getElementById('randomBoxIcon');
+        const reel = document.getElementById('randomBoxReel');
+        const resultEl = document.getElementById('randomBoxResult');
+
+        resultEl.className = 'random-box-result';
+        resultEl.textContent = '';
+        stage.classList.remove('hidden-hit');
+        icon.className = 'random-box-icon shaking';
+        icon.textContent = '🎁';
+
+        const reelNames = RANDOM_BOX_REWARDS.map(r => r.name);
+        let reelIdx = 0;
+        const reelTimer = setInterval(() => {
+            reel.textContent = reelNames[reelIdx % reelNames.length];
+            reelIdx++;
+        }, 80);
+
+        setTimeout(async () => {
+            clearInterval(reelTimer);
+            reel.textContent = '';
+
+            let resultText = '';
+            if (reward.type === 'none') {
+                resultText = '😢 꽝! 다음 기회에...';
+            } else if (reward.type === 'pi') {
+                user.pi += reward.amount;
+                resultText = `${reward.name} 획득!`;
+            } else if (reward.type === 'lotto') {
+                const numbers = [];
+                while (numbers.length < 5) {
+                    const n = Math.floor(Math.random() * 20) + 1;
+                    if (!numbers.includes(n)) numbers.push(n);
+                }
+                numbers.sort((a, b) => a - b);
+                user.lottoTickets.push(numbers);
+                db.lotto.currentPot += LOTTO_TICKET_PRICE;
+                resultText = `로또 1장 획득! (번호: ${numbers.join(', ')})`;
+            } else {
+                user.inventory.push(reward.name);
+                resultText = `${reward.name} 획득!`;
+            }
+
+            const tier = reward.tier;
+            const icons = { none: '💨', common: '🎉', rare: '🎉', legendary: '🏆', hidden: '🌟' };
+            if (tier === 'hidden') resultText = `🌟 히든 보상! ${resultText}`;
+
+            icon.className = 'random-box-icon opened';
+            icon.textContent = icons[tier];
+            resultEl.textContent = resultText;
+            resultEl.className = `random-box-result tier-${tier} show`;
+
+            if (tier === 'hidden') {
+                stage.classList.add('hidden-hit');
+                spawnConfetti(stage, 40, ['🌟', '💎', '✨', '👑', '🎊']);
+            } else if (tier === 'legendary' || tier === 'rare') {
+                spawnConfetti(stage, tier === 'legendary' ? 24 : 12);
+            }
+
+            await saveData();
+            updateHeader();
+            btn.disabled = false;
+        }, 1200);
+    }
+
+    /* ===================== 학생: 로또 ===================== */
+    function renderLottoSection() {
+        document.getElementById('lottoPriceLabel').innerHTML = priceHtml(LOTTO_TICKET_PRICE, lottoPriceFor(currentUser));
+        renderLottoRewardInfo();
+        renderMyLottoResult();
+        renderMyLotto();
+    }
+
+    async function buyLotto() {
+        const inputStr = document.getElementById('lottoNumbersInput').value;
+        let numbers = inputStr.split(',').map(n => parseInt(n.trim()));
+        numbers = [...new Set(numbers.filter(n => !isNaN(n) && n >= 1 && n <= 20))];
+        if (numbers.length !== 5) {
+            alert("1부터 20 사이의 중복되지 않는 숫자 5개를 쉼표로 구분하여 입력해주세요.");
+            return;
+        }
+
+        await loadData();
+        const user = db.users[currentUser];
+        const price = lottoPriceFor(currentUser);
+        if (user.lottoTickets.length >= LOTTO_WEEKLY_LIMIT) {
+            alert(`주간 구매 한도(${LOTTO_WEEKLY_LIMIT}장)를 초과했습니다.`);
+            return;
+        }
+        if (user.pi < price) {
+            alert("파이가 부족합니다.");
+            return;
+        }
+
+        user.pi -= price;
+        db.lotto.currentPot += LOTTO_TICKET_PRICE;
+        numbers.sort((a, b) => a - b);
+        user.lottoTickets.push(numbers);
+        const promoted = addExp(currentUser, LOTTO_TICKET_PRICE, '로또 구매');
+
+        await saveData();
+        alert(`로또가 정상적으로 발급되었습니다. (${price}π · 경험치 +${LOTTO_TICKET_PRICE})` + promotionText(promoted));
+        document.getElementById('lottoNumbersInput').value = '';
+        renderStudentSection();
+    }
+
+    function renderLottoRewardInfo() {
+        const div = document.getElementById('lottoRewardInfo');
+        const totalPot = (db.lotto.currentPot || 0) + (db.lotto.rolloverPot || 0);
+        const prize1st = Math.floor(totalPot * 0.4);
+        const prize2nd = Math.floor(totalPot * 0.3);
+
+        const cards = [
+            { match: '5개 일치', rank: '1등', reward: `기본 ${BASE_PRIZE_1ST}π + 상금 40%<br>(약 ${BASE_PRIZE_1ST + prize1st}π)` },
+            { match: '4개 일치', rank: '2등', reward: `기본 ${BASE_PRIZE_2ND}π + 상금 30%<br>(약 ${BASE_PRIZE_2ND + prize2nd}π)` },
+            { match: '3개 일치', rank: '3등', reward: '청소 면제권' },
+            { match: '2개 일치', rank: '4등', reward: '간식 교환권' }
+        ];
+
+        let html = `<div style="background: linear-gradient(135deg, #FFE0B2 0%, #FFD599 100%); border-radius:16px; padding:16px; box-shadow: 0 4px 12px rgba(230,81,0,0.1);">`;
+        html += `<p style="margin:0 0 12px 0; font-size:14px;">🏆 현재 누적 상금(Pot): <b style="color:#E65100; font-size:1.1em;">${totalPot} π</b></p>`;
+        html += `<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px;">`;
+        cards.forEach(c => {
+            html += `
+                <div style="background:#fff; border-radius:14px; padding:12px 10px; text-align:center; box-shadow: 0 2px 8px rgba(230,81,0,0.12);">
+                    <div style="font-size:12px; color:#a1887f;">${c.match}</div>
+                    <div style="font-family:'Jua','Malgun Gothic',sans-serif; font-weight:bold; color:#E65100; margin:4px 0; font-size:1.05em;">${c.rank}</div>
+                    <div style="font-size:13px;">${c.reward}</div>
+                </div>`;
+        });
+        html += `</div></div>`;
+        div.innerHTML = html;
+    }
+
+    function renderMyLotto() {
+        const div = document.getElementById('myLottoList');
+        const user = db.users[currentUser];
+        let html = `<strong style="color: #333;">이번 주 구매 수량: ${user.lottoTickets.length} / ${LOTTO_WEEKLY_LIMIT} 장</strong><br><br>`;
+        if (user.lottoTickets.length === 0) {
+            html += `<span style="color: #888;">구매 내역이 없습니다.</span>`;
+        } else {
+            user.lottoTickets.forEach((ticket, idx) => {
+                html += `<div style="margin-bottom: 5px;"><span style="color: #888;">[${idx + 1}번]</span> <b>${ticket.join(', ')}</b></div>`;
+            });
+        }
+        div.innerHTML = html;
+    }
+
+    function renderMyLottoResult() {
+        const div = document.getElementById('myLottoResult');
+        const result = db.users[currentUser].lastLottoResult;
+        if (!result || !result.tickets || result.tickets.length === 0) {
+            div.innerHTML = '';
+            return;
+        }
+        const dateStr = new Date(result.date).toLocaleDateString('ko-KR');
+        let html = `<div style="background: #fff3e0; padding: 16px; border-radius: 16px; box-shadow: 0 4px 12px rgba(230,81,0,0.1);">`;
+        html += `<h4 style="margin: 0 0 8px 0;">📢 지난 추첨 결과 (${dateStr})</h4>`;
+        html += `<p style="margin: 0 0 10px 0; font-size: 14px;">당첨 번호: <b>${result.winNums.join(', ')}</b></p>`;
+        result.tickets.forEach((t, idx) => {
+            const isWin = t.matchCount >= 2;
+            html += `<div style="margin-bottom: 4px; font-size: 14px; ${isWin ? 'color:#d84315; font-weight:bold;' : 'color:#888;'}">
+                [${idx + 1}번] ${t.numbers.join(', ')} → ${t.matchCount}개 일치 - ${esc(t.rewardText)}
+            </div>`;
+        });
+        html += `</div>`;
+        div.innerHTML = html;
+    }
+
+    /* ===================== 학생: 내 정보 ===================== */
+    function renderMyInfo() {
+        const user = db.users[currentUser];
+        const myIdx = gradeIndexOf(user.exp);
+        const rows = GRADES.map((g, i) => `
+            <tr class="${i === myIdx ? 'my-grade-row' : ''}">
+                <td>${gradeBadgeByIndex(i)}</td>
+                <td>${g.minExp}</td>
+                <td>${g.loanLimit}π</td>
+                <td style="font-size: 13px;">${g.benefit || '-'}</td>
+            </tr>`).join('');
+
+        document.getElementById('myInfoContent').innerHTML = `
+            <div class="card">
+                <div class="kv"><span>이름</span><b>${esc(user.name)}</b></div>
+                <div class="kv"><span>회원 등급</span>${gradeBadge(user)}</div>
+                <div class="kv"><span>경험치</span><b>${user.exp}</b></div>
+                <div class="kv"><span>보유 파이</span><b>${user.pi}π</b></div>
+            </div>
+            <h4 style="margin-bottom: 4px;">🏅 회원 등급 안내</h4>
+            <p class="muted" style="margin-top: 0;">쿠폰과 로또를 살 때 기본 가격 1π당 경험치 1이 쌓여요.</p>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>등급</th><th>필요 경험치</th><th>대출 한도</th><th>혜택</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    }
+
+    async function changePassword() {
+        const currentPw = document.getElementById('currentPwInput').value.trim();
+        const newPw = document.getElementById('newPwInput').value.trim();
+        const confirmPw = document.getElementById('confirmPwInput').value.trim();
+
+        if (!currentPw || !newPw || !confirmPw) {
+            alert("모든 항목을 입력해주세요.");
+            return;
+        }
+        await loadData();
+        const user = db.users[currentUser];
+        if (user.password !== currentPw) {
+            alert("현재 비밀번호가 일치하지 않습니다.");
+            return;
+        }
+        if (newPw === currentPw) {
+            alert("새 비밀번호는 기존 비밀번호와 달라야 합니다.");
+            return;
+        }
+        if (newPw !== confirmPw) {
+            alert("새 비밀번호와 확인란이 일치하지 않습니다.");
+            return;
+        }
+
+        user.password = newPw;
+        await saveData();
+        alert("비밀번호가 성공적으로 변경되었습니다.");
+        document.getElementById('currentPwInput').value = '';
+        document.getElementById('newPwInput').value = '';
+        document.getElementById('confirmPwInput').value = '';
+    }
+
+    /* ===================== 학생: 은행 ===================== */
+    let currentBankTab = 'loan';
+
+    function openBankTab(tab) {
+        currentBankTab = tab;
+        renderBank();
+    }
+
+    function renderBank() {
+        document.querySelectorAll('#stu-bank .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === currentBankTab));
+        document.querySelectorAll('#stu-bank .bank-tab').forEach(p => { p.hidden = p.id !== 'bankTab-' + currentBankTab; });
+        ({ loan: renderLoanTab, savings: renderSavingsTab, transfer: renderTransferTab, history: renderHistoryTab })[currentBankTab]();
+    }
+
+    // --- 대출 ---
+    function renderLoanTab() {
+        const user = db.users[currentUser];
+        const grade = getGrade(user);
+        const loan = activeLoanOf(currentUser);
+        const now = Date.now();
+
+        let html = `
+            <div class="card">
+                <div>${gradeBadge(user)} 등급 대출 한도: <b>${grade.loanLimit}π</b></div>
+                <ul class="rule-list">
+                    <li>1주일이 지날 때마다 이자가 빌린 금액의 ${LOAN_WEEKLY_INTEREST_PCT}%씩 늘어나요.</li>
+                    <li>상환 기한은 대출받은 날부터 ${LOAN_TERM_DAYS / 7}주예요. 일찍 갚을수록 이자가 적어요.</li>
+                    <li>기한이 1주 지나면 경험치 -${LOAN_OVERDUE_EXP_PENALTY}, 2주째부터는 1주마다 회원 등급이 한 단계씩 내려가요.</li>
+                    <li>대출은 한 번에 1건만 받을 수 있어요. 등급이 높을수록 더 많이 빌릴 수 있어요.</li>
+                </ul>
+            </div>`;
+
+        if (loan) {
+            const remaining = loanRemaining(loan, now);
+            html += `
+                <div class="card ${now > loan.dueAt ? 'card-danger' : ''}">
+                    <h4>📄 현재 대출</h4>
+                    <div class="kv"><span>빌린 금액</span><b>${loan.principal}π</b></div>
+                    <div class="kv"><span>지금까지 붙은 이자</span><b>${loanInterest(loan, now)}π</b></div>
+                    <div class="kv"><span>갚은 금액</span><b>${loan.paid}π</b></div>
+                    <div class="kv"><span>남은 금액</span><b class="big">${remaining}π</b></div>
+                    <div class="kv"><span>상환 기한</span><b>${fmtDate(loan.dueAt)} (${loanStatusText(loan, now)})</b></div>
+                    <div class="form-row">
+                        <input type="number" id="loanRepayInput" min="1" max="${remaining}" placeholder="갚을 금액">
+                        <button onclick="repayLoan(false)">상환하기</button>
+                        <button class="admin-btn" onclick="repayLoan(true)">전액 상환 (${remaining}π)</button>
+                    </div>
+                </div>`;
+        } else {
+            html += `
+                <div class="card">
+                    <h4>💸 대출 신청</h4>
+                    <div class="form-row">
+                        <input type="number" id="loanAmountInput" min="1" max="${grade.loanLimit}" placeholder="1 ~ ${grade.loanLimit}">
+                        <span>π</span>
+                        <button onclick="takeLoan()">대출 받기</button>
+                    </div>
+                </div>`;
+        }
+        document.getElementById('bankTab-loan').innerHTML = html;
+    }
+
+    async function takeLoan() {
+        const amount = parsePositiveInt(document.getElementById('loanAmountInput').value);
+        await loadData();
+        const user = db.users[currentUser];
+        const limit = getGrade(user).loanLimit;
+
+        if (activeLoanOf(currentUser)) {
+            alert('아직 갚지 않은 대출이 있어요. 먼저 상환해주세요.');
+            renderStudentSection();
+            return;
+        }
+        if (!amount || amount > limit) {
+            alert(`대출 금액은 1부터 ${limit} 사이의 정수로 입력해주세요.`);
+            return;
+        }
+
+        const now = Date.now();
+        const dueAt = now + LOAN_TERM_DAYS * DAY_MS;
+        const weeklyInterest = Math.round(amount * LOAN_WEEKLY_INTEREST_PCT / 100);
+        if (!confirm(`${amount}π를 대출받을까요?\n\n상환 기한: ${fmtDate(dueAt)}\n1주일마다 이자가 약 ${weeklyInterest}π씩 늘어나요.`)) return;
+
+        db.bank.loans.push({
+            id: makeId(), studentId: currentUser, principal: amount, paid: 0,
+            startAt: now, dueAt, penaltiesApplied: 0, status: 'active'
+        });
+        user.pi += amount;
+        addBankLog('loan', `💸 ${user.name} ${amount}π 대출 (기한 ${fmtDate(dueAt)})`, [currentUser]);
+
+        await saveData();
+        alert(`${amount}π 대출이 완료되었어요. 기한 안에 꼭 갚아주세요!`);
+        renderStudentSection();
+    }
+
+    async function repayLoan(full) {
+        const inputAmount = full ? null : parsePositiveInt(document.getElementById('loanRepayInput').value);
+        if (!full && !inputAmount) {
+            alert('갚을 금액을 1 이상의 정수로 입력해주세요.');
+            return;
+        }
+
+        await loadData();
+        const user = db.users[currentUser];
+        const loan = activeLoanOf(currentUser);
+        if (!loan) {
+            alert('갚을 대출이 없어요.');
+            renderStudentSection();
+            return;
+        }
+
+        const remaining = loanRemaining(loan);
+        const amount = full ? remaining : Math.min(inputAmount, remaining);
+        if (user.pi < amount) {
+            alert(`파이가 부족해요. (필요 ${amount}π / 보유 ${user.pi}π)`);
+            return;
+        }
+
+        user.pi -= amount;
+        loan.paid += amount;
+        let message;
+        if (loanRemaining(loan) <= 0) {
+            loan.status = 'repaid';
+            loan.closedAt = Date.now();
+            addBankLog('loan', `✅ ${user.name} 대출 상환 완료 (원금 ${loan.principal}π · 총 ${loan.paid}π 상환)`, [currentUser]);
+            message = '🎉 대출을 모두 갚았어요!';
+        } else {
+            addBankLog('loan', `💰 ${user.name} 대출 ${amount}π 상환 (남은 금액 ${loanRemaining(loan)}π)`, [currentUser]);
+            message = `${amount}π를 갚았어요. 남은 금액: ${loanRemaining(loan)}π`;
+        }
+        pruneBankRecords();
+
+        await saveData();
+        alert(message);
+        renderStudentSection();
+    }
+
+    // --- 적금 ---
+    function renderSavingsTab() {
+        const mySavings = activeSavingsOf(currentUser);
+        const now = Date.now();
+
+        let html = `
+            <div class="card">
+                <h4>🐷 적금 가입</h4>
+                <ul class="rule-list">
+                    <li>최소 ${SAVINGS_MIN_AMOUNT}π부터 넣을 수 있어요.</li>
+                    <li>기간은 2주 단위(최대 8주 = 2달)이고, 기간이 2주 늘어날 때마다 1주일 이자율이 5%씩 올라가요.</li>
+                    <li>만기가 되면 원금과 이자를 한 번에 받아요. (소수점은 반올림)</li>
+                    <li>중간에 해지하면 원금의 ${SAVINGS_CANCEL_PENALTY_PCT}%를 위약금으로 내고, 이자는 받을 수 없어요.</li>
+                </ul>
+                <div class="form-row">
+                    <input type="number" id="savingsAmountInput" min="${SAVINGS_MIN_AMOUNT}" value="${SAVINGS_MIN_AMOUNT}" oninput="updateSavingsPreview()">
+                    <span>π</span>
+                    <select id="savingsTermSelect" onchange="updateSavingsPreview()">
+                        ${SAVINGS_TERM_WEEKS.map(w => `<option value="${w}">${w}주 (1주 ${savingsRatePct(w)}%)</option>`).join('')}
+                    </select>
+                    <button onclick="openSavings()">적금 가입</button>
+                </div>
+                <div id="savingsPreview" class="preview"></div>
+            </div>
+            <div class="card">
+                <h4>📒 내 적금</h4>`;
+
+        if (mySavings.length === 0) {
+            html += `<p class="muted" style="margin: 0;">가입한 적금이 없어요.</p>`;
+        } else {
+            mySavings.forEach(s => {
+                html += `
+                    <div class="record">
+                        <div class="record-head">${s.principal}π · ${s.weeks}주 · 1주 ${s.weeklyRatePct}%</div>
+                        <div class="kv"><span>기간</span><span>${fmtDate(s.startAt)} ~ ${fmtDate(s.maturesAt)}</span></div>
+                        <div class="kv"><span>지금까지 쌓인 이자</span><span>+${savingsAccrued(s, now)}π</span></div>
+                        <div class="kv"><span>만기 시 받을 금액</span><b>${savingsPayout(s)}π</b></div>
+                        <div class="form-row"><button class="danger-btn" onclick="cancelSavingsByStudent('${s.id}')">중도 해지</button></div>
+                    </div>`;
+            });
+        }
+        html += `</div>`;
+        document.getElementById('bankTab-savings').innerHTML = html;
+        updateSavingsPreview();
+    }
+
+    function updateSavingsPreview() {
+        const preview = document.getElementById('savingsPreview');
+        if (!preview) return;
+        const amount = parsePositiveInt(document.getElementById('savingsAmountInput').value);
+        const weeks = Number(document.getElementById('savingsTermSelect').value);
+        if (!amount || amount < SAVINGS_MIN_AMOUNT) {
+            preview.textContent = `최소 ${SAVINGS_MIN_AMOUNT}π 이상의 정수를 입력해주세요.`;
+            return;
+        }
+        const payout = savingsPayout({ principal: amount, weeks, weeklyRatePct: savingsRatePct(weeks) });
+        preview.innerHTML = `👉 ${weeks}주 뒤 <b>${payout}π</b>를 받아요 (이자 +${payout - amount}π)`;
+    }
+
+    async function openSavings() {
+        const amount = parsePositiveInt(document.getElementById('savingsAmountInput').value);
+        const weeks = Number(document.getElementById('savingsTermSelect').value);
+        if (!amount || amount < SAVINGS_MIN_AMOUNT) {
+            alert(`적금은 최소 ${SAVINGS_MIN_AMOUNT}π 이상의 정수로 넣을 수 있어요.`);
+            return;
+        }
+        if (!SAVINGS_TERM_WEEKS.includes(weeks)) return;
+
+        await loadData();
+        const user = db.users[currentUser];
+        if (user.pi < amount) {
+            alert(`파이가 부족해요. (보유 ${user.pi}π)`);
+            return;
+        }
+
+        const now = Date.now();
+        const savings = {
+            id: makeId(), studentId: currentUser, principal: amount, weeks,
+            weeklyRatePct: savingsRatePct(weeks), startAt: now, maturesAt: now + weeks * WEEK_MS, status: 'active'
+        };
+        const payout = savingsPayout(savings);
+        if (!confirm(`${amount}π를 ${weeks}주 적금에 넣을까요?\n\n만기일: ${fmtDate(savings.maturesAt)}\n만기 시 받을 금액: ${payout}π`)) return;
+
+        user.pi -= amount;
+        db.bank.savings.push(savings);
+        addBankLog('savings', `🐷 ${user.name} 적금 가입: ${amount}π · ${weeks}주 (만기 ${payout}π)`, [currentUser]);
+
+        await saveData();
+        alert('적금 가입이 완료되었어요!');
+        renderStudentSection();
+    }
+
+    async function cancelSavingsByStudent(savingsId) {
+        await loadData();
+        const user = db.users[currentUser];
+        const s = db.bank.savings.find(x => x.id === savingsId && x.status === 'active' && x.studentId === currentUser);
+        if (!s) {
+            alert('이미 처리된 적금이에요.');
+            renderStudentSection();
+            return;
+        }
+
+        const penalty = Math.round(s.principal * SAVINGS_CANCEL_PENALTY_PCT / 100);
+        const refund = s.principal - penalty;
+        if (!confirm(`적금을 중도 해지할까요?\n\n원금 ${s.principal}π - 위약금 ${penalty}π = ${refund}π를 돌려받아요.\n쌓인 이자는 받을 수 없어요.`)) return;
+
+        user.pi += refund;
+        s.status = 'canceled';
+        s.closedAt = Date.now();
+        s.refund = refund;
+        s.canceledBy = 'student';
+        addBankLog('savings', `❌ ${user.name} 적금 중도 해지: ${refund}π 반환 (위약금 ${penalty}π)`, [currentUser]);
+        pruneBankRecords();
+
+        await saveData();
+        alert(`적금이 해지되어 ${refund}π를 돌려받았어요.`);
+        renderStudentSection();
+    }
+
+    // --- 송금 ---
+    function renderTransferTab() {
+        const user = db.users[currentUser];
+        const options = studentIds()
+            .filter(id => id !== currentUser)
+            .map(id => `<option value="${id}">${esc(db.users[id].name)} (${getGrade(db.users[id]).name})</option>`)
+            .join('');
+
+        document.getElementById('bankTab-transfer').innerHTML = `
+            <div class="card">
+                <h4>📤 송금하기</h4>
+                <p class="muted" style="margin-top: 0;">보유 파이: <b>${user.pi}π</b> · 가진 파이보다 많이 보낼 수는 없어요.</p>
+                <div class="form-row">
+                    <select id="transferTo"><option value="">받는 학생 선택</option>${options}</select>
+                    <input type="number" id="transferAmount" min="1" placeholder="금액">
+                    <span>π</span>
+                    <button onclick="sendTransfer()">송금하기</button>
+                </div>
+            </div>`;
+    }
+
+    async function sendTransfer() {
+        const toId = document.getElementById('transferTo').value;
+        const amount = parsePositiveInt(document.getElementById('transferAmount').value);
+        if (!toId) {
+            alert('받는 학생을 선택해주세요.');
+            return;
+        }
+        if (!amount) {
+            alert('보낼 금액을 1 이상의 정수로 입력해주세요.');
+            return;
+        }
+
+        await loadData();
+        const user = db.users[currentUser];
+        const target = db.users[toId];
+        if (!target || toId === currentUser || target.role !== 'student') {
+            alert('받는 학생을 다시 선택해주세요.');
+            return;
+        }
+        if (user.pi - amount < 0) {
+            alert(`보유 파이(${user.pi}π)보다 많이 보낼 수 없어요.`);
+            return;
+        }
+        if (!confirm(`${target.name}에게 ${amount}π를 보낼까요?`)) return;
+
+        user.pi -= amount;
+        target.pi += amount;
+        addBankLog('transfer', `📤 ${user.name} → ${target.name} ${amount}π 송금`, [currentUser, toId]);
+        notifyStudent(toId, { k: 'transfer', a: amount, from: currentUser });
+
+        await saveData();
+        alert(`${target.name}에게 ${amount}π를 보냈어요.`);
+        renderStudentSection();
+    }
+
+    // --- 거래 내역 ---
+    function renderHistoryTab() {
+        const logs = db.bank.logs.filter(l => (l.studentIds || []).includes(currentUser)).slice(0, 40);
+        document.getElementById('bankTab-history').innerHTML = logs.length === 0
+            ? '<p class="muted">아직 거래 내역이 없어요.</p>'
+            : logs.map(l => `
+                <div class="log-item">
+                    <span class="log-type type-${l.type}">${LOG_TYPE_LABELS[l.type] || l.type}</span>
+                    <span class="log-text">${esc(l.text)}</span>
+                    <span class="log-time">${fmtDateTime(l.createdAt)}</span>
+                </div>`).join('');
+    }
+
+    /* ===================== 관리자: 화면 이동 ===================== */
+    const LOG_TYPE_LABELS = { loan: '대출', savings: '적금', transfer: '송금', grade: '등급' };
+    let currentAdminSection = 'main';
+    const ADMIN_SECTION_RENDERERS = {
+        main: () => {},
+        notice: renderNotice,
+        usage: renderUsageRequests,
+        grant: renderGrantSection,
+        lotto: updateAdminLottoDisplay,
+        bank: renderAdminBank,
+        stock: renderAdminStock,
+        students: showAllStudents
+    };
+
+    function openAdminSection(name) {
+        if (isManager(db.users[currentUser]) && !MANAGER_SECTIONS.includes(name)) name = 'main';
+        currentAdminSection = name;
+        document.querySelectorAll('#adminPage > .section').forEach(el => {
+            el.classList.toggle('active', el.id === 'adm-' + name);
+        });
+        renderAdminSection();
+        window.scrollTo(0, 0);
+    }
+
+    function renderAdminSection() {
+        renderAdminBadges();
+        ADMIN_SECTION_RENDERERS[currentAdminSection]();
+    }
+
+    async function refreshAdminData() {
+        await loadData();
+        renderAdminSection();
+        if (document.getElementById('studentDetailModal').classList.contains('active')) renderStudentDetail();
+    }
+
+    function renderAdminBadges() {
+        const pending = db.usageRequests.filter(r => r.status === 'pending').length;
+        const unread = db.bank.logs.filter(l => !l.read).length;
+        document.getElementById('usageBadge').textContent = pending || '';
+        document.getElementById('bankBadge').textContent = unread || '';
+        document.getElementById('alertTabBadge').textContent = unread || '';
+    }
+
+    async function saveNotice() {
+        const text = document.getElementById('noticeInput').value.trim();
+        await loadData();
+        db.notice = text;
+        await saveData();
+        renderNotice();
+        alert("공지사항이 저장되었습니다.");
+    }
+
+    /* ===================== 관리자: 쿠폰 사용 요청 ===================== */
+    function renderUsageRequests() {
+        const container = document.getElementById('usageRequestList');
+        const pending = db.usageRequests.filter(r => r.status === 'pending');
+        if (pending.length === 0) {
+            container.innerHTML = '<p style="color:#888; margin: 0;">대기 중인 사용 요청이 없습니다.</p>';
+            return;
+        }
+        container.innerHTML = pending.map(req => `
+            <div class="detail-row" style="background:#fff3e0;">
+                <span><b>${esc(req.studentName)}</b>님이 <b>${esc(req.item)}</b> 쿠폰을 사용했습니다. <span class="log-time">(${new Date(req.requestedAt).toLocaleString('ko-KR')})</span></span>
+                <button class="small-btn" style="background-color:#EF6C00; color:#fff; margin:0;" onclick="completeUsageRequest('${req.id}')">완료 처리</button>
+            </div>`).join('');
+    }
+
+    async function completeUsageRequest(id) {
+        await loadData();
+        const req = db.usageRequests.find(r => r.id === id);
+        if (req && req.status === 'pending') {
+            req.status = 'completed';
+            req.completedAt = new Date().toISOString();
+            req.completedBy = actorName();
+            // 저장 크기 제한 때문에 완료된 요청은 최근 것만 남김
+            const completed = db.usageRequests.filter(r => r.status !== 'pending');
+            if (completed.length > MAX_COMPLETED_USAGE_REQUESTS) {
+                const keep = new Set(completed.slice(-MAX_COMPLETED_USAGE_REQUESTS));
+                db.usageRequests = db.usageRequests.filter(r => r.status === 'pending' || keep.has(r));
+            }
+            await saveData();
+        }
+        renderAdminSection();
+    }
+
+    /* ===================== 관리자: 파이 지급 / 차감 ===================== */
+    let selectedReason = null;
+
+    function setupAdminCheckboxList() {
+        document.getElementById('studentCheckboxList').innerHTML = studentIds().map(id => `
+            <label><input type="checkbox" name="studentChk" value="${id}"> ${id}번</label>`).join('');
+    }
+
+    function selectAllStudents(checked) {
+        document.querySelectorAll('input[name="studentChk"]').forEach(cb => { cb.checked = checked; });
+    }
+
+    function reasonButton(kind, idx, reason) {
+        const selected = selectedReason && selectedReason.kind === kind && selectedReason.idx === idx;
+        return `<button class="reason-btn ${kind} ${selected ? 'selected' : ''}" onclick="selectReason('${kind}', ${idx})">
+            <span>${reason.icon} ${reason.label}</span><b>${signed(reason.amount)}π</b>
+        </button>`;
+    }
+
+    function renderGrantSection() {
+        document.getElementById('rewardReasonGrid').innerHTML = PI_REWARD_REASONS.map((r, i) => reasonButton('plus', i, r)).join('');
+        document.getElementById('penaltyReasonGrid').innerHTML = PI_PENALTY_REASONS.map((r, i) => reasonButton('minus', i, r)).join('');
+
+        const panel = document.getElementById('grantPanel');
+        panel.hidden = !selectedReason;
+        if (!selectedReason) return;
+
+        const r = selectedReason;
+        document.getElementById('grantReasonLabel').innerHTML =
+            `${r.icon} <b>${esc(r.label)}</b> <span class="${r.amount > 0 ? 'plus-text' : 'minus-text'}">${signed(r.amount)}π</span>`;
+        document.getElementById('grantApplyBtn').textContent = r.amount > 0 ? '선택한 학생에게 지급' : '선택한 학생 파이 차감';
+    }
+
+    function selectReason(kind, idx) {
+        if (kind === 'custom') {
+            const amount = Number(document.getElementById('customPiAmount').value);
+            if (!Number.isInteger(amount) || amount === 0) {
+                alert('0이 아닌 정수를 입력하세요. (차감은 앞에 - 입력)');
+                return;
+            }
+            const label = document.getElementById('customPiLabel').value.trim() || '직접 입력';
+            selectedReason = { kind, idx: 0, icon: '✏️', label, amount };
+        } else {
+            const reason = (kind === 'plus' ? PI_REWARD_REASONS : PI_PENALTY_REASONS)[idx];
+            selectedReason = { kind, idx, ...reason };
+        }
+        renderGrantSection();
+        document.getElementById('grantPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    async function applyReason() {
+        if (!selectedReason) return;
+        const ids = [...document.querySelectorAll('input[name="studentChk"]:checked')].map(cb => cb.value);
+        if (ids.length === 0) {
+            alert("선택된 학생이 없습니다. 학생을 체크해주세요.");
+            return;
+        }
+        const r = selectedReason;
+        if (!confirm(`[${r.label}] ${signed(r.amount)}π를 ${ids.length}명에게 적용할까요?\n\n${ids.map(id => id + '번').join(', ')}`)) return;
+
+        await loadData();
+        ids.forEach(id => {
+            db.users[id].pi += r.amount;
+            notifyStudent(id, { k: 'grant', a: r.amount, x: r.label });
+        });
+        await saveData();
+
+        alert(`[${r.label}] ${ids.length}명에게 ${signed(r.amount)}π 적용 완료`);
+        selectAllStudents(false);
+        renderAdminSection();
+    }
+
+    /* ===================== 관리자: 로또 ===================== */
+    function updateAdminLottoDisplay() {
+        document.getElementById('adminPot').innerText = db.lotto.currentPot + db.lotto.rolloverPot;
+        document.getElementById('adminRollover').innerText = db.lotto.rolloverPot;
+        document.getElementById('adminBasePrize1').innerText = BASE_PRIZE_1ST;
+        document.getElementById('adminBasePrize2').innerText = BASE_PRIZE_2ND;
+    }
+
+    async function drawLotto() {
+        const inputStr = document.getElementById('winningNumbersInput').value;
+        let winNums = inputStr.split(',').map(n => parseInt(n.trim()));
+        winNums = [...new Set(winNums.filter(n => !isNaN(n) && n >= 1 && n <= 20))];
+        if (winNums.length !== 5) {
+            alert("당첨 번호 5개를 정확히 입력하세요.");
+            return;
+        }
+        if (!confirm("추첨을 시작하시겠습니까?\n이 작업은 되돌릴 수 없으며, 모든 학생의 티켓이 정산 후 삭제됩니다.")) return;
+
+        await loadData();
+        const totalPot = db.lotto.currentPot + db.lotto.rolloverPot;
+        const winners1st = [];
+        const winners2nd = [];
+        const drawDate = new Date().toISOString();
+        // 학생별 당첨 요약 (알림용): { 등수: 장수 }, 받은 파이
+        const wins = {};
+        const recordWin = (id, rank, pi = 0) => {
+            wins[id] = wins[id] || { ranks: {}, pi: 0 };
+            wins[id].ranks[rank] = (wins[id].ranks[rank] || 0) + 1;
+            wins[id].pi += pi;
+        };
+
+        let resultLog = `<h4 style="margin-top:0;">🎉 당첨 번호: ${winNums.join(', ')}</h4>`;
+        resultLog += `<p>총 상금: <b>${totalPot} π</b></p><ul style="padding-left: 20px;">`;
+
+        studentIds().forEach(id => {
+            const user = db.users[id];
+            const ticketResults = [];
+            user.lottoTickets.forEach(ticket => {
+                const matchCount = ticket.filter(num => winNums.includes(num)).length;
+                const resultEntry = { numbers: ticket, matchCount, rewardText: "낙첨" };
+                if (matchCount === 2) {
+                    user.inventory.push("간식 교환권");
+                    resultEntry.rewardText = "4등 당첨! (간식 교환권 지급)";
+                    resultLog += `<li>[4등] ${esc(user.name)} - 간식 교환권</li>`;
+                    recordWin(id, 4);
+                } else if (matchCount === 3) {
+                    user.inventory.push("청소 면제권");
+                    resultEntry.rewardText = "3등 당첨! (청소 면제권 지급)";
+                    resultLog += `<li>[3등] ${esc(user.name)} - 청소 면제권</li>`;
+                    recordWin(id, 3);
+                } else if (matchCount === 4) {
+                    winners2nd.push({ id, user, resultEntry });
+                } else if (matchCount === 5) {
+                    winners1st.push({ id, user, resultEntry });
+                }
+                ticketResults.push(resultEntry);
+            });
+            user.lottoTickets = [];
+            user.lastLottoResult = { winNums: winNums.slice(), date: drawDate, tickets: ticketResults };
+        });
+
+        let nextRollover = 0;
+
+        const prize1st = Math.floor(totalPot * 0.4);
+        if (winners1st.length > 0) {
+            const splitPrize = Math.floor(prize1st / winners1st.length);
+            winners1st.forEach(w => {
+                const totalPrize = BASE_PRIZE_1ST + splitPrize;
+                w.user.pi += totalPrize;
+                recordWin(w.id, 1, totalPrize);
+                w.resultEntry.rewardText = `1등 당첨! (+${totalPrize}π = 기본 ${BASE_PRIZE_1ST}π + 상금 ${splitPrize}π)`;
+            });
+            resultLog += `<li><b style="color:blue">[1등]</b> ${winners1st.length}명 당첨! (각 기본 ${BASE_PRIZE_1ST}π + 상금 ${splitPrize}π)</li>`;
+        } else {
+            nextRollover += prize1st;
+            resultLog += `<li><span style="color:gray">[1등] 당첨자 없음 (${prize1st}π 이월)</span></li>`;
+        }
+
+        const prize2nd = Math.floor(totalPot * 0.3);
+        if (winners2nd.length > 0) {
+            const splitPrize = Math.floor(prize2nd / winners2nd.length);
+            winners2nd.forEach(w => {
+                const totalPrize = BASE_PRIZE_2ND + splitPrize;
+                w.user.pi += totalPrize;
+                recordWin(w.id, 2, totalPrize);
+                w.resultEntry.rewardText = `2등 당첨! (+${totalPrize}π = 기본 ${BASE_PRIZE_2ND}π + 상금 ${splitPrize}π)`;
+            });
+            resultLog += `<li><b style="color:green">[2등]</b> ${winners2nd.length}명 당첨! (각 기본 ${BASE_PRIZE_2ND}π + 상금 ${splitPrize}π)</li>`;
+        } else {
+            nextRollover += prize2nd;
+            resultLog += `<li><span style="color:gray">[2등] 당첨자 없음 (${prize2nd}π 이월)</span></li>`;
+        }
+
+        db.lotto.rolloverPot = nextRollover;
+        db.lotto.currentPot = 0;
+        resultLog += `</ul><p style="margin-bottom:0; color:#d84315;"><strong>👉 다음 주 이월 상금: ${nextRollover} π</strong></p>`;
+
+        Object.entries(wins).forEach(([id, win]) => {
+            const summary = [1, 2, 3, 4].filter(rank => win.ranks[rank]).map(rank => `${rank}등 ${win.ranks[rank]}장`).join(' · ');
+            notifyStudent(id, { k: 'lotto', a: win.pi, x: summary });
+        });
+
+        await saveData();
+
+        const resultArea = document.getElementById('lottoResultArea');
+        resultArea.innerHTML = resultLog;
+        resultArea.style.display = 'block';
+        renderAdminSection();
+    }
+
+    /* ===================== 관리자: 은행 ===================== */
+    let currentAdminBankTab = 'loans';
+    let currentAlertFilter = 'all';
+
+    function openAdminBankTab(tab) {
+        currentAdminBankTab = tab;
+        renderAdminBank();
+    }
+
+    function renderAdminBank() {
+        document.querySelectorAll('#adm-bank .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === currentAdminBankTab));
+        ({ loans: renderAdminLoans, savings: renderAdminSavings, grades: renderAdminGrades, alerts: renderAdminAlerts })[currentAdminBankTab]();
+    }
+
+    // --- 대출 관리 ---
+    function renderAdminLoans() {
+        const now = Date.now();
+        const active = db.bank.loans.filter(l => l.status === 'active').sort((a, b) => a.dueAt - b.dueAt);
+        const closed = db.bank.loans.filter(l => l.status !== 'active').sort((a, b) => b.closedAt - a.closedAt).slice(0, 15);
+
+        let html = `<p class="muted">진행 중인 대출 <b>${active.length}</b>건 · 기한이 가까운 순서</p>`;
+        if (active.length === 0) html += `<p class="muted">진행 중인 대출이 없습니다.</p>`;
+
+        active.forEach(loan => {
+            const user = db.users[loan.studentId];
+            html += `
+                <div class="record ${now > loan.dueAt ? 'record-danger' : ''}">
+                    <div class="record-head">${esc(user.name)} ${gradeBadge(user)} <span class="status">${loanStatusText(loan, now)}</span></div>
+                    <div class="kv-grid">
+                        <span>원금 <b>${loan.principal}π</b></span>
+                        <span>이자 <b>${loanInterest(loan, now)}π</b></span>
+                        <span>상환 <b>${loan.paid}π</b></span>
+                        <span>남은 금액 <b>${loanRemaining(loan, now)}π</b></span>
+                        <span>대출일 ${fmtDate(loan.startAt)}</span>
+                        <span>기한 ${fmtDate(loan.dueAt)}</span>
+                    </div>
+                    <div class="form-row">
+                        <input type="date" id="loanDue-${loan.id}" value="${toDateInputValue(loan.dueAt)}">
+                        <button class="small-btn" onclick="setLoanDue('${loan.id}')">기한 변경</button>
+                        <button class="small-btn" onclick="extendLoanDue('${loan.id}')">+1주 연장</button>
+                        <button class="danger-btn" onclick="cancelLoanByAdmin('${loan.id}')">대출 취소</button>
+                    </div>
+                </div>`;
+        });
+
+        if (closed.length > 0) {
+            html += `<h4 style="margin-bottom: 8px;">📁 최근 종료된 대출</h4>`;
+            closed.forEach(loan => {
+                const user = db.users[loan.studentId];
+                const label = loan.status === 'repaid' ? '✅ 상환 완료' : '❌ 취소';
+                html += `<div class="log-item"><span class="log-text">${esc(user ? user.name : loan.studentId)} · 원금 ${loan.principal}π · 상환 ${loan.paid}π · ${label}</span><span class="log-time">${fmtDateTime(loan.closedAt)}</span></div>`;
+            });
+        }
+        document.getElementById('adminBankContent').innerHTML = html;
+    }
+
+    async function updateLoanDue(loanId, computeDue) {
+        await loadData();
+        const loan = db.bank.loans.find(l => l.id === loanId && l.status === 'active');
+        if (!loan) {
+            alert('이미 종료된 대출입니다.');
+            renderAdminSection();
+            return;
+        }
+        loan.dueAt = computeDue(loan);
+        // 새 기한 기준으로 연체 벌칙을 다시 세도록, 이미 지난 주차는 적용된 것으로 처리
+        loan.penaltiesApplied = loanOverdueWeeks(loan);
+        addBankLog('loan', `🗓️ [${actorName()}] ${db.users[loan.studentId].name} 대출 기한 변경 → ${fmtDate(loan.dueAt)}`, [loan.studentId]);
+        await saveData();
+        renderAdminSection();
+    }
+
+    function setLoanDue(loanId) {
+        const value = document.getElementById('loanDue-' + loanId).value;
+        if (!value) {
+            alert('날짜를 선택해주세요.');
+            return;
+        }
+        return updateLoanDue(loanId, () => new Date(value + 'T23:59:59').getTime());
+    }
+
+    function extendLoanDue(loanId) {
+        return updateLoanDue(loanId, loan => loan.dueAt + WEEK_MS);
+    }
+
+    async function cancelLoanByAdmin(loanId) {
+        await loadData();
+        const loan = db.bank.loans.find(l => l.id === loanId && l.status === 'active');
+        if (!loan) {
+            alert('이미 종료된 대출입니다.');
+            renderAdminSection();
+            return;
+        }
+        const user = db.users[loan.studentId];
+        const change = loan.paid - loan.principal;
+        if (!confirm(`${user.name}의 대출을 취소할까요?\n\n빌려준 원금 ${loan.principal}π를 회수하고, 지금까지 갚은 ${loan.paid}π는 돌려줍니다.\n→ 학생 파이 ${signed(change)}π`)) return;
+
+        user.pi += change;
+        loan.status = 'canceled';
+        loan.closedAt = Date.now();
+        addBankLog('loan', `❌ [${actorName()}] ${user.name} 대출 취소 (학생 파이 ${signed(change)}π)`, [loan.studentId]);
+        notifyStudent(loan.studentId, { k: 'bank', a: change, x: '대출이 취소됐어요' });
+        pruneBankRecords();
+        await saveData();
+        renderAdminSection();
+    }
+
+    // --- 적금 관리 ---
+    function renderAdminSavings() {
+        const now = Date.now();
+        const active = db.bank.savings.filter(s => s.status === 'active').sort((a, b) => a.maturesAt - b.maturesAt);
+        const closed = db.bank.savings.filter(s => s.status !== 'active').sort((a, b) => b.closedAt - a.closedAt).slice(0, 15);
+
+        let html = `<p class="muted">진행 중인 적금 <b>${active.length}</b>건 · 만기가 가까운 순서</p>`;
+        if (active.length === 0) html += `<p class="muted">진행 중인 적금이 없습니다.</p>`;
+
+        active.forEach(s => {
+            const user = db.users[s.studentId];
+            html += `
+                <div class="record">
+                    <div class="record-head">${esc(user.name)} ${gradeBadge(user)} <span class="status">만기 ${fmtDate(s.maturesAt)}</span></div>
+                    <div class="kv-grid">
+                        <span>원금 <b>${s.principal}π</b></span>
+                        <span>기간 <b>${s.weeks}주</b> (1주 ${s.weeklyRatePct}%)</span>
+                        <span>쌓인 이자 <b>${savingsAccrued(s, now)}π</b></span>
+                        <span>만기 지급 <b>${savingsPayout(s)}π</b></span>
+                        <span>가입일 ${fmtDate(s.startAt)}</span>
+                    </div>
+                    <div class="form-row">
+                        <input type="date" id="savingsDue-${s.id}" value="${toDateInputValue(s.maturesAt)}">
+                        <button class="small-btn" onclick="setSavingsDue('${s.id}')">만기일 변경</button>
+                        <button class="small-btn" onclick="extendSavingsDue('${s.id}')">+1주 연장</button>
+                        <button class="danger-btn" onclick="cancelSavingsByAdmin('${s.id}')">적금 취소</button>
+                    </div>
+                </div>`;
+        });
+
+        if (closed.length > 0) {
+            html += `<h4 style="margin-bottom: 8px;">📁 최근 종료된 적금</h4>`;
+            closed.forEach(s => {
+                const user = db.users[s.studentId];
+                const label = s.status === 'completed'
+                    ? `🎉 만기 지급 ${s.paidOut}π`
+                    : `❌ ${s.canceledBy === 'admin' ? '관리자 취소' : '중도 해지'} (${s.refund}π 반환)`;
+                html += `<div class="log-item"><span class="log-text">${esc(user ? user.name : s.studentId)} · 원금 ${s.principal}π · ${s.weeks}주 · ${label}</span><span class="log-time">${fmtDateTime(s.closedAt)}</span></div>`;
+            });
+        }
+        document.getElementById('adminBankContent').innerHTML = html;
+    }
+
+    async function updateSavingsDue(savingsId, computeDue) {
+        await loadData();
+        const s = db.bank.savings.find(x => x.id === savingsId && x.status === 'active');
+        if (!s) {
+            alert('이미 종료된 적금입니다.');
+            renderAdminSection();
+            return;
+        }
+        s.maturesAt = computeDue(s);
+        addBankLog('savings', `🗓️ [${actorName()}] ${db.users[s.studentId].name} 적금 만기일 변경 → ${fmtDate(s.maturesAt)}`, [s.studentId]);
+        applyTimeBasedUpdates();
+        await saveData();
+        renderAdminSection();
+    }
+
+    function setSavingsDue(savingsId) {
+        const value = document.getElementById('savingsDue-' + savingsId).value;
+        if (!value) {
+            alert('날짜를 선택해주세요.');
+            return;
+        }
+        return updateSavingsDue(savingsId, () => new Date(value + 'T00:00:00').getTime());
+    }
+
+    function extendSavingsDue(savingsId) {
+        return updateSavingsDue(savingsId, s => s.maturesAt + WEEK_MS);
+    }
+
+    async function cancelSavingsByAdmin(savingsId) {
+        await loadData();
+        const s = db.bank.savings.find(x => x.id === savingsId && x.status === 'active');
+        if (!s) {
+            alert('이미 종료된 적금입니다.');
+            renderAdminSection();
+            return;
+        }
+        const user = db.users[s.studentId];
+        if (!confirm(`${user.name}의 적금을 취소할까요?\n\n위약금 없이 원금 ${s.principal}π 전액을 돌려줍니다. (이자 없음)`)) return;
+
+        user.pi += s.principal;
+        s.status = 'canceled';
+        s.closedAt = Date.now();
+        s.refund = s.principal;
+        s.canceledBy = 'admin';
+        addBankLog('savings', `❌ [${actorName()}] ${user.name} 적금 취소 (원금 ${s.principal}π 반환)`, [s.studentId]);
+        notifyStudent(s.studentId, { k: 'bank', a: s.principal, x: '적금이 취소되어 원금을 돌려받았어요' });
+        pruneBankRecords();
+        await saveData();
+        renderAdminSection();
+    }
+
+    // --- 회원등급 관리 ---
+    function renderAdminGrades() {
+        const guideRows = GRADES.map((g, i) => `
+            <tr><td>${gradeBadgeByIndex(i)}</td><td>${g.minExp}</td><td>${g.loanLimit}π</td><td style="font-size: 13px;">${g.benefit || '-'}</td></tr>`).join('');
+
+        const studentRows = studentIds().map(id => {
+            const user = db.users[id];
+            const idx = gradeIndexOf(user.exp);
+            const next = GRADES[idx + 1];
+            return `
+                <tr>
+                    <td>${esc(user.name)}</td>
+                    <td>${gradeBadge(user)}</td>
+                    <td>${user.exp}${next ? `<div class="log-time">다음 등급까지 ${next.minExp - user.exp}</div>` : ''}</td>
+                    <td>
+                        <select id="gradeSel-${id}" style="margin: 0;">
+                            ${GRADES.map((g, i) => `<option value="${i}" ${i === idx ? 'selected' : ''}>${g.icon} ${g.name}</option>`).join('')}
+                        </select>
+                        <button class="small-btn" onclick="setStudentGrade('${id}')">변경</button>
+                    </td>
+                    <td>
+                        <input type="number" id="expDelta-${id}" placeholder="±" style="width: 70px; margin: 0;">
+                        <button class="small-btn" onclick="adjustStudentExp('${id}')">적용</button>
+                    </td>
+                </tr>`;
+        }).join('');
+
+        document.getElementById('adminBankContent').innerHTML = `
+            <div class="card">
+                <h4>🏅 등급 기준</h4>
+                <p class="muted" style="margin-top: 0;">쿠폰·로또 구매 시 기본 가격 1π당 경험치 1 · 대출 1주 연체 시 경험치 -${LOAN_OVERDUE_EXP_PENALTY}, 2주째부터 1주마다 한 등급 하락</p>
+                <div class="table-scroll">
+                    <table><thead><tr><th>등급</th><th>필요 경험치</th><th>대출 한도</th><th>혜택</th></tr></thead><tbody>${guideRows}</tbody></table>
+                </div>
+            </div>
+            <p class="muted">등급을 바꾸면 경험치가 그 등급의 시작 값으로 맞춰져요.</p>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>이름</th><th>등급</th><th>경험치</th><th>등급 변경</th><th>경험치 조정</th></tr></thead>
+                    <tbody>${studentRows}</tbody>
+                </table>
+            </div>`;
+    }
+
+    async function setStudentGrade(userId) {
+        const targetIdx = Number(document.getElementById('gradeSel-' + userId).value);
+        await loadData();
+        const user = db.users[userId];
+        if (gradeIndexOf(user.exp) === targetIdx) {
+            alert('이미 해당 등급입니다.');
+            return;
+        }
+        addExp(userId, GRADES[targetIdx].minExp - user.exp, `${actorName()} 변경`);
+        await saveData();
+        renderAdminSection();
+    }
+
+    async function adjustStudentExp(userId) {
+        const delta = Number(document.getElementById('expDelta-' + userId).value);
+        if (!Number.isInteger(delta) || delta === 0) {
+            alert('0이 아닌 정수를 입력하세요. (감소는 앞에 - 입력)');
+            return;
+        }
+        await loadData();
+        addExp(userId, delta, `${actorName()} 조정`);
+        await saveData();
+        renderAdminSection();
+    }
+
+    // --- 알림 ---
+    function renderAdminAlerts() {
+        const filters = [['all', '전체'], ['loan', '대출'], ['savings', '적금'], ['transfer', '송금'], ['grade', '등급']];
+        const unreadCount = type => db.bank.logs.filter(l => !l.read && (type === 'all' || l.type === type)).length;
+        const logs = db.bank.logs.filter(l => currentAlertFilter === 'all' || l.type === currentAlertFilter).slice(0, 100);
+
+        let html = `<div class="form-row" style="margin-top: 0; margin-bottom: 12px;">`;
+        filters.forEach(([key, label]) => {
+            html += `<button class="filter-btn ${currentAlertFilter === key ? 'active' : ''}" onclick="setAlertFilter('${key}')">${label}<span class="badge-count">${unreadCount(key) || ''}</span></button>`;
+        });
+        html += `<button class="small-btn" style="margin-left: auto;" onclick="markAllLogsRead()">모두 확인</button></div>`;
+
+        if (logs.length === 0) {
+            html += `<p class="muted">알림이 없습니다.</p>`;
+        } else {
+            html += logs.map(l => `
+                <div class="log-item ${l.read ? '' : 'unread'}">
+                    <span class="log-type type-${l.type}">${LOG_TYPE_LABELS[l.type] || l.type}</span>
+                    <span class="log-text">${esc(l.text)}</span>
+                    <span class="log-time">${fmtDateTime(l.createdAt)}</span>
+                    ${l.read ? '' : `<button class="small-btn" style="margin: 0;" onclick="markLogRead('${l.id}')">확인</button>`}
+                </div>`).join('');
+        }
+        document.getElementById('adminBankContent').innerHTML = html;
+    }
+
+    function setAlertFilter(filter) {
+        currentAlertFilter = filter;
+        renderAdminAlerts();
+    }
+
+    async function markLogRead(logId) {
+        await loadData();
+        const log = db.bank.logs.find(l => l.id === logId);
+        if (log) log.read = true;
+        await saveData();
+        renderAdminSection();
+    }
+
+    async function markAllLogsRead() {
+        await loadData();
+        db.bank.logs.forEach(l => {
+            if (currentAlertFilter === 'all' || l.type === currentAlertFilter) l.read = true;
+        });
+        await saveData();
+        renderAdminSection();
+    }
+
+    /* ===================== 관리자: 학생 현황 / 상세 ===================== */
+    function showAllStudents() {
+        const now = Date.now();
+        document.getElementById('adminStudentTableBody').innerHTML = studentIds().map(id => {
+            const u = db.users[id];
+            const coupons = u.inventory.length > 0 ? u.inventory.map(esc).join('<br>') : '<span style="color: #aaa;">없음</span>';
+            const lottoCount = u.lottoTickets.length > 0
+                ? `<strong style="color: #ff5722;">${u.lottoTickets.length}장</strong>`
+                : '<span style="color: #aaa;">0장</span>';
+            const loan = activeLoanOf(id);
+            const loanCell = loan
+                ? `<b style="color: ${now > loan.dueAt ? '#C62828' : '#EF6C00'};">${loanRemaining(loan, now)}π</b>${now > loan.dueAt ? '<div class="log-time">연체</div>' : ''}`
+                : '<span style="color: #aaa;">-</span>';
+            const savings = activeSavingsOf(id);
+            const savingsCell = savings.length > 0
+                ? `${savings.length}건<div class="log-time">${savings.reduce((sum, s) => sum + s.principal, 0)}π</div>`
+                : '<span style="color: #aaa;">-</span>';
+            return `
+                <tr class="clickable-row" onclick="openStudentDetail('${id}')">
+                    <td><strong>${esc(u.name)}</strong><br>${gradeBadge(u)}</td>
+                    <td style="color: #EF6C00; font-weight: bold;">${u.pi} π</td>
+                    <td style="font-size: 13px;">${coupons}</td>
+                    <td>${lottoCount}</td>
+                    <td>${loanCell}</td>
+                    <td>${savingsCell}</td>
+                </tr>`;
+        }).join('');
+    }
+
+    let detailStudentId = null;
+
+    function openStudentDetail(id) {
+        detailStudentId = String(id);
+        renderStudentDetail();
+        document.getElementById('studentDetailModal').classList.add('active');
+    }
+
+    function closeStudentDetail() {
+        document.getElementById('studentDetailModal').classList.remove('active');
+        detailStudentId = null;
+    }
+
+    function renderStudentDetail() {
+        const user = db.users[detailStudentId];
+        if (!user) return;
+        const now = Date.now();
+
+        document.getElementById('studentDetailName').innerText = `${user.name} 상세 정보`;
+        document.getElementById('studentDetailSummary').innerHTML = `
+            <div class="kv"><span>보유 화폐</span><b style="color: #EF6C00;">${user.pi} π</b></div>
+            <div class="kv"><span>회원 등급</span><span>${gradeBadge(user)} 경험치 ${user.exp}</span></div>`;
+
+        document.getElementById('studentDetailCoupons').innerHTML = user.inventory.length === 0
+            ? '<li style="color:#888; font-size:14px;">보유한 쿠폰이 없습니다.</li>'
+            : user.inventory.map((item, idx) => `
+                <li class="detail-row">
+                    ${esc(item)}
+                    <button class="small-btn" style="margin:0; background-color:#EF6C00; color:#fff;" onclick="refundCoupon(${idx})">환불</button>
+                </li>`).join('');
+
+        document.getElementById('studentDetailLotto').innerHTML = user.lottoTickets.length === 0
+            ? '<li style="color:#888; font-size:14px;">구매한 로또가 없습니다.</li>'
+            : user.lottoTickets.map((ticket, idx) => `
+                <li class="detail-row">
+                    [${idx + 1}번] ${ticket.join(', ')}
+                    <button class="small-btn" style="margin:0; background-color:#EF6C00; color:#fff;" onclick="refundLotto(${idx})">환불</button>
+                </li>`).join('');
+
+        const loan = activeLoanOf(detailStudentId);
+        const savings = activeSavingsOf(detailStudentId);
+        let bankHtml = loan
+            ? `<div class="detail-row ${now > loan.dueAt ? 'record-danger' : ''}"><span>💸 대출 ${loan.principal}π · 남은 금액 <b>${loanRemaining(loan, now)}π</b></span><span>${loanStatusText(loan, now)}</span></div>`
+            : '<div class="detail-row"><span style="color:#888;">진행 중인 대출이 없습니다.</span></div>';
+        bankHtml += savings.length === 0
+            ? '<div class="detail-row"><span style="color:#888;">진행 중인 적금이 없습니다.</span></div>'
+            : savings.map(s => `<div class="detail-row"><span>🐷 적금 ${s.principal}π · ${s.weeks}주 · 만기 ${savingsPayout(s)}π</span><span>${fmtDate(s.maturesAt)}</span></div>`).join('');
+        bankHtml += `<p class="muted" style="margin-bottom: 0;">대출·적금 기한 변경과 취소는 은행 관리에서 할 수 있어요.</p>`;
+        document.getElementById('studentDetailBank').innerHTML = bankHtml;
+
+        const holdings = COMPANIES.map(c => ({ c, h: holdingOf(user, c.id) })).filter(x => x.h.qty > 0);
+        document.getElementById('studentDetailStock').innerHTML = holdings.length === 0
+            ? '<div class="detail-row"><span style="color:#888;">보유한 주식이 없습니다.</span></div>'
+            : holdings.map(({ c, h }) => `
+                <div class="detail-row">
+                    <span><span class="series-key" style="background: ${c.color};"></span> ${c.icon} ${c.name} <b>${h.qty}주</b></span>
+                    <span>평균 ${Math.round(h.cost / h.qty)}π · 현재 ${db.stocks.companies[c.id].price}π</span>
+                </div>`).join('');
+    }
+
+    // 쿠폰 환불: 학생의 현재 등급 할인가 기준으로 파이를 돌려줌
+    async function refundCoupon(index) {
+        await loadData();
+        const user = db.users[detailStudentId];
+        const itemName = user.inventory[index];
+        if (itemName === undefined) {
+            renderStudentDetail();
+            return;
+        }
+        const coupon = COUPONS.find(c => c.name === itemName);
+        const price = coupon ? couponPriceFor(detailStudentId, coupon) : 0;
+
+        if (!confirm(`[${itemName}] 쿠폰을 환불하시겠습니까?\n${price}π가 반환됩니다.`)) return;
+
+        user.inventory.splice(index, 1);
+        user.pi += price;
+        notifyStudent(detailStudentId, { k: 'refund', a: price, x: itemName });
+        await saveData();
+        renderStudentDetail();
+        renderAdminSection();
+    }
+
+    // 로또 환불: 티켓 가격만큼 돌려주고 누적 상금에서도 차감
+    async function refundLotto(index) {
+        await loadData();
+        const user = db.users[detailStudentId];
+        if (!user.lottoTickets[index]) {
+            renderStudentDetail();
+            return;
+        }
+        const refund = lottoPriceFor(detailStudentId);
+        if (!confirm(`[${index + 1}번] 로또 티켓을 환불하시겠습니까?\n${refund}π가 반환됩니다.`)) return;
+
+        user.lottoTickets.splice(index, 1);
+        user.pi += refund;
+        db.lotto.currentPot = Math.max(0, db.lotto.currentPot - LOTTO_TICKET_PRICE);
+        notifyStudent(detailStudentId, { k: 'refund', a: refund, x: '로또 티켓' });
+        await saveData();
+        renderStudentDetail();
+        renderAdminSection();
+    }
+
+    /* ===================== 주식: 시장 알고리즘 ===================== */
+    function clamp(n, lo, hi) {
+        return Math.min(hi, Math.max(lo, n));
+    }
+    function companyById(id) {
+        return COMPANIES.find(c => c.id === id);
+    }
+    function pairKey(a, b) {
+        return [a, b].sort().join('|');
+    }
+    // 받침 유무에 따라 조사를 붙임 (예: 도후식품이 / 태훈전자가)
+    function josa(word, withBatchim, withoutBatchim) {
+        const code = word.charCodeAt(word.length - 1) - 0xAC00;
+        const hasBatchim = code >= 0 && code <= 11171 && code % 28 !== 0;
+        return word + (hasBatchim ? withBatchim : withoutBatchim);
+    }
+    function mulberry32(seed) {
+        let a = seed >>> 0;
+        return function () {
+            a = (a + 0x6D2B79F5) >>> 0;
+            let t = a;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    function initStockMarket(now) {
+        const tick = Math.floor(now / STOCK_TICK_MS);
+        const companies = {};
+        COMPANIES.forEach(c => { companies[c.id] = { price: c.startPrice, anchor: c.startPrice, mood: 0, history: [c.startPrice] }; });
+        return {
+            seed: STOCK_SEED, eventCount: 0, marketMood: 0,
+            lastTick: tick, historyStartTick: tick,
+            companies, contracts: [], contractProjects: {}, trades: [],
+            flow: emptyStockFlow(stockWeekOf(now)),
+            news: [{
+                id: 'n0', t: now, kind: 'open', sentiment: 'good', deltas: {}, ai: true,
+                title: '학급 주식시장 개장!',
+                body: '태훈전자, 땍이네 땍배, 도후식품, 23제약 네 회사의 주식을 사고팔 수 있어요. 30분마다 네 회사의 경제 뉴스가 하나씩 나오고, 뉴스에 따라 주가가 오르내립니다.'
+            }]
+        };
+    }
+
+    /* ===================== 주식: 매주 학생 거래 반영 ===================== */
+    // 한국 시간 월요일 0시에 바뀌는 주 번호 (1970년 1월 1일이 목요일이라 4일을 뺌)
+    function stockWeekOf(ms) {
+        return Math.floor((ms + KST_OFFSET_MS - 4 * DAY_MS) / WEEK_MS);
+    }
+    function stockWeekStart(week) {
+        return week * WEEK_MS + 4 * DAY_MS - KST_OFFSET_MS;
+    }
+    function emptyStockFlow(week) {
+        return { week, buy: {}, sell: {} };
+    }
+
+    function stockFlowChange(price, net) {
+        const pct = clamp(net * STOCK_FLOW_PCT_PER_SHARE, -STOCK_FLOW_MAX_PCT, STOCK_FLOW_MAX_PCT);
+        const after = clamp(price + Math.round(price * pct / 100), STOCK_MIN_PRICE, STOCK_MAX_PRICE);
+        return { pct, delta: after - price, after };
+    }
+
+    function recordStockFlow(side, companyId, qty) {
+        const flow = db.stocks.flow;
+        flow[side][companyId] = (flow[side][companyId] || 0) + qty;
+    }
+
+    // 새 주의 첫 회차를 처리하기 전에 지난주 학생 거래를 주가에 반영. 기준가도 같이 옮겨서 뉴스가 곧바로 되돌리지 않음
+    function settleStockFlow(time) {
+        const st = db.stocks;
+        const week = stockWeekOf(time);
+        if (week <= st.flow.week) return;
+        const items = {};
+        COMPANIES.forEach(c => {
+            const buy = st.flow.buy[c.id] || 0;
+            const sell = st.flow.sell[c.id] || 0;
+            if (buy + sell === 0) return;
+            const s = st.companies[c.id];
+            const { pct, delta, after } = stockFlowChange(s.price, buy - sell);
+            items[c.id] = { buy, sell, pct, before: s.price, after };
+            s.price = after;
+            s.anchor = Math.max(STOCK_MIN_PRICE, Math.round((s.anchor + delta) * 1000) / 1000);
+        });
+        // 거래가 없던 주는 지난 결과를 그대로 보여줌
+        if (Object.keys(items).length > 0) st.lastFlow = { week: st.flow.week, t: stockWeekStart(week), items };
+        st.flow = emptyStockFlow(week);
+    }
+
+    // 예전 1시간 단위 데이터(lastTickHour)를 30분 단위(lastTick)로 바꿈. 바꿨으면 true
+    function migrateStockTicks(st) {
+        if (typeof st.lastTick === 'number' || typeof st.lastTickHour !== 'number') return false;
+        st.lastTick = st.lastTickHour * 2;
+        st.historyStartTick = st.historyStartHour * 2;
+        COMPANIES.forEach(c => {
+            const history = st.companies[c.id].history;
+            st.companies[c.id].history = history.flatMap((p, i) => (i < history.length - 1 ? [p, p] : [p]));
+        });
+        delete st.lastTickHour;
+        delete st.historyStartHour;
+        return true;
+    }
+
+    function rollMagnitude(rand) {
+        const r = rand();
+        const m = NEWS_MAGNITUDES.find(x => r < x.chance) || NEWS_MAGNITUDES[NEWS_MAGNITUDES.length - 1];
+        return { level: m.level, amount: m.amount };
+    }
+
+    // 뉴스 1건을 만들고 주가에 반영. 같은 상태에서 실행하면 어느 기기에서든 같은 결과가 나옴
+    // companyId를 주면 그 회사의 뉴스를 만들고, record가 false면 주가만 움직이고 뉴스는 남기지 않음
+    function runStockEvent(time, companyId = null, record = true) {
+        const st = db.stocks;
+        st.eventCount += 1;
+        const rand = mulberry32(st.seed + st.eventCount * 7919);
+        const pick = list => list[Math.floor(rand() * list.length)];
+
+        // 시장 전체 분위기와 회사별 분위기가 무작위로 흔들리면서 호재·악재 확률이 계속 바뀜
+        st.marketMood = clamp(st.marketMood * 0.85 + (rand() - 0.5) * 0.6, -1, 1);
+        COMPANIES.forEach(c => {
+            const s = st.companies[c.id];
+            s.mood = clamp(s.mood * 0.8 + (rand() - 0.5) * 0.8, -1, 1);
+            if (typeof s.anchor !== 'number') s.anchor = s.price;
+        });
+        // 기준가(최근 가격을 천천히 따라가는 값)보다 많이 오르면 악재가, 많이 내리면 호재가 조금 더 잘 나옴 → 너무 크게 출렁이지 않음
+        const pull = id => {
+            const s = st.companies[id];
+            return clamp((s.price - s.anchor) / Math.max(s.anchor, 10) * 2, -1, 1);
+        };
+        const goodChance = id => clamp(
+            0.5 + STOCK_MOOD_STRENGTH * clamp((st.marketMood + st.companies[id].mood) / 2, -1, 1) - STOCK_REVERSION_STRENGTH * pull(id),
+            0.1, 0.9);
+
+        const item = { id: 'n' + st.eventCount, t: time, ai: false };
+        const planned = {};
+        const main = companyId ? companyById(companyId) : pick(COMPANIES);
+
+        if (rand() < 0.3) {
+            const a = main;
+            const b = pick(COMPANIES.filter(c => c.id !== a.id));
+            const key = pairKey(a.id, b.id);
+            const contracted = st.contracts.includes(key);
+            const good = rand() < (goodChance(a.id) + goodChance(b.id)) / 2;
+            item.kind = contracted ? (good ? 'contract_expand' : 'contract_end') : (good ? 'contract_sign' : 'contract_fail');
+            // 계약이 살아있는 동안은 같은 프로젝트명을 계속 쓰고, 새로 맺을 때만 무작위로 다시 고름
+            if (item.kind === 'contract_sign') {
+                st.contracts.push(key);
+                st.contractProjects[key] = pick(CONTRACT_PROJECTS[key]);
+            } else if (item.kind === 'contract_expand' && !st.contractProjects[key]) {
+                st.contractProjects[key] = pick(CONTRACT_PROJECTS[key]);
+            }
+            item.project = item.kind === 'contract_fail' ? pick(CONTRACT_PROJECTS[key]) : st.contractProjects[key];
+            if (item.kind === 'contract_end') {
+                st.contracts = st.contracts.filter(k => k !== key);
+                delete st.contractProjects[key];
+            }
+            const magA = rollMagnitude(rand);
+            const magB = rollMagnitude(rand);
+            Object.assign(item, { companyId: a.id, partnerId: b.id, sentiment: good ? 'good' : 'bad', level: magA.level });
+            planned[a.id] = (good ? 1 : -1) * magA.amount;
+            planned[b.id] = (good ? 1 : -1) * magB.amount;
+        } else {
+            const c = main;
+            const good = rand() < goodChance(c.id);
+            const mag = rollMagnitude(rand);
+            const sentiment = good ? 'good' : 'bad';
+            Object.assign(item, { kind: 'single', companyId: c.id, sentiment, level: mag.level, reason: Math.floor(rand() * NEWS_REASONS[c.id][sentiment].length) });
+            planned[c.id] = (good ? 1 : -1) * mag.amount;
+            st.contracts.forEach(key => {
+                const [x, y] = key.split('|');
+                const partner = x === c.id ? y : (y === c.id ? x : null);
+                const spill = Math.floor(mag.amount * STOCK_SPILLOVER_PCT / 100);
+                if (partner && spill > 0) planned[partner] = (good ? 1 : -1) * spill;
+            });
+        }
+
+        item.deltas = {};
+        Object.entries(planned).forEach(([id, delta]) => {
+            const s = st.companies[id];
+            const next = clamp(s.price + delta, STOCK_MIN_PRICE, STOCK_MAX_PRICE);
+            item.deltas[id] = next - s.price;
+            s.price = next;
+        });
+        COMPANIES.forEach(c => {
+            const s = st.companies[c.id];
+            s.anchor = Math.round((s.anchor + (s.price - s.anchor) * STOCK_ANCHOR_FOLLOW) * 1000) / 1000;
+        });
+
+        Object.assign(item, buildTemplateNews(item));
+        if (record) {
+            st.news.unshift(item);
+            if (st.news.length > STOCK_MAX_NEWS) st.news.length = STOCK_MAX_NEWS;
+        }
+        return item;
+    }
+
+    function buildTemplateNews(item) {
+        const a = companyById(item.companyId);
+        const levelWord = { small: '소폭 ', medium: '', large: '큰 폭으로 ' }[item.level] || '';
+        const move = levelWord + (item.sentiment === 'good' ? '올랐다' : '떨어졌다');
+
+        if (item.kind === 'single') {
+            const reason = NEWS_REASONS[a.id][item.sentiment][item.reason];
+            const partners = Object.keys(item.deltas).filter(id => id !== a.id).map(id => companyById(id).name);
+            return {
+                title: `${a.name}, ${reason}`,
+                body: `${josa(a.name, '이', '가')} ${reason}. 이 소식에 ${a.name} 주가가 ${move}.`
+                    + (partners.length ? ` 계약 관계인 ${partners.join(', ')} 주가도 함께 영향을 받았다.` : '')
+            };
+        }
+
+        const b = companyById(item.partnerId);
+        const project = item.project;
+        const both = `${josa(a.name, '과', '와')} ${josa(b.name, '이', '가')}`;
+        const texts = {
+            contract_sign: [`${a.name}·${b.name}, '${project}' 계약 체결`, `${both} ${project} 계약을 맺었다. 두 회사가 손을 잡았다는 소식에 두 회사 주가가 함께 ${move}.`],
+            contract_expand: [`${a.name}·${b.name}, ${project} 협력 확대`, `${both} 함께 하던 ${project} 계약을 더 크게 늘리기로 했다. 협력이 커진다는 기대에 두 회사 주가가 ${move}.`],
+            contract_end: [`${a.name}·${b.name}, ${project} 계약 해지`, `${both} 함께 하던 ${project} 계약을 끝내기로 했다. 협력이 깨졌다는 소식에 두 회사 주가가 함께 ${move}.`],
+            contract_fail: [`${a.name}·${b.name}, ${project} 협상 결렬`, `${both} ${project} 계약을 논의했지만 끝내 합의하지 못했다. 실망한 투자자들이 주식을 팔면서 두 회사 주가가 ${move}.`]
+        };
+        const [title, body] = texts[item.kind];
+        return { title, body };
+    }
+
+    function pushStockHistory() {
+        const st = db.stocks;
+        COMPANIES.forEach(c => st.companies[c.id].history.push(st.companies[c.id].price));
+        const overflow = st.companies[COMPANIES[0].id].history.length - STOCK_HISTORY_TICKS;
+        if (overflow > 0) {
+            COMPANIES.forEach(c => st.companies[c.id].history.splice(0, overflow));
+            st.historyStartTick += overflow;
+        }
+    }
+
+    // 지난 30분 회차마다 네 회사의 뉴스를 하나씩 만들어 반영. 바뀐 게 있으면 true
+    function applyStockTicks(now) {
+        const st = db.stocks;
+        const currentTick = Math.floor(now / STOCK_TICK_MS);
+        if (currentTick <= st.lastTick) return false;
+
+        const quietUntil = currentTick - STOCK_MAX_CATCHUP_TICKS;
+        while (st.lastTick < quietUntil) {
+            st.lastTick += 1;
+            settleStockFlow(st.lastTick * STOCK_TICK_MS);
+            pushStockHistory();
+        }
+        while (st.lastTick < currentTick) {
+            st.lastTick += 1;
+            settleStockFlow(st.lastTick * STOCK_TICK_MS);
+            const record = st.lastTick > currentTick - STOCK_NEWS_TICKS_ON_CATCHUP;
+            COMPANIES.forEach(c => runStockEvent(st.lastTick * STOCK_TICK_MS, c.id, record));
+            pushStockHistory();
+        }
+        return true;
+    }
+
+    function applyDividends(now) {
+        const period = DIVIDEND_PERIOD_DAYS * DAY_MS;
+        let changed = false;
+        studentIds().forEach(id => {
+            const user = db.users[id];
+            COMPANIES.forEach(c => {
+                const lots = user.stocks[c.id];
+                if (!lots || lots.length === 0) return;
+                // 배당 받을 주식 수 × 새로 채운 2주 기간 수
+                let sharePeriods = 0;
+                lots.forEach(lot => {
+                    const periods = Math.floor((now - lot.at) / period);
+                    if (periods > (lot.paid || 0)) {
+                        sharePeriods += lot.q * (periods - (lot.paid || 0));
+                        lot.paid = periods;
+                        changed = true;
+                    }
+                });
+                if (sharePeriods === 0) return;
+                const amount = Math.round(db.stocks.companies[c.id].price * DIVIDEND_RATE_PCT / 100 * sharePeriods);
+                if (amount > 0) {
+                    user.pi += amount;
+                    addStockTrade('div', id, c.id, sharePeriods, amount);
+                    notifyStudent(id, { k: 'dividend', a: amount, c: c.id });
+                }
+            });
+        });
+        return changed;
+    }
+
+    function addStockTrade(side, userId, companyId, qty, amount, price) {
+        const trade = { t: Date.now(), u: userId, c: companyId, s: side, q: qty, a: amount };
+        if (side !== 'div') trade.p = price;
+        db.stocks.trades.unshift(trade);
+        if (db.stocks.trades.length > STOCK_MAX_TRADES) db.stocks.trades.length = STOCK_MAX_TRADES;
+    }
+
+    function holdingOf(user, companyId) {
+        const lots = (user.stocks && user.stocks[companyId]) || [];
+        return {
+            lots,
+            qty: lots.reduce((sum, lot) => sum + lot.q, 0),
+            cost: lots.reduce((sum, lot) => sum + lot.cost, 0)
+        };
+    }
+
+    function nextDividendAt(lots) {
+        const period = DIVIDEND_PERIOD_DAYS * DAY_MS;
+        return Math.min(...lots.map(lot => lot.at + ((lot.paid || 0) + 1) * period));
+    }
+
+    // 가장 최근에 산 주식부터 팜
+    function removeSharesNewestFirst(lots, qty) {
+        let left = qty;
+        while (left > 0 && lots.length > 0) {
+            const lot = lots[lots.length - 1];
+            if (lot.q <= left) {
+                left -= lot.q;
+                lots.pop();
+            } else {
+                const unitCost = lot.cost / lot.q;
+                lot.q -= left;
+                lot.cost = Math.round(unitCost * lot.q);
+                left = 0;
+            }
+        }
+    }
+
+    /* ===================== 주식: 학생 매매 ===================== */
+    function readOrderQty(companyId) {
+        const qty = parsePositiveInt(document.getElementById('qty-' + companyId).value);
+        if (!qty || qty > STOCK_MAX_ORDER) {
+            alert(`수량은 1부터 ${STOCK_MAX_ORDER} 사이의 정수로 입력해주세요.`);
+            return null;
+        }
+        return qty;
+    }
+
+    async function buyStock(companyId) {
+        const qty = readOrderQty(companyId);
+        if (!qty) return;
+        const company = companyById(companyId);
+        const previewPrice = db.stocks.companies[companyId].price;
+        if (!confirm(`${company.name} ${qty}주를 ${previewPrice * qty}π에 살까요? (1주 ${previewPrice}π)`)) return;
+
+        await loadData();
+        const user = db.users[currentUser];
+        const price = db.stocks.companies[companyId].price;
+        const total = price * qty;
+        if (price > previewPrice) {
+            alert(`그 사이 주가가 바뀌었어요. 지금 사면 ${total}π예요. 다시 확인해주세요.`);
+            renderStudentSection();
+            return;
+        }
+        if (user.pi < total) {
+            alert(`파이가 부족해요. (필요 ${total}π / 보유 ${user.pi}π)`);
+            return;
+        }
+
+        // 주가는 바로 바뀌지 않고, 이번 주 거래로 모았다가 월요일 0시에 반영
+        user.pi -= total;
+        if (!user.stocks[companyId]) user.stocks[companyId] = [];
+        user.stocks[companyId].push({ q: qty, cost: total, at: Date.now(), paid: 0 });
+        addStockTrade('buy', currentUser, companyId, qty, total, price);
+        recordStockFlow('buy', companyId, qty);
+
+        await saveData();
+        alert(`${company.name} ${qty}주를 ${total}π에 샀어요!`);
+        renderStudentSection();
+    }
+
+    async function sellStock(companyId) {
+        const qty = readOrderQty(companyId);
+        if (!qty) return;
+        const company = companyById(companyId);
+        const owned = holdingOf(db.users[currentUser], companyId).qty;
+        if (owned < qty) {
+            alert(`가진 주식이 부족해요. (보유 ${owned}주)`);
+            return;
+        }
+        const previewPrice = db.stocks.companies[companyId].price;
+        if (!confirm(`${company.name} ${qty}주를 ${previewPrice * qty}π에 팔까요? (1주 ${previewPrice}π)`)) return;
+
+        await loadData();
+        const user = db.users[currentUser];
+        const holding = holdingOf(user, companyId);
+        if (holding.qty < qty) {
+            alert(`가진 주식이 부족해요. (보유 ${holding.qty}주)`);
+            renderStudentSection();
+            return;
+        }
+        const price = db.stocks.companies[companyId].price;
+        const total = price * qty;
+        if (price < previewPrice) {
+            alert(`그 사이 주가가 바뀌었어요. 지금 팔면 ${total}π예요. 다시 확인해주세요.`);
+            renderStudentSection();
+            return;
+        }
+
+        user.pi += total;
+        removeSharesNewestFirst(user.stocks[companyId], qty);
+        if (user.stocks[companyId].length === 0) delete user.stocks[companyId];
+        addStockTrade('sell', currentUser, companyId, qty, total, price);
+        recordStockFlow('sell', companyId, qty);
+
+        await saveData();
+        alert(`${company.name} ${qty}주를 ${total}π에 팔았어요!`);
+        renderStudentSection();
+    }
+
+    function updateTradeQuote(companyId) {
+        const el = document.getElementById('quote-' + companyId);
+        if (!el) return;
+        const qty = parsePositiveInt(document.getElementById('qty-' + companyId).value);
+        if (!qty || qty > STOCK_MAX_ORDER) {
+            el.textContent = `1~${STOCK_MAX_ORDER}주까지 주문할 수 있어요.`;
+            return;
+        }
+        const price = db.stocks.companies[companyId].price;
+        el.textContent = `${qty}주 = ${price * qty}π`;
+    }
+
+    function timeUntilText(ms) {
+        const minutes = Math.max(0, Math.ceil(ms / 60000));
+        const days = Math.floor(minutes / 1440);
+        const hours = Math.floor((minutes % 1440) / 60);
+        if (days > 0) return `${days}일 ${hours}시간`;
+        if (hours > 0) return `${hours}시간 ${minutes % 60}분`;
+        return `${minutes}분`;
+    }
+    function nextFlowSettleText(now = Date.now()) {
+        return timeUntilText(stockWeekStart(stockWeekOf(now) + 1) - now);
+    }
+
+    // 회사별 거래 결과 한 줄: items = { companyId: { buy, sell, pct, before, after } }
+    function flowRowsHtml(items) {
+        return COMPANIES.filter(c => items[c.id]).map(c => {
+            const x = items[c.id];
+            const net = x.buy - x.sell;
+            const change = x.after - x.before;
+            const result = change === 0
+                ? `<span class="delta flat">– 주가 그대로 (${x.before}π)</span>`
+                : `<span class="delta ${change > 0 ? 'up' : 'down'}">${change > 0 ? '▲' : '▼'} ${x.before}→${x.after}π (${signed(x.pct)}%)</span>`;
+            return `
+                <div class="detail-row flow-row">
+                    <span>${companyLabel(c)}</span>
+                    <span class="muted">매수 ${x.buy}주 · 매도 ${x.sell}주 · ${net === 0 ? '같음' : `${net > 0 ? '산 주식' : '판 주식'} ${Math.abs(net)}주 더 많음`}</span>
+                    ${result}
+                </div>`;
+        }).join('');
+    }
+
+    function lastFlowHtml() {
+        const last = db.stocks.lastFlow;
+        const next = `다음 반영: ${fmtDate(stockWeekStart(stockWeekOf(Date.now()) + 1))} 0시 (<span class="stock-flow-countdown">${nextFlowSettleText()}</span> 뒤)`;
+        if (!last) return `<p class="muted">아직 반영된 거래 결과가 없어요. 이번 주 거래는 월요일 0시에 한꺼번에 주가에 반영돼요.<br>${next}</p>`;
+        const start = stockWeekStart(last.week);
+        return `
+            <p class="muted" style="margin: 0 0 6px;">${fmtDate(start)} ~ ${fmtDate(start + 6 * DAY_MS)} 거래 → ${fmtDate(last.t)} 0시 반영</p>
+            ${flowRowsHtml(last.items)}
+            <p class="muted" style="margin: 6px 0 0;">${next}</p>`;
+    }
+
+    /* ===================== 주식: 화면 ===================== */
+    let stockView = 'chart';
+    let stockRange = 24;
+
+    function setStockView(view) {
+        stockView = view;
+        renderStockSection();
+    }
+    function setStockRange(hours) {
+        stockRange = hours;
+        renderStockSection();
+    }
+
+    function fmtHourFull(ms) {
+        return new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+    function fmtHourShort(ms) {
+        return new Date(ms).toLocaleString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+    }
+    function fmtDay(ms) {
+        return new Date(ms).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+    }
+    function minutesToNextNews() {
+        return Math.ceil((STOCK_TICK_MS - (Date.now() % STOCK_TICK_MS)) / 60000);
+    }
+
+    // 범위 안의 30분 간격 가격 + 지금 가격. 범위 시작 직전 값 하나를 앞에 두어 선이 끊기지 않게 함
+    function stockSeries(companyId, hours) {
+        const st = db.stocks;
+        const s = st.companies[companyId];
+        const points = s.history.map((p, i) => ({ t: (st.historyStartTick + i) * STOCK_TICK_MS, p }));
+        const from = Date.now() - hours * HOUR_MS;
+        const firstInside = points.findIndex(pt => pt.t >= from);
+        const start = firstInside === -1 ? points.length - 1 : Math.max(0, firstInside - 1);
+        return [...points.slice(start), { t: Date.now(), p: s.price, live: true }];
+    }
+
+    function deltaBadge(change, base) {
+        if (change === 0) return '<span class="delta flat">– 변동 없음</span>';
+        const pct = base > 0 ? ` (${(Math.abs(change) / base * 100).toFixed(1)}%)` : '';
+        return change > 0
+            ? `<span class="delta up">▲ ${change}π${pct}</span>`
+            : `<span class="delta down">▼ ${-change}π${pct}</span>`;
+    }
+
+    function companyLabel(c) {
+        return `<span class="series-key" style="background: ${c.color};"></span> ${c.icon} ${c.name}`;
+    }
+
+    function tradeControlsHtml(companyId) {
+        return `
+            <div class="trade-row">
+                <input type="number" id="qty-${companyId}" min="1" max="${STOCK_MAX_ORDER}" value="1" oninput="updateTradeQuote('${companyId}')">
+                <span>주</span>
+                <button onclick="buyStock('${companyId}')">사기</button>
+                <button class="sell-btn" onclick="sellStock('${companyId}')">팔기</button>
+            </div>
+            <div class="muted trade-quote" id="quote-${companyId}"></div>`;
+    }
+
+    function holdingHtml(userId, companyId) {
+        const h = holdingOf(db.users[userId], companyId);
+        if (h.qty === 0) return '<div class="stock-hold">보유한 주식이 없어요.</div>';
+        return `
+            <div class="stock-hold">
+                보유 <b>${h.qty}주</b> · 평균 ${Math.round(h.cost / h.qty)}π<br>
+                💰 다음 배당: ${fmtDate(nextDividendAt(h.lots))}
+            </div>`;
+    }
+
+    function renderStockSection() {
+        const user = db.users[currentUser];
+        let cost = 0, shares = 0;
+        COMPANIES.forEach(c => {
+            const h = holdingOf(user, c.id);
+            cost += h.cost;
+            shares += h.qty;
+        });
+        document.getElementById('stockSummary').innerHTML = `
+            <div class="stock-summary">
+                <div class="stat"><span class="muted">내 주식</span><b class="stat-value">${shares}주</b><span class="muted">투자 원금 ${cost}π</span></div>
+                <div class="stat"><span class="muted">다음 뉴스까지</span><b class="stat-value" id="stockCountdown">${minutesToNextNews()}분</b><span class="muted">30분마다 회사별 뉴스</span></div>
+                <div class="stat"><span class="muted">거래 반영까지</span><b class="stat-value stock-flow-countdown">${nextFlowSettleText()}</b><span class="muted">매주 월요일 0시</span></div>
+            </div>`;
+        document.getElementById('stockFlow').innerHTML = lastFlowHtml();
+
+        document.querySelectorAll('.stock-view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === stockView));
+        document.querySelectorAll('.stock-range-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.range) === stockRange));
+
+        const board = document.getElementById('stockBoard');
+        if (stockView === 'chart') {
+            board.innerHTML = `<div class="stock-grid">${COMPANIES.map(stockCardHtml).join('')}</div>`;
+            COMPANIES.forEach(c => drawStockChart(c.id));
+        } else {
+            board.innerHTML = stockTableHtml();
+        }
+        COMPANIES.forEach(c => updateTradeQuote(c.id));
+
+        document.getElementById('stockContracts').innerHTML = contractsHtml();
+        document.getElementById('stockNews').innerHTML = studentNewsHtml();
+        document.getElementById('stockMyTrades').innerHTML = tradesHtml(db.stocks.trades.filter(t => t.u === currentUser).slice(0, 15), false);
+    }
+
+    // 학생 화면: AI가 기사를 다 쓸 때까지(최대 AI_NEWS_GRACE_MS) 임시 문장 대신 "준비 중" 표시 (AI를 못 쓰는 주소면 바로 보여줌)
+    function visibleStockNews(list, now = Date.now()) {
+        if (!AI_NEWS_ENDPOINT) return list;
+        return list.filter(n => n.ai || n.kind === 'open' || now - n.t > AI_NEWS_GRACE_MS);
+    }
+    // 회사별로 나눠 보여줄 뉴스: 계약 뉴스는 두 회사 모두에 보임
+    let stockNewsCompany = COMPANIES[0].id;
+
+    function newsOfCompany(list, companyId) {
+        return list.filter(n => n.companyId === companyId || n.partnerId === companyId);
+    }
+
+    function setStockNewsCompany(companyId, scroll = false) {
+        stockNewsCompany = companyId;
+        const box = document.getElementById('stockNews');
+        box.innerHTML = studentNewsHtml();
+        if (scroll) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function studentNewsHtml() {
+        const now = Date.now();
+        const visible = visibleStockNews(db.stocks.news, now);
+        const tabs = COMPANIES.map(c => `
+            <button class="tab-btn ${c.id === stockNewsCompany ? 'active' : ''}" onclick="setStockNewsCompany('${c.id}')">
+                ${c.icon} ${c.name} <span class="tab-count">${newsOfCompany(visible, c.id).length}</span>
+            </button>`).join('');
+        const list = newsOfCompany(visible, stockNewsCompany);
+        const pending = newsOfCompany(db.stocks.news, stockNewsCompany).length - list.length;
+        const opening = visible.filter(n => n.kind === 'open');
+        return `<div class="tab-bar">${tabs}</div>`
+            + (list.length > 0 ? newsListHtml(list) : newsListHtml(opening))
+            + (pending > 0 ? '<p class="muted">📰 AI가 새 뉴스 기사를 쓰고 있어요...</p>' : '');
+    }
+
+    function latestHeadlineHtml(companyId) {
+        const latest = newsOfCompany(visibleStockNews(db.stocks.news), companyId)[0];
+        if (!latest) return '';
+        const tag = latest.sentiment === 'good' ? '<span class="up-text">▲</span>' : '<span class="down-text">▼</span>';
+        return `<button class="card-headline" onclick="setStockNewsCompany('${companyId}', true)">📰 ${tag} ${esc(latest.title)}</button>`;
+    }
+
+    function stockCardHtml(c) {
+        const price = db.stocks.companies[c.id].price;
+        const series = stockSeries(c.id, stockRange);
+        return `
+            <div class="stock-card">
+                <div class="stock-card-head"><b>${companyLabel(c)}</b><span class="muted">${c.industry}</span></div>
+                <div class="stock-price-row">
+                    <span class="stock-price">${price}π</span>
+                    ${deltaBadge(price - series[0].p, series[0].p)}
+                    <span class="muted">${stockRange === 24 ? '24시간' : '7일'} 전보다</span>
+                </div>
+                ${latestHeadlineHtml(c.id)}
+                <div class="stock-chart" id="chart-${c.id}"></div>
+                ${holdingHtml(currentUser, c.id)}
+                ${tradeControlsHtml(c.id)}
+            </div>`;
+    }
+
+    function stockTableHtml() {
+        const st = db.stocks;
+        const rows = COMPANIES.map(c => {
+            const price = st.companies[c.id].price;
+            const series = stockSeries(c.id, stockRange);
+            const prices = series.map(pt => pt.p);
+            const h = holdingOf(db.users[currentUser], c.id);
+            return `
+                <tr>
+                    <td style="text-align: left;">${companyLabel(c)}</td>
+                    <td class="num"><b>${price}π</b></td>
+                    <td>${deltaBadge(price - series[0].p, series[0].p)}</td>
+                    <td class="num">${Math.max(...prices)} / ${Math.min(...prices)}</td>
+                    <td class="num">${h.qty ? `${h.qty}주<div class="log-time">평균 ${Math.round(h.cost / h.qty)}π</div>` : '-'}</td>
+                    <td>${tradeControlsHtml(c.id)}</td>
+                </tr>`;
+        }).join('');
+
+        const rangeTicks = Math.round(stockRange * HOUR_MS / STOCK_TICK_MS);
+        const fromTick = Math.max(st.historyStartTick, st.lastTick - rangeTicks + 1);
+        let hourRows = `<tr><td><b>지금</b></td>${COMPANIES.map(c => `<td class="num"><b>${st.companies[c.id].price}</b></td>`).join('')}</tr>`;
+        for (let tick = st.lastTick; tick >= fromTick; tick--) {
+            const i = tick - st.historyStartTick;
+            hourRows += `<tr><td>${fmtHourFull(tick * STOCK_TICK_MS)}</td>${COMPANIES.map(c => `<td class="num">${st.companies[c.id].history[i]}</td>`).join('')}</tr>`;
+        }
+
+        return `
+            <div class="table-scroll">
+                <table class="stock-table">
+                    <thead><tr><th>기업</th><th>현재가</th><th>${stockRange === 24 ? '24시간' : '7일'} 변동</th><th>최고 / 최저</th><th>내 보유</th><th>주문</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+            <h4 style="margin: 16px 0 6px;">🕒 30분 간격 가격 (π)</h4>
+            <div class="table-container" style="max-height: 320px;">
+                <table>
+                    <thead><tr><th>시각</th>${COMPANIES.map(c => `<th>${c.name}</th>`).join('')}</tr></thead>
+                    <tbody>${hourRows}</tbody>
+                </table>
+            </div>`;
+    }
+
+    function svgEl(tag, attrs) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, value));
+        return el;
+    }
+
+    function drawStockChart(companyId) {
+        const box = document.getElementById('chart-' + companyId);
+        if (!box) return;
+        const company = companyById(companyId);
+        const series = stockSeries(companyId, stockRange);
+        const width = Math.max(220, box.clientWidth || 280);
+        const height = 150;
+        const pad = { top: 12, right: 12, bottom: 22, left: 32 };
+        const plotW = width - pad.left - pad.right;
+        const plotH = height - pad.top - pad.bottom;
+
+        const prices = series.map(pt => pt.p);
+        const span = Math.max(10, Math.max(...prices) - Math.min(...prices));
+        const mid = (Math.max(...prices) + Math.min(...prices)) / 2;
+        let lo = Math.max(STOCK_MIN_PRICE, Math.floor((mid - span * 0.6) / 5) * 5);
+        let hi = Math.min(STOCK_MAX_PRICE, Math.ceil((mid + span * 0.6) / 5) * 5);
+        if (hi - lo < 10) {
+            hi = Math.min(STOCK_MAX_PRICE, lo + 10);
+            lo = Math.max(STOCK_MIN_PRICE, hi - 10);
+        }
+        // 가운데 눈금도 5 단위 숫자가 되도록 범위를 10의 배수로 맞춤
+        if ((hi - lo) % 10 !== 0) {
+            if (hi + 5 <= STOCK_MAX_PRICE) hi += 5;
+            else lo -= 5;
+        }
+
+        const t0 = series[0].t;
+        const t1 = series[series.length - 1].t;
+        const x = t => pad.left + (t1 === t0 ? plotW : (t - t0) / (t1 - t0) * plotW);
+        const y = p => pad.top + (hi - p) / (hi - lo) * plotH;
+
+        const last = series[series.length - 1];
+        const svg = svgEl('svg', { width, height, viewBox: `0 0 ${width} ${height}`, role: 'img', tabindex: 0, 'aria-label': `${company.name} 주가 그래프, 현재 ${last.p}π` });
+
+        [lo, Math.round((lo + hi) / 2), hi].forEach(v => {
+            svg.append(svgEl('line', { x1: pad.left, x2: width - pad.right, y1: y(v), y2: y(v), stroke: '#e1e0d9', 'stroke-width': 1 }));
+            const tick = svgEl('text', { x: pad.left - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'chart-tick' });
+            tick.textContent = v;
+            svg.append(tick);
+        });
+
+        const xLabel = (t, anchor, text) => {
+            const label = svgEl('text', { x: x(t), y: height - 6, 'text-anchor': anchor, class: 'chart-tick' });
+            label.textContent = text;
+            svg.append(label);
+        };
+        if (series.length > 1) xLabel(t0, 'start', stockRange === 24 ? fmtHourShort(t0) : fmtDay(t0));
+        xLabel(t1, 'end', '지금');
+
+        if (series.length > 1) {
+            const line = series.map((pt, i) => `${i ? 'L' : 'M'}${x(pt.t).toFixed(1)},${y(pt.p).toFixed(1)}`).join('');
+            const base = (pad.top + plotH).toFixed(1);
+            svg.append(svgEl('path', { d: `${line}L${x(t1).toFixed(1)},${base}L${x(t0).toFixed(1)},${base}Z`, fill: company.color, 'fill-opacity': 0.1, stroke: 'none' }));
+            svg.append(svgEl('path', { d: line, fill: 'none', stroke: company.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+        } else {
+            const note = svgEl('text', { x: pad.left + plotW / 2, y: pad.top + plotH / 2 - 10, 'text-anchor': 'middle', class: 'chart-empty' });
+            note.textContent = '다음 정각부터 그래프가 그려져요';
+            svg.append(note);
+        }
+        svg.append(svgEl('circle', { cx: x(last.t), cy: y(last.p), r: 4, fill: company.color, stroke: '#ffffff', 'stroke-width': 2 }));
+
+        const cross = svgEl('line', { y1: pad.top, y2: pad.top + plotH, stroke: '#898781', 'stroke-width': 1, visibility: 'hidden' });
+        const focusDot = svgEl('circle', { r: 4, fill: company.color, stroke: '#ffffff', 'stroke-width': 2, visibility: 'hidden' });
+        const hitArea = svgEl('rect', { x: 0, y: 0, width, height, fill: 'transparent' });
+        svg.append(cross, focusDot, hitArea);
+
+        const tip = document.createElement('div');
+        tip.className = 'chart-tip';
+        tip.hidden = true;
+        box.replaceChildren(svg, tip);
+
+        let activeIdx = series.length - 1;
+        const show = idx => {
+            activeIdx = idx;
+            const pt = series[idx];
+            const px = x(pt.t);
+            const py = y(pt.p);
+            cross.setAttribute('x1', px);
+            cross.setAttribute('x2', px);
+            cross.setAttribute('visibility', 'visible');
+            focusDot.setAttribute('cx', px);
+            focusDot.setAttribute('cy', py);
+            focusDot.setAttribute('visibility', 'visible');
+            const value = document.createElement('b');
+            value.textContent = `${pt.p}π`;
+            const when = document.createElement('span');
+            when.textContent = pt.live ? '지금' : fmtHourFull(pt.t);
+            tip.replaceChildren(value, when);
+            tip.hidden = false;
+            tip.style.left = `${clamp(px - 42, 0, width - 96)}px`;
+            tip.style.top = `${Math.max(py - 50, 0)}px`;
+        };
+        const hide = () => {
+            cross.setAttribute('visibility', 'hidden');
+            focusDot.setAttribute('visibility', 'hidden');
+            tip.hidden = true;
+        };
+        const nearestIndex = clientX => {
+            const rect = svg.getBoundingClientRect();
+            const mx = (clientX - rect.left) * (width / rect.width);
+            let best = 0;
+            series.forEach((pt, i) => {
+                if (Math.abs(x(pt.t) - mx) < Math.abs(x(series[best].t) - mx)) best = i;
+            });
+            return best;
+        };
+        svg.addEventListener('pointermove', e => show(nearestIndex(e.clientX)));
+        svg.addEventListener('pointerleave', hide);
+        svg.addEventListener('focus', () => show(activeIdx));
+        svg.addEventListener('blur', hide);
+        svg.addEventListener('keydown', e => {
+            if (e.key === 'ArrowLeft') { show(Math.max(0, activeIdx - 1)); e.preventDefault(); }
+            if (e.key === 'ArrowRight') { show(Math.min(series.length - 1, activeIdx + 1)); e.preventDefault(); }
+        });
+    }
+
+    function contractsHtml() {
+        const list = db.stocks.contracts;
+        if (list.length === 0) return '<p class="muted" style="margin: 0;">지금은 계약으로 연결된 회사가 없어요.</p>';
+        return list.map(key => {
+            const [a, b] = key.split('|').map(companyById);
+            const project = db.stocks.contractProjects[key] || CONTRACT_PROJECTS[key][0];
+            return `<span class="contract-chip">${a.icon} ${a.name} 🤝 ${b.icon} ${b.name} <span class="muted">· ${esc(project)}</span></span>`;
+        }).join('');
+    }
+
+    function newsListHtml(list) {
+        if (list.length === 0) return '<p class="muted">아직 뉴스가 없어요.</p>';
+        return list.map(n => {
+            const tag = n.kind === 'open'
+                ? '<span class="news-tag neutral">📣 알림</span>'
+                : (n.sentiment === 'good' ? '<span class="news-tag up">▲ 호재</span>' : '<span class="news-tag down">▼ 악재</span>');
+            const impacts = Object.entries(n.deltas || {})
+                .filter(([id]) => companyById(id))
+                .map(([id, d]) => `${companyById(id).name} ${signed(d)}π`).join(' · ');
+            return `
+                <div class="news-item">
+                    <div class="news-meta">${tag}<span class="log-time">${fmtHourFull(n.t)}</span>${n.ai && n.kind !== 'open' ? '<span class="ai-badge">🤖 AI 기사</span>' : ''}</div>
+                    <div class="news-title">${esc(n.title)}</div>
+                    <div class="news-body">${esc(n.body)}</div>
+                    ${impacts ? `<div class="news-impact">주가 영향: ${impacts}</div>` : ''}
+                </div>`;
+        }).join('');
+    }
+
+    function tradesHtml(list, showName) {
+        if (list.length === 0) return '<p class="muted">아직 거래 내역이 없어요.</p>';
+        const labels = { buy: '매수', sell: '매도', div: '배당' };
+        return list.map(t => {
+            const company = companyById(t.c);
+            const money = t.s === 'buy' ? `-${t.a}π` : `+${t.a}π`;
+            // 예전 기록(p0→p1)은 거래 전 가격을 보여줌
+            const detail = t.s === 'div' ? ' 배당금' : ` · 1주 ${t.p !== undefined ? t.p : t.p0}π`;
+            const who = showName ? `${esc(db.users[t.u] ? db.users[t.u].name : t.u)} · ` : '';
+            return `
+                <div class="log-item">
+                    <span class="log-type type-stock-${t.s}">${labels[t.s]}</span>
+                    <span class="log-text">${who}${company ? company.name : esc(t.c)} ${t.q}주 ${money}${detail}</span>
+                    <span class="log-time">${fmtDateTime(t.t)}</span>
+                </div>`;
+        }).join('');
+    }
+
+    /* ===================== 주식: 관리자 ===================== */
+    function renderAdminStock() {
+        const st = db.stocks;
+        const ai = st.aiStatus;
+        const aiText = !AI_NEWS_ENDPOINT
+            ? 'GitHub Pages 주소에서는 AI 기사를 쓸 수 없어서, 게임에 들어 있는 기본 뉴스 문장을 보여줘요.'
+            : !ai
+            ? '아직 AI 기사 요청 기록이 없어요.'
+            : (ai.ok ? `✅ 정상 작동 중 (마지막 성공 ${fmtDateTime(ai.t)})` : `❌ 실패 (${fmtDateTime(ai.t)}): ${esc(ai.message)}`);
+        const pending = st.news.filter(n => !n.ai).length;
+
+        const priceRows = COMPANIES.map(c => {
+            const price = st.companies[c.id].price;
+            const day = stockSeries(c.id, 24);
+            const held = studentIds().reduce((sum, id) => sum + holdingOf(db.users[id], c.id).qty, 0);
+            return `
+                <tr>
+                    <td style="text-align: left;">${companyLabel(c)}</td>
+                    <td class="num"><b>${price}π</b></td>
+                    <td>${deltaBadge(price - day[0].p, day[0].p)}</td>
+                    <td class="num">${held}주</td>
+                    <td>
+                        <input type="number" id="adminPrice-${c.id}" min="${STOCK_MIN_PRICE}" max="${STOCK_MAX_PRICE}" value="${price}" style="width: 80px; margin: 0;">
+                        <button class="small-btn" onclick="setStockPrice('${c.id}')">변경</button>
+                    </td>
+                </tr>`;
+        }).join('');
+
+        const holders = studentIds().filter(id => COMPANIES.some(c => holdingOf(db.users[id], c.id).qty > 0));
+        const holderRows = holders.map(id => {
+            const user = db.users[id];
+            return `<tr><td>${esc(user.name)}</td>${COMPANIES.map(c => `<td class="num">${holdingOf(user, c.id).qty || '-'}</td>`).join('')}</tr>`;
+        }).join('');
+
+        // 이번 주 거래와 지금 주가 기준 예상 변동 (학생 화면에는 보여주지 않음)
+        const pendingFlow = {};
+        COMPANIES.forEach(c => {
+            const buy = st.flow.buy[c.id] || 0;
+            const sell = st.flow.sell[c.id] || 0;
+            if (buy + sell === 0) return;
+            const price = st.companies[c.id].price;
+            const { pct, after } = stockFlowChange(price, buy - sell);
+            pendingFlow[c.id] = { buy, sell, pct, before: price, after };
+        });
+
+        document.getElementById('adminStockContent').innerHTML = `
+            <div class="card">
+                <h4>${AI_NEWS_ENDPOINT ? '🤖 AI 뉴스 기사' : '📰 뉴스'}</h4>
+                <p style="margin: 0 0 4px;">${aiText}</p>
+                ${AI_NEWS_ENDPOINT ? `<p class="muted" style="margin-top: 0;">아직 AI 기사로 바뀌지 않은 뉴스 ${pending}건 (자동으로 계속 다시 시도해요) · 학생 화면에는 AI 기사만 보여요.</p>` : ''}
+                <button class="admin-btn" onclick="adminForceNews()">📰 뉴스 1건 지금 발생${AI_NEWS_ENDPOINT ? ' (AI 기사)' : ''}</button>
+            </div>
+            <div class="card">
+                <h4>🔄 주식시장 새로 시작</h4>
+                <p class="muted" style="margin-top: 0;">시작 주가(${COMPANIES.map(c => `${c.name} ${c.startPrice}π`).join(', ')})로 되돌리고 뉴스·그래프·계약·거래 내역을 지워요. 주식을 가진 학생에게는 산 가격 그대로 파이를 돌려줘요.</p>
+                <button class="danger-btn" onclick="adminResetStockMarket()">주식시장 새로 시작</button>
+            </div>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>기업</th><th>현재가</th><th>24시간 변동</th><th>학생 보유</th><th>가격 직접 변경</th></tr></thead>
+                    <tbody>${priceRows}</tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h4>📊 이번 주 학생 거래 (월요일 0시 반영 예정 · <span class="stock-flow-countdown">${nextFlowSettleText()}</span> 뒤)</h4>
+                ${Object.keys(pendingFlow).length === 0 ? '<p class="muted" style="margin: 0;">이번 주에는 아직 거래가 없어요.</p>' : flowRowsHtml(pendingFlow)}
+                <p class="muted" style="margin: 6px 0 0;">예상 변동은 지금 주가 기준이에요. 반영 시점의 주가에 따라 조금 달라질 수 있어요. 학생 화면에는 반영된 뒤에만 보여요.</p>
+            </div>
+            <h4 style="margin: 18px 0 8px;">📊 지난주 학생 거래 결과</h4>
+            ${lastFlowHtml()}
+            <h4 style="margin: 18px 0 8px;">🤝 기업 관계</h4>
+            ${contractsHtml()}
+            <h4 style="margin: 18px 0 8px;">👥 학생 보유 현황</h4>
+            ${holders.length === 0 ? '<p class="muted">주식을 가진 학생이 없어요.</p>' : `
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>이름</th>${COMPANIES.map(c => `<th>${c.name}</th>`).join('')}</tr></thead>
+                        <tbody>${holderRows}</tbody>
+                    </table>
+                </div>`}
+            <h4 style="margin: 18px 0 8px;">🧾 최근 거래</h4>
+            ${tradesHtml(st.trades.slice(0, 30), true)}
+            <h4 style="margin: 18px 0 8px;">📰 최근 뉴스</h4>
+            ${newsListHtml(st.news)}`;
+    }
+
+    async function adminForceNews() {
+        if (!confirm(`지금 바로 뉴스 1건을 발생시킬까요? 주가가 뉴스에 따라 바로 움직여요.${AI_NEWS_ENDPOINT ? ' AI가 바로 기사를 써요.' : ''}`)) return;
+        await loadData();
+        const item = runStockEvent(Date.now());
+        await saveData();
+        renderAdminSection();
+
+        if (!AI_NEWS_ENDPOINT) {
+            alert(`뉴스가 발생했어요: ${item.title}`);
+            return;
+        }
+        if (location.protocol === 'file:') {
+            alert(`뉴스가 발생했어요: ${item.title}\n(로컬 파일에서는 AI 기사를 요청할 수 없어요. 기본 문장으로 표시돼요.)`);
+            return;
+        }
+        const result = await convertNewsBatchToAi([item.id]);
+        const written = db.stocks.news.find(n => n.id === item.id);
+        if (result.outcome === 'ok' && written && written.ai) alert(`🤖 AI 기사: ${written.title}`);
+        else if (result.outcome === '404') alert(`뉴스가 발생했어요: ${item.title}\n(AI 기사 함수가 아직 배포되지 않았어요. 기본 문장으로 표시돼요.)`);
+        else alert(`뉴스가 발생했어요: ${item.title}\n(AI 기사 생성에 실패해서 잠시 후 자동으로 다시 시도해요${result.data && result.data.error ? ': ' + result.data.error : ''})`);
+        renderAdminSection();
+    }
+
+    async function adminResetStockMarket() {
+        if (!confirm('주식시장을 처음 상태로 다시 시작할까요?\n\n뉴스·그래프·계약·거래 내역이 모두 지워지고, 주식을 가진 학생에게는 산 가격 그대로 파이를 돌려줘요.\n이 작업은 되돌릴 수 없어요.')) return;
+        await loadData();
+        let holderCount = 0;
+        let refundTotal = 0;
+        studentIds().forEach(id => {
+            const user = db.users[id];
+            if (Object.keys(user.stocks).length === 0) return;
+            const refund = COMPANIES.reduce((sum, c) => sum + holdingOf(user, c.id).cost, 0);
+            user.pi += refund;
+            user.stocks = {};
+            notifyStudent(id, { k: 'refund', a: refund, x: '주식시장 새로 시작' });
+            holderCount++;
+            refundTotal += refund;
+        });
+        db.stocks = initStockMarket(Date.now());
+        await saveData();
+        alert('주식시장을 새로 시작했어요.' + (holderCount ? `\n${holderCount}명에게 총 ${refundTotal}π를 돌려줬어요.` : ''));
+        renderAdminSection();
+    }
+
+    async function setStockPrice(companyId) {
+        const value = Number(document.getElementById('adminPrice-' + companyId).value);
+        if (!Number.isInteger(value) || value < STOCK_MIN_PRICE || value > STOCK_MAX_PRICE) {
+            alert(`가격은 ${STOCK_MIN_PRICE}부터 ${STOCK_MAX_PRICE} 사이의 정수로 입력해주세요.`);
+            return;
+        }
+        await loadData();
+        db.stocks.companies[companyId].price = value;
+        db.stocks.companies[companyId].anchor = value;
+        await saveData();
+        renderAdminSection();
+    }
+
+    /* ===================== 주식: AI 기사 (Cloudflare / Netlify 함수) ===================== */
+    // 사용자가 버튼을 누르는 중에는 백그라운드 저장을 미뤄서, 학생의 매매 저장을 덮어쓰지 않게 함
+    let lastUserActionAt = 0;
+    ['pointerdown', 'keydown'].forEach(type => document.addEventListener(type, () => { lastUserActionAt = Date.now(); }, true));
+    let aiNewsRunning = false;
+    let aiNewsUnavailable = false;
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    function pendingAiNews(now = Date.now()) {
+        if (!db.stocks) return [];
+        return db.stocks.news.filter(n => n.kind !== 'open' && !n.ai && (n.aiFails || 0) < 2 && now - n.t < 6 * HOUR_MS
+            && !(n.aiTriedAt && now - n.aiTriedAt < AI_RETRY_COOLDOWN_MS));
+    }
+
+    function scheduleAiNews(immediate = false) {
+        if (!AI_NEWS_ENDPOINT || aiNewsRunning || aiNewsUnavailable || location.protocol === 'file:' || pendingAiNews().length === 0) return;
+        aiNewsRunning = true;
+        // 여러 학생이 동시에 접속해도 같은 기사를 한꺼번에 요청하지 않도록 조금씩 늦춤 (그래도 학생 화면에 보이기 전에 끝나도록 짧게)
+        setTimeout(runAiNews, immediate ? 0 : 1000 + Math.random() * 7000);
+    }
+
+    async function patchDbWhenIdle(mutate) {
+        for (let attempt = 0; attempt < 10; attempt++) {
+            while (Date.now() - lastUserActionAt < 4000) await sleep(1000);
+            const startedAt = Date.now();
+            if (!(await loadData({ silent: true }))) return false;
+            if (lastUserActionAt >= startedAt) continue;
+            if (mutate() === false) return false;
+            await saveData();
+            return true;
+        }
+        return false;
+    }
+
+    // 서버 함수에 뉴스 여러 건의 사건 정보를 한 번에 보내고 기사 목록을 받음 (함수는 저장소를 읽지 않음)
+    async function requestAiArticles(items) {
+        const recent = db.stocks.news.filter(n => n.ai && n.kind !== 'open').slice(0, 6).map(n => n.title);
+        const payload = {
+            items: items.map(n => ({
+                id: n.id, kind: n.kind, companyId: n.companyId, partnerId: n.partnerId || null,
+                sentiment: n.sentiment, level: n.level, deltas: n.deltas, title: n.title
+            })),
+            recent
+        };
+        try {
+            const response = await fetch(AI_NEWS_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            return { status: response.status, data: await response.json().catch(() => null) };
+        } catch (error) {
+            return { status: 0, data: null };
+        }
+    }
+
+    // 뉴스 여러 건을 한 번에 AI 기사로 바꿔서 저장. outcome: 'ok' | 'error' | '404'(함수 미배포)
+    async function convertNewsBatchToAi(ids) {
+        const items = ids.map(id => db.stocks.news.find(n => n.id === id)).filter(n => n && !n.ai);
+        if (items.length === 0) return { outcome: 'ok', applied: 0 };
+
+        const { status, data } = await requestAiArticles(items);
+        if (status === 404) {
+            // AI 기사 함수가 배포되지 않은 상태 → 기본 문장 뉴스를 그대로 사용
+            aiNewsUnavailable = true;
+            return { outcome: '404' };
+        }
+        const articles = status === 200 && data && Array.isArray(data.articles) ? data.articles : null;
+        let applied = 0;
+
+        await patchDbWhenIdle(() => {
+            let changed = false;
+            items.forEach(({ id }) => {
+                const target = db.stocks.news.find(n => n.id === id);
+                if (!target || target.ai) return;
+                const article = articles && articles.find(a => a && a.id === id && typeof a.title === 'string' && typeof a.body === 'string' && a.title.trim() && a.body.trim());
+                if (article) {
+                    target.title = article.title.slice(0, 60);
+                    target.body = article.body.slice(0, 300);
+                    target.ai = true;
+                    delete target.aiFails;
+                    delete target.aiTriedAt;
+                    applied++;
+                } else {
+                    target.aiFails = (target.aiFails || 0) + 1;
+                    target.aiTriedAt = Date.now();
+                }
+                changed = true;
+            });
+            if (!changed) return false;
+            db.stocks.aiStatus = articles
+                ? { t: Date.now(), ok: true }
+                : { t: Date.now(), ok: false, message: (data && data.error) || `응답 코드 ${status || '없음'}` };
+        });
+        rerenderStockViews({ newsOnly: true });
+        return { outcome: articles ? 'ok' : 'error', applied, data };
+    }
+
+    async function runAiNews() {
+        try {
+            for (let round = 0; round < 3; round++) {
+                const batch = pendingAiNews().slice(0, AI_BATCH_SIZE).map(n => n.id);
+                if (batch.length === 0) break;
+                const result = await convertNewsBatchToAi(batch);
+                if (result.outcome !== 'ok') break;
+            }
+        } finally {
+            aiNewsRunning = false;
+        }
+    }
+
+    // newsOnly: 학생이 입력 중인 주문 수량이 지워지지 않도록 뉴스 목록만 다시 그림
+    function rerenderStockViews({ newsOnly = false } = {}) {
+        if (!currentUser) return;
+        const staff = isStaff(db.users[currentUser]);
+        if (!staff && currentStudentSection === 'stock') {
+            if (newsOnly) document.getElementById('stockNews').innerHTML = studentNewsHtml();
+            else renderStudentSection();
+        }
+        if (staff && currentAdminSection === 'stock') renderAdminSection();
+    }
+
+    // 주식 화면을 보고 있으면 남은 시간을 갱신하고, 30분 회차가 지나면 새 뉴스를 불러옴
+    let stockAutoRefreshRunning = false;
+    setInterval(async () => {
+        if (!currentUser || !db.stocks) return;
+        const staff = isStaff(db.users[currentUser]);
+        if ((staff ? currentAdminSection : currentStudentSection) !== 'stock') return;
+        const countdown = document.getElementById('stockCountdown');
+        if (countdown) countdown.textContent = `${minutesToNextNews()}분`;
+        document.querySelectorAll('.stock-flow-countdown').forEach(el => { el.textContent = nextFlowSettleText(); });
+        if (stockAutoRefreshRunning || Math.floor(Date.now() / STOCK_TICK_MS) <= db.stocks.lastTick || Date.now() - lastUserActionAt < 4000) return;
+        stockAutoRefreshRunning = true;
+        try {
+            if (await loadData({ silent: true })) rerenderStockViews();
+        } finally {
+            stockAutoRefreshRunning = false;
+        }
+    }, 20000);
+
+    let stockResizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(stockResizeTimer);
+        stockResizeTimer = setTimeout(() => {
+            if (currentUser && currentStudentSection === 'stock' && stockView === 'chart' && !isStaff(db.users[currentUser])) {
+                COMPANIES.forEach(c => drawStockChart(c.id));
+            }
+        }, 200);
+    });
+
+    document.getElementById('loginPw').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') login();
+    });
+
+    // 로그인 전에도 공지사항을 볼 수 있도록 페이지 로드 시 미리 데이터를 불러옴
+    loadData().then(renderNotice);
+</script>
+</body>
+</html>
