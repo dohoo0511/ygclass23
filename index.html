@@ -1142,6 +1142,11 @@
     // 저장은 db 전체를 통째로 덮어쓰기 때문에, 오래된 화면을 그대로 올려 보내면
     // 그 사이 다른 기기에서 일어난 일이 전부 사라진다. (밤새 쌓인 기록이 아침에 없어지던 원인)
     // 그래서 "이번에 서버에서 제대로 읽어온 내용"만 저장할 수 있게 아래 두 값으로 지킨다.
+    // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
+    // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
+    // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
+    const APP_VERSION = '2026-09-16-sync-fix';
+
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
     const NET_RETRIES = 2;                // 휴대폰 잠자기·약한 와이파이 때문에 한 번 실패하는 경우가 많아 몇 번 더 시도
@@ -1253,6 +1258,11 @@
 
         const nextRev = (loadedRev || 0) + 1;
         db.rev = nextRev;
+        db.lastSave = {
+            at: new Date().toISOString(),
+            by: currentUser && db.users[currentUser] ? db.users[currentUser].name : '로그인 전',
+            v: APP_VERSION
+        };
         let lastError;
         for (let attempt = 0; attempt <= NET_RETRIES; attempt++) {
             try {

@@ -33,6 +33,7 @@ let server = null;       // 저장소에 들어 있다고 가정하는 내용
 let netUp = true;        // false 면 모든 요청 실패
 let failGets = 0;        // 앞으로 N번의 읽기만 실패 (재시도 확인용)
 let alerts = [];
+let currentUser = null;   // index.html 의 로그인 상태 (저장 기록용)
 
 const alert = m => alerts.push(m);
 const confirm = () => true;
@@ -110,6 +111,10 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
 
     sut.getDb().users['1'].pi = 124;
     check('연속 저장도 성공 (같은 학생의 이어지는 동작)', await sut.saveData() === true && server.rev === 53);
+
+    // 되돌린 내용이 또 사라졌을 때 누가 덮어썼는지 알 수 있어야 함
+    check('저장 흔적(lastSave)이 남음', !!server.lastSave && !!server.lastSave.at);
+    check('저장 흔적에 코드 버전이 들어감', /^\d{4}-\d{2}-\d{2}/.test(server.lastSave.v || ''));
 
     /* ── 일시적 오류는 재시도로 넘김 ── */
     failGets = 2; alerts = [];
