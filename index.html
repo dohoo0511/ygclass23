@@ -1158,6 +1158,42 @@
         return record && typeof record.rev === 'number' ? record.rev : 0;
     }
 
+    /* --- 되돌림 감지 ---
+       판번호는 저장할 때마다 올라가기만 한다. 그런데 예전 코드를 쓰는 기기가 덮어쓰면
+       그 기기가 들고 있던 옛날 판번호가 그대로 올라가서 번호가 뒤로 간다.
+       (restore.html 로 정상 복구할 때는 번호를 현재보다 크게 올리므로 여기 걸리지 않는다) */
+    const HIGH_REV_KEY = 'ygclass23_highest_rev';
+
+    // 되돌아갔으면 안내 문구, 아니면 null
+    function rollbackMessage(prevHighRev, record) {
+        const rev = revOf(record);
+        if (prevHighRev > 0 && rev < prevHighRev) {
+            return `서버 데이터가 예전 상태로 되돌아갔습니다. (판번호 ${prevHighRev} → ${rev})`;
+        }
+        return null;
+    }
+
+    function checkRollback(record) {
+        let prevHigh = 0;
+        try { prevHigh = Number(localStorage.getItem(HIGH_REV_KEY)) || 0; } catch (e) { return; }
+        const message = rollbackMessage(prevHigh, record);
+        if (message) { showRollbackBanner(message); return; }
+        try { localStorage.setItem(HIGH_REV_KEY, String(revOf(record))); } catch (e) { /* 무시 */ }
+    }
+
+    function showRollbackBanner(message) {
+        let el = document.getElementById('rollbackBanner');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'rollbackBanner';
+            el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;background:#d32f2f;color:#fff;' +
+                'padding:10px 14px;font-size:14px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.35);';
+            document.body.appendChild(el);
+        }
+        el.innerHTML = `⚠️ <b>${esc(message)}</b><br>예전 화면을 띄워 둔 기기가 덮어쓴 것 같습니다. 선생님께 알려주세요. ` +
+            `<button onclick="this.parentNode.remove()" style="margin-left:8px;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;">닫기</button>`;
+    }
+
     // 서버에서 최신 기록을 읽어옴. 실패하면 예외를 던짐 (절대 빈 값이나 예전 값을 돌려주지 않음)
     async function fetchLatestRecord() {
         let lastError;
@@ -1213,6 +1249,7 @@
             if (!silent) alert("서버 데이터가 올바르지 않아 아무것도 저장하지 않았습니다.\n선생님께 알려주세요.");
             return false;
         } else {
+            checkRollback(record);
             db = record;
             dataLoadedAt = Date.now();
             loadedRev = revOf(record);
