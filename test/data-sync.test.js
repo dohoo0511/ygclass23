@@ -33,6 +33,7 @@ let server = null;       // 저장소에 들어 있다고 가정하는 내용
 let netUp = true;        // false 면 모든 요청 실패
 let failGets = 0;        // 앞으로 N번의 읽기만 실패 (재시도 확인용)
 let alerts = [];
+let currentUser = null;   // index.html 의 로그인 상태 (저장 기록용)
 
 const alert = m => alerts.push(m);
 const confirm = () => true;
@@ -55,6 +56,7 @@ const sut = {};
 eval(dataLayer + `
     sut.loadData = loadData;
     sut.saveData = saveData;
+    sut.rollbackMessage = rollbackMessage;
     sut.getDb = () => db;
     sut.rewindClock = ms => { dataLoadedAt = Math.max(0, dataLoadedAt - ms); };
 `);
@@ -111,6 +113,10 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
     sut.getDb().users['1'].pi = 124;
     check('연속 저장도 성공 (같은 학생의 이어지는 동작)', await sut.saveData() === true && server.rev === 53);
 
+    // 되돌린 내용이 또 사라졌을 때 누가 덮어썼는지 알 수 있어야 함
+    check('저장 흔적(lastSave)이 남음', !!server.lastSave && !!server.lastSave.at);
+    check('저장 흔적에 코드 버전이 들어감', /^\d{4}-\d{2}-\d{2}/.test(server.lastSave.v || ''));
+
     /* ── 일시적 오류는 재시도로 넘김 ── */
     failGets = 2; alerts = [];
     check('일시적 오류 2번은 재시도로 성공', await sut.loadData() === true);
@@ -121,6 +127,15 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
     check('users 가 없는 응답은 로드 실패로 처리', await sut.loadData({ silent: true }) === false);
     check('초기값으로 덮어쓰지 않음', server.important === '학급 기록' && server.users === undefined);
     check('그 뒤 저장도 거부', await sut.saveData() === false && server.important === '학급 기록');
+
+    /* ── 되돌림 감지: 판번호가 뒤로 가면 알아채야 함 ── */
+    check('판번호가 뒤로 가면 되돌림으로 감지',
+        /되돌아갔습니다/.test(sut.rollbackMessage(53, { rev: 5 }) || ''));
+    check('판번호 없는 예전 데이터로 덮어써도 감지',
+        /되돌아갔습니다/.test(sut.rollbackMessage(53, { users: {} }) || ''));
+    check('정상적으로 올라갈 때는 오탐 없음', sut.rollbackMessage(53, { rev: 54 }) === null);
+    check('복구 도구로 되살린 경우도 오탐 없음', sut.rollbackMessage(53, { rev: 60 }) === null);
+    check('처음 접속(기록 없음)은 오탐 없음', sut.rollbackMessage(0, { rev: 5 }) === null);
 
     /* ── 진짜 빈 저장소만 초기화 ── */
     server = {};

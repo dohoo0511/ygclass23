@@ -186,8 +186,11 @@
             const meta = versions.find(v => v.version === version) || {};
             $('detailCard').style.display = '';
             $('detailTitle').textContent = `버전 #${version} — ${kst(meta.createdAt)}`;
+            const ls = record.lastSave;
             $('detailSummary').innerHTML =
-                `학생 보유 파이 합계 <b>${s.pi}π</b> · 은행/사용 기록 <b>${s.logs}건</b> · 학생 수 <b>${Object.keys(record.users || {}).length}명</b>`;
+                `학생 보유 파이 합계 <b>${s.pi}π</b> · 은행/사용 기록 <b>${s.logs}건</b> · 학생 수 <b>${Object.keys(record.users || {}).length}명</b>`
+                + (ls ? `<br><span class="muted">마지막 저장: ${ls.by || '?'} · ${kst(ls.at)} · 코드 ${ls.v || '?'}</span>`
+                      : `<br><span class="muted">마지막 저장 정보 없음 (예전 코드를 쓰는 기기가 저장한 버전)</span>`);
             $('detailJson').textContent = JSON.stringify(record, null, 2);
             const row = $('row-' + version);
             if (row) { row.children[2].textContent = s.pi + 'π'; row.children[3].textContent = s.logs; }
