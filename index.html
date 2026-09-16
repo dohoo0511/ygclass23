@@ -509,8 +509,8 @@
                     <li>계약을 맺은 회사끼리는 한 회사의 소식에 함께 영향을 받아요.</li>
                     <li>주식은 지금 주가 그대로 사고팔아요. 사거나 팔아도 주가가 바로 바뀌지 않아요.</li>
                     <li>일주일 동안 학생들이 사고판 주식을 모아서 매주 월요일 0시에 주가에 반영해요. 산 주식이 판 주식보다 1주 많을 때마다 주가가 1% 오르고, 1주 적을 때마다 1% 내려요. (한 주에 최대 20%, 1π 단위로 반올림)</li>
-                    <li>뉴스 하나에 주가는 보통 소식 1π, 큰 소식 2π 움직이고, 작은 소식은 주가를 거의 움직이지 않아요. 너무 많이 오르거나 내리면 반대 방향 뉴스가 나오기 쉬워져요.</li>
-                    <li>주가는 1π부터 200π 사이에서만 움직여요. 한 번에 최대 50주까지 주문할 수 있어요.</li>
+                    <li>뉴스 하나에 주가는 보통 소식 1π, 큰 소식 2π 움직이고, 작은 소식은 주가를 움직이지 않아요. 너무 많이 오르거나 내리면 반대 방향 뉴스가 나오기 쉬워져요.</li>
+                    <li>주가는 5π부터 200π 사이에서만 움직여요. 한 번에 최대 50주까지 주문할 수 있어요.</li>
                     <li>산 주식을 2주 동안 가지고 있으면 (현재 주가의 3% × 보유 수량)만큼 배당금을 받아요. 계속 가지고 있으면 2주마다 또 받아요.</li>
                     <li>팔 때는 가장 최근에 산 주식부터 팔려서, 오래 가진 주식의 배당 기간은 그대로 이어져요.</li>
                 </ul>
@@ -826,7 +826,7 @@
     /* ===================== 설정: 주식 ===================== */
     const HOUR_MS = 60 * 60 * 1000;
     const STOCK_TICK_MS = 30 * 60 * 1000; // 30분마다 회사별 뉴스 1개씩
-    const STOCK_MIN_PRICE = 1;
+    const STOCK_MIN_PRICE = 5;   // 주가가 너무 싸지면 한 번에 수십 주를 사서 크게 벌 수 있어 최저가를 둠
     const STOCK_MAX_PRICE = 200;
     const STOCK_MAX_ORDER = 50;
     // 학생 거래는 지금 가격 그대로 체결되고, 일주일치 거래를 모아 매주 월요일 0시(한국 시간)에 주가에 반영
@@ -844,8 +844,8 @@
     // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
     // 30분마다 회사별로 뉴스가 나오므로(하루 48번), 한 건의 폭이 크면 하루 사이에 주가가 몇 배로 벌어짐
     const NEWS_MAGNITUDES = [
-        { level: 'small',  chance: 0.85, amount: 0 },
-        { level: 'medium', chance: 0.98, amount: 1 },
+        { level: 'small',  chance: 0.5,  amount: 0 },
+        { level: 'medium', chance: 0.9,  amount: 1 },
         { level: 'large',  chance: 1,    amount: 2 }
     ];
     const STOCK_MOOD_STRENGTH = 0.2;      // 시장·회사 분위기가 호재 확률에 주는 영향
@@ -3768,7 +3768,7 @@
                 : (n.sentiment === 'good' ? '<span class="news-tag up">▲ 호재</span>' : '<span class="news-tag down">▼ 악재</span>');
             const impacts = Object.entries(n.deltas || {})
                 .filter(([id]) => companyById(id))
-                .map(([id, d]) => `${companyById(id).name} ${signed(d)}π`).join(' · ');
+                .map(([id, d]) => `${companyById(id).name} ${d === 0 ? '변동 없음' : signed(d) + 'π'}`).join(' · ');
             return `
                 <div class="news-item">
                     <div class="news-meta">${tag}<span class="log-time">${fmtHourFull(n.t)}</span>${n.ai && n.kind !== 'open' ? '<span class="ai-badge">🤖 AI 기사</span>' : ''}</div>
