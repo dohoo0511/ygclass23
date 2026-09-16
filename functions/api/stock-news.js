@@ -22,7 +22,7 @@ const KIND_LABELS = {
   contract_fail: "두 회사의 계약 협상 결렬",
 };
 
-const LEVEL_LABELS = { small: "작음", medium: "보통", large: "큼" };
+const LEVEL_LABELS = { none: "거의 없음", small: "작음", medium: "보통", large: "큼", huge: "매우 큼" };
 
 const SYSTEM_PROMPT = `너는 학생들이 참여하는 학급 경제 게임의 가상 경제 신문 기자다. 게임 속 회사는 모두 지어낸 회사다.
 - 태훈전자: 스마트폰·노트북 같은 전자기기 회사
