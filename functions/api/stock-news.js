@@ -111,7 +111,7 @@ function describeItem(item) {
   const moved = Object.entries(item.deltas)
     .filter(([, delta]) => delta !== 0)
     .map(([id, delta]) => `${COMPANIES[id].name} ${delta > 0 ? "상승" : "하락"}`);
-  if (moved.length) lines.push(`주가가 움직인 회사: ${moved.join(", ")}`);
+  lines.push(moved.length ? `주가가 움직인 회사: ${moved.join(", ")}` : "주가 변화: 거의 없음 (주가가 크게 움직이지 않았다고 쓸 것)");
   lines.push(`사건 요약(게임이 만든 기본 문장, 이 내용을 바탕으로 쓸 것): ${item.title}`);
   return lines.join("\n");
 }

@@ -509,7 +509,7 @@
                     <li>계약을 맺은 회사끼리는 한 회사의 소식에 함께 영향을 받아요.</li>
                     <li>주식은 지금 주가 그대로 사고팔아요. 사거나 팔아도 주가가 바로 바뀌지 않아요.</li>
                     <li>일주일 동안 학생들이 사고판 주식을 모아서 매주 월요일 0시에 주가에 반영해요. 산 주식이 판 주식보다 1주 많을 때마다 주가가 1% 오르고, 1주 적을 때마다 1% 내려요. (한 주에 최대 20%, 1π 단위로 반올림)</li>
-                    <li>뉴스 하나에 주가는 작은 소식 1π, 보통 소식 3π, 큰 소식 5π 움직여요. 너무 많이 오르거나 내리면 반대 방향 뉴스가 나오기 쉬워져요.</li>
+                    <li>뉴스 하나에 주가는 보통 소식 1π, 큰 소식 2π 움직이고, 작은 소식은 주가를 거의 움직이지 않아요. 너무 많이 오르거나 내리면 반대 방향 뉴스가 나오기 쉬워져요.</li>
                     <li>주가는 1π부터 200π 사이에서만 움직여요. 한 번에 최대 50주까지 주문할 수 있어요.</li>
                     <li>산 주식을 2주 동안 가지고 있으면 (현재 주가의 3% × 보유 수량)만큼 배당금을 받아요. 계속 가지고 있으면 2주마다 또 받아요.</li>
                     <li>팔 때는 가장 최근에 산 주식부터 팔려서, 오래 가진 주식의 배당 기간은 그대로 이어져요.</li>
@@ -788,11 +788,11 @@
     /* ===================== 설정: 매니저 계정 ===================== */
     // 매니저는 관리자 기능 중 아래 화면만 쓸 수 있음
     const MANAGER_ACCOUNTS = [
-        { id: 'mn1', name: '매니저1' },
-        { id: 'mn2', name: '매니저2' },
-        { id: 'mn3', name: '매니저3' }
+        { id: 'mn1', name: '매니저1', password: 'mang1!' },
+        { id: 'mn2', name: '매니저2', password: 'mang2!' },
+        { id: 'mn3', name: '매니저3', password: 'mang3!' }
     ];
-    const MANAGER_DEFAULT_PASSWORD = 'mnmn1234';
+    const MANAGER_OLD_PASSWORD = 'mnmn1234'; // 예전 비밀번호를 그대로 쓰는 계정만 새 비밀번호로 바꿈
     const MANAGER_SECTIONS = ['main', 'grant', 'usage', 'students', 'bank'];
 
     /* ===================== 설정: 랜덤상자 ===================== */
@@ -800,23 +800,24 @@
     // 가중치 합계 100 = 확률(%). 꽝·1파이·2파이·음악 우선 신청권 합계 70, 나머지 합계 30
     // 실질 가치(파이 금액 또는 상점 판매가)가 클수록 확률이 낮아지도록 설계
     const RANDOM_BOX_REWARDS = [
-        { name: '꽝',              weight: 25,   tier: 'none',      type: 'none' },
-        { name: '1파이',           weight: 20,   tier: 'common',    type: 'pi',   amount: 1 },
-        { name: '2파이',           weight: 15,   tier: 'common',    type: 'pi',   amount: 2 },
-        { name: '음악 우선 신청권', weight: 10,   tier: 'common',    type: 'item' },
-        { name: '로또 1장',        weight: 7,    tier: 'common',    type: 'lotto' },
-        { name: '간식 교환권',      weight: 6,    tier: 'common',    type: 'item' },
-        { name: '6파이',           weight: 5,    tier: 'rare',      type: 'pi',   amount: 6 },
-        { name: '반장 간식 갈취권', weight: 4,    tier: 'rare',      type: 'item' },
-        { name: '9파이',           weight: 3,    tier: 'rare',      type: 'pi',   amount: 9 },
-        { name: '청소 면제권',      weight: 2,    tier: 'rare',      type: 'item' },
-        { name: '12파이',          weight: 1.3,  tier: 'rare',      type: 'pi',   amount: 12 },
-        { name: '15파이',          weight: 0.8,  tier: 'legendary', type: 'pi',   amount: 15 },
-        { name: '20파이',          weight: 0.5,  tier: 'legendary', type: 'pi',   amount: 20 },
-        { name: '3일 자리 선택권',  weight: 0.2,  tier: 'legendary', type: 'item' },
-        { name: '30파이',          weight: 0.12, tier: 'legendary', type: 'pi',   amount: 30 },
-        { name: '자리 지정권',      weight: 0.05, tier: 'legendary', type: 'item' },
-        { name: '짝꿍 선택권',      weight: 0.03, tier: 'legendary', type: 'item', hiddenTrigger: true }
+        // 꽝·1파이·2파이·음악 우선 신청권 합계 92%, 나머지 보상 합계 8%
+        { name: '꽝',              weight: 33,   tier: 'none',      type: 'none' },
+        { name: '1파이',           weight: 26,   tier: 'common',    type: 'pi',   amount: 1 },
+        { name: '2파이',           weight: 20,   tier: 'common',    type: 'pi',   amount: 2 },
+        { name: '음악 우선 신청권', weight: 13,   tier: 'common',    type: 'item' },
+        { name: '로또 1장',        weight: 1.9,  tier: 'common',    type: 'lotto' },
+        { name: '간식 교환권',      weight: 1.6,  tier: 'common',    type: 'item' },
+        { name: '6파이',           weight: 1.3,  tier: 'rare',      type: 'pi',   amount: 6 },
+        { name: '반장 간식 갈취권', weight: 1.05, tier: 'rare',      type: 'item' },
+        { name: '9파이',           weight: 0.8,  tier: 'rare',      type: 'pi',   amount: 9 },
+        { name: '청소 면제권',      weight: 0.55, tier: 'rare',      type: 'item' },
+        { name: '12파이',          weight: 0.35, tier: 'rare',      type: 'pi',   amount: 12 },
+        { name: '15파이',          weight: 0.21, tier: 'legendary', type: 'pi',   amount: 15 },
+        { name: '20파이',          weight: 0.13, tier: 'legendary', type: 'pi',   amount: 20 },
+        { name: '3일 자리 선택권',  weight: 0.05, tier: 'legendary', type: 'item' },
+        { name: '30파이',          weight: 0.03, tier: 'legendary', type: 'pi',   amount: 30 },
+        { name: '자리 지정권',      weight: 0.02, tier: 'legendary', type: 'item' },
+        { name: '짝꿍 선택권',      weight: 0.01, tier: 'legendary', type: 'item', hiddenTrigger: true }
     ];
     // hiddenTrigger 보상이 뽑혔을 때 이 확률로 히든 보상으로 바뀜 (확률표에는 ???로 표시)
     const HIDDEN_REWARD_CHANCE = 0.05;
@@ -841,14 +842,16 @@
     const AI_RETRY_COOLDOWN_MS = 3 * 60 * 1000;
     const STOCK_SPILLOVER_PCT = 50;       // 계약 상대 회사가 함께 움직이는 비율 (소수점 버림 → 1π짜리 뉴스는 옮겨가지 않음)
     // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
+    // 30분마다 회사별로 뉴스가 나오므로(하루 48번), 한 건의 폭이 크면 하루 사이에 주가가 몇 배로 벌어짐
     const NEWS_MAGNITUDES = [
-        { level: 'small',  chance: 0.5,  amount: 1 },
-        { level: 'medium', chance: 0.85, amount: 3 },
-        { level: 'large',  chance: 1,    amount: 5 }
+        { level: 'small',  chance: 0.85, amount: 0 },
+        { level: 'medium', chance: 0.98, amount: 1 },
+        { level: 'large',  chance: 1,    amount: 2 }
     ];
     const STOCK_MOOD_STRENGTH = 0.2;      // 시장·회사 분위기가 호재 확률에 주는 영향
-    const STOCK_REVERSION_STRENGTH = 0.4; // 기준가에서 멀어질수록 반대 방향 뉴스가 나올 확률을 높임
+    const STOCK_REVERSION_STRENGTH = 0.6; // 기준가에서 멀어질수록 반대 방향 뉴스가 나올 확률을 높임
     const STOCK_ANCHOR_FOLLOW = 0.01;     // 기준가가 실제 가격을 따라가는 속도 (뉴스 1건마다)
+    const STOCK_ANCHOR_HOME = 0.03;       // 기준가가 시작 주가로 돌아오는 속도 → 몇 달이 지나도 주가가 1π까지 흘러내리지 않음
     const DIVIDEND_PERIOD_DAYS = 14;
     const DIVIDEND_RATE_PCT = 3;          // 2주 보유마다 (현재 주가 × 3%) × 보유 수량
     const STOCK_SEED = 20260915;          // 모든 기기에서 같은 뉴스가 나오도록 고정한 난수 시드
@@ -859,10 +862,10 @@
 
     // 색은 색각이상 검증기(모든 쌍 비교)를 통과한 4색
     const COMPANIES = [
-        { id: 'taehoon',  name: '태훈전자',    industry: '전자기기', icon: '📱', color: '#2a78d6', startPrice: 5 },
-        { id: 'ttaek',    name: '땍이네 땍배', industry: '택배',     icon: '📦', color: '#eb6834', startPrice: 3 },
-        { id: 'dohoo',    name: '도후식품',    industry: '식품',     icon: '🍜', color: '#1baf7a', startPrice: 4 },
-        { id: 'pharma23', name: '23제약',      industry: '제약',     icon: '💊', color: '#4a3aa7', startPrice: 6 }
+        { id: 'taehoon',  name: '태훈전자',    industry: '전자기기', icon: '📱', color: '#2a78d6', startPrice: 15 },
+        { id: 'ttaek',    name: '땍이네 땍배', industry: '택배',     icon: '📦', color: '#eb6834', startPrice: 11 },
+        { id: 'dohoo',    name: '도후식품',    industry: '식품',     icon: '🍜', color: '#1baf7a', startPrice: 13 },
+        { id: 'pharma23', name: '23제약',      industry: '제약',     icon: '💊', color: '#4a3aa7', startPrice: 18 }
     ];
 
     // AI 기사가 없을 때(또는 아직 안 왔을 때) 쓰는 기본 뉴스 소재 (AI 기사도 이 소재를 참고해서 씀)
@@ -1156,6 +1159,13 @@
         }
     }
 
+    // 확인창을 열어둔 채 오래 두면 그 사이 다른 사람이 바꾼 내용을 덮어쓸 수 있어서, 확인을 누른 뒤 최신 데이터를 다시 불러옴
+    // (불러온 뒤에는 db가 새 객체로 바뀌므로, 부르는 쪽에서 학생·대출 같은 정보를 다시 찾아야 함)
+    async function confirmThenReload(message) {
+        if (!confirm(message)) return false;
+        return await loadData();
+    }
+
     async function saveData() {
         try {
             const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
@@ -1200,9 +1210,14 @@
             });
         }
         MANAGER_ACCOUNTS.forEach(m => {
-            if (db.users[m.id]) return;
-            db.users[m.id] = { name: m.name, role: 'manager', password: MANAGER_DEFAULT_PASSWORD, pi: 0, exp: 0, inventory: [], lottoTickets: [], stocks: {} };
-            changed = true;
+            const existing = db.users[m.id];
+            if (!existing) {
+                db.users[m.id] = { name: m.name, role: 'manager', password: m.password, pi: 0, exp: 0, inventory: [], lottoTickets: [], stocks: {} };
+                changed = true;
+            } else if (existing.password === MANAGER_OLD_PASSWORD) {
+                existing.password = m.password;
+                changed = true;
+            }
         });
         Object.values(db.users).forEach(u => {
             if (typeof u.exp !== 'number') u.exp = 0;
@@ -1461,13 +1476,20 @@
             renderStudentSection();
             return;
         }
-        if (!confirm(`[${itemName}] 쿠폰을 사용하시겠습니까?\n(선생님께 사용 확인 요청이 전송됩니다)`)) return;
+        if (!await confirmThenReload(`[${itemName}] 쿠폰을 사용하시겠습니까?\n(선생님께 사용 확인 요청이 전송됩니다)`)) return;
 
-        user.inventory.splice(index, 1);
+        const fresh = db.users[currentUser];
+        const freshIndex = fresh.inventory.indexOf(itemName);
+        if (freshIndex === -1) {
+            alert('그 사이 쿠폰이 사용되었거나 없어졌어요.');
+            renderStudentSection();
+            return;
+        }
+        fresh.inventory.splice(freshIndex, 1);
         db.usageRequests.push({
             id: makeId(),
             studentId: currentUser,
-            studentName: user.name,
+            studentName: fresh.name,
             item: itemName,
             requestedAt: new Date().toISOString(),
             status: 'pending'
@@ -1859,17 +1881,23 @@
             return;
         }
 
+        const weeklyInterest = Math.round(amount * LOAN_WEEKLY_INTEREST_PCT / 100);
+        if (!await confirmThenReload(`${amount}π를 대출받을까요?\n\n상환 기한: ${fmtDate(Date.now() + LOAN_TERM_DAYS * DAY_MS)}\n1주일마다 이자가 약 ${weeklyInterest}π씩 늘어나요.`)) return;
+
+        const fresh = db.users[currentUser];
+        if (activeLoanOf(currentUser) || amount > getGrade(fresh).loanLimit) {
+            alert('그 사이 대출 정보가 바뀌었어요. 다시 확인해주세요.');
+            renderStudentSection();
+            return;
+        }
         const now = Date.now();
         const dueAt = now + LOAN_TERM_DAYS * DAY_MS;
-        const weeklyInterest = Math.round(amount * LOAN_WEEKLY_INTEREST_PCT / 100);
-        if (!confirm(`${amount}π를 대출받을까요?\n\n상환 기한: ${fmtDate(dueAt)}\n1주일마다 이자가 약 ${weeklyInterest}π씩 늘어나요.`)) return;
-
         db.bank.loans.push({
             id: makeId(), studentId: currentUser, principal: amount, paid: 0,
             startAt: now, dueAt, penaltiesApplied: 0, status: 'active'
         });
-        user.pi += amount;
-        addBankLog('loan', `💸 ${user.name} ${amount}π 대출 (기한 ${fmtDate(dueAt)})`, [currentUser]);
+        fresh.pi += amount;
+        addBankLog('loan', `💸 ${fresh.name} ${amount}π 대출 (기한 ${fmtDate(dueAt)})`, [currentUser]);
 
         await saveData();
         alert(`${amount}π 대출이 완료되었어요. 기한 안에 꼭 갚아주세요!`);
@@ -1993,17 +2021,26 @@
             return;
         }
 
+        const preview = {
+            principal: amount, weeks, weeklyRatePct: savingsRatePct(weeks),
+            startAt: Date.now(), maturesAt: Date.now() + weeks * WEEK_MS
+        };
+        if (!await confirmThenReload(`${amount}π를 ${weeks}주 적금에 넣을까요?\n\n만기일: ${fmtDate(preview.maturesAt)}\n만기 시 받을 금액: ${savingsPayout(preview)}π`)) return;
+
+        const fresh = db.users[currentUser];
+        if (fresh.pi < amount) {
+            alert(`파이가 부족해요. (보유 ${fresh.pi}π)`);
+            renderStudentSection();
+            return;
+        }
         const now = Date.now();
         const savings = {
             id: makeId(), studentId: currentUser, principal: amount, weeks,
             weeklyRatePct: savingsRatePct(weeks), startAt: now, maturesAt: now + weeks * WEEK_MS, status: 'active'
         };
-        const payout = savingsPayout(savings);
-        if (!confirm(`${amount}π를 ${weeks}주 적금에 넣을까요?\n\n만기일: ${fmtDate(savings.maturesAt)}\n만기 시 받을 금액: ${payout}π`)) return;
-
-        user.pi -= amount;
+        fresh.pi -= amount;
         db.bank.savings.push(savings);
-        addBankLog('savings', `🐷 ${user.name} 적금 가입: ${amount}π · ${weeks}주 (만기 ${payout}π)`, [currentUser]);
+        addBankLog('savings', `🐷 ${fresh.name} 적금 가입: ${amount}π · ${weeks}주 (만기 ${savingsPayout(savings)}π)`, [currentUser]);
 
         await saveData();
         alert('적금 가입이 완료되었어요!');
@@ -2022,14 +2059,21 @@
 
         const penalty = Math.round(s.principal * SAVINGS_CANCEL_PENALTY_PCT / 100);
         const refund = s.principal - penalty;
-        if (!confirm(`적금을 중도 해지할까요?\n\n원금 ${s.principal}π - 위약금 ${penalty}π = ${refund}π를 돌려받아요.\n쌓인 이자는 받을 수 없어요.`)) return;
+        if (!await confirmThenReload(`적금을 중도 해지할까요?\n\n원금 ${s.principal}π - 위약금 ${penalty}π = ${refund}π를 돌려받아요.\n쌓인 이자는 받을 수 없어요.`)) return;
 
-        user.pi += refund;
-        s.status = 'canceled';
-        s.closedAt = Date.now();
-        s.refund = refund;
-        s.canceledBy = 'student';
-        addBankLog('savings', `❌ ${user.name} 적금 중도 해지: ${refund}π 반환 (위약금 ${penalty}π)`, [currentUser]);
+        const fresh = db.users[currentUser];
+        const freshSavings = db.bank.savings.find(x => x.id === savingsId && x.status === 'active' && x.studentId === currentUser);
+        if (!freshSavings || freshSavings.principal !== s.principal) {
+            alert('그 사이 적금 내용이 바뀌었어요. 다시 확인해주세요.');
+            renderStudentSection();
+            return;
+        }
+        fresh.pi += refund;
+        freshSavings.status = 'canceled';
+        freshSavings.closedAt = Date.now();
+        freshSavings.refund = refund;
+        freshSavings.canceledBy = 'student';
+        addBankLog('savings', `❌ ${fresh.name} 적금 중도 해지: ${refund}π 반환 (위약금 ${penalty}π)`, [currentUser]);
         pruneBankRecords();
 
         await saveData();
@@ -2081,11 +2125,18 @@
             alert(`보유 파이(${user.pi}π)보다 많이 보낼 수 없어요.`);
             return;
         }
-        if (!confirm(`${target.name}에게 ${amount}π를 보낼까요?`)) return;
+        if (!await confirmThenReload(`${target.name}에게 ${amount}π를 보낼까요?`)) return;
 
-        user.pi -= amount;
-        target.pi += amount;
-        addBankLog('transfer', `📤 ${user.name} → ${target.name} ${amount}π 송금`, [currentUser, toId]);
+        const fresh = db.users[currentUser];
+        const freshTarget = db.users[toId];
+        if (!freshTarget || fresh.pi - amount < 0) {
+            alert(`보유 파이(${fresh.pi}π)보다 많이 보낼 수 없어요.`);
+            renderStudentSection();
+            return;
+        }
+        fresh.pi -= amount;
+        freshTarget.pi += amount;
+        addBankLog('transfer', `📤 ${fresh.name} → ${freshTarget.name} ${amount}π 송금`, [currentUser, toId]);
         notifyStudent(toId, { k: 'transfer', a: amount, from: currentUser });
 
         await saveData();
@@ -2468,12 +2519,19 @@
         }
         const user = db.users[loan.studentId];
         const change = loan.paid - loan.principal;
-        if (!confirm(`${user.name}의 대출을 취소할까요?\n\n빌려준 원금 ${loan.principal}π를 회수하고, 지금까지 갚은 ${loan.paid}π는 돌려줍니다.\n→ 학생 파이 ${signed(change)}π`)) return;
+        if (!await confirmThenReload(`${user.name}의 대출을 취소할까요?\n\n빌려준 원금 ${loan.principal}π를 회수하고, 지금까지 갚은 ${loan.paid}π는 돌려줍니다.\n→ 학생 파이 ${signed(change)}π`)) return;
 
-        user.pi += change;
-        loan.status = 'canceled';
-        loan.closedAt = Date.now();
-        addBankLog('loan', `❌ [${actorName()}] ${user.name} 대출 취소 (학생 파이 ${signed(change)}π)`, [loan.studentId]);
+        const freshLoan = db.bank.loans.find(l => l.id === loanId && l.status === 'active');
+        if (!freshLoan || freshLoan.paid - freshLoan.principal !== change) {
+            alert('그 사이 대출 내용이 바뀌었어요. 다시 확인해주세요.');
+            renderAdminSection();
+            return;
+        }
+        const freshUser = db.users[freshLoan.studentId];
+        freshUser.pi += change;
+        freshLoan.status = 'canceled';
+        freshLoan.closedAt = Date.now();
+        addBankLog('loan', `❌ [${actorName()}] ${freshUser.name} 대출 취소 (학생 파이 ${signed(change)}π)`, [freshLoan.studentId]);
         notifyStudent(loan.studentId, { k: 'bank', a: change, x: '대출이 취소됐어요' });
         pruneBankRecords();
         await saveData();
@@ -2560,15 +2618,22 @@
             return;
         }
         const user = db.users[s.studentId];
-        if (!confirm(`${user.name}의 적금을 취소할까요?\n\n위약금 없이 원금 ${s.principal}π 전액을 돌려줍니다. (이자 없음)`)) return;
+        if (!await confirmThenReload(`${user.name}의 적금을 취소할까요?\n\n위약금 없이 원금 ${s.principal}π 전액을 돌려줍니다. (이자 없음)`)) return;
 
-        user.pi += s.principal;
-        s.status = 'canceled';
-        s.closedAt = Date.now();
-        s.refund = s.principal;
-        s.canceledBy = 'admin';
-        addBankLog('savings', `❌ [${actorName()}] ${user.name} 적금 취소 (원금 ${s.principal}π 반환)`, [s.studentId]);
-        notifyStudent(s.studentId, { k: 'bank', a: s.principal, x: '적금이 취소되어 원금을 돌려받았어요' });
+        const freshSavings = db.bank.savings.find(x => x.id === savingsId && x.status === 'active');
+        if (!freshSavings || freshSavings.principal !== s.principal) {
+            alert('그 사이 적금 내용이 바뀌었어요. 다시 확인해주세요.');
+            renderAdminSection();
+            return;
+        }
+        const freshUser = db.users[freshSavings.studentId];
+        freshUser.pi += freshSavings.principal;
+        freshSavings.status = 'canceled';
+        freshSavings.closedAt = Date.now();
+        freshSavings.refund = freshSavings.principal;
+        freshSavings.canceledBy = 'admin';
+        addBankLog('savings', `❌ [${actorName()}] ${freshUser.name} 적금 취소 (원금 ${freshSavings.principal}π 반환)`, [freshSavings.studentId]);
+        notifyStudent(freshSavings.studentId, { k: 'bank', a: freshSavings.principal, x: '적금이 취소되어 원금을 돌려받았어요' });
         pruneBankRecords();
         await saveData();
         renderAdminSection();
@@ -2774,9 +2839,13 @@
         document.getElementById('studentDetailStock').innerHTML = holdings.length === 0
             ? '<div class="detail-row"><span style="color:#888;">보유한 주식이 없습니다.</span></div>'
             : holdings.map(({ c, h }) => `
-                <div class="detail-row">
+                <div class="detail-row flow-row">
                     <span><span class="series-key" style="background: ${c.color};"></span> ${c.icon} ${c.name} <b>${h.qty}주</b></span>
-                    <span>평균 ${Math.round(h.cost / h.qty)}π · 현재 ${db.stocks.companies[c.id].price}π</span>
+                    <span class="muted">산 금액 ${h.cost}π (평균 ${Math.round(h.cost / h.qty)}π) · 지금 팔면 ${h.qty * db.stocks.companies[c.id].price}π</span>
+                    <span>
+                        <button class="small-btn" onclick="adminSellStudentStock('${c.id}')">지금 가격에 팔기</button>
+                        <button class="small-btn" onclick="adminRefundStock('${c.id}')">산 가격 환불</button>
+                    </span>
                 </div>`).join('');
     }
 
@@ -2792,11 +2861,76 @@
         const coupon = COUPONS.find(c => c.name === itemName);
         const price = coupon ? couponPriceFor(detailStudentId, coupon) : 0;
 
-        if (!confirm(`[${itemName}] 쿠폰을 환불하시겠습니까?\n${price}π가 반환됩니다.`)) return;
+        if (!await confirmThenReload(`[${itemName}] 쿠폰을 환불하시겠습니까?\n${price}π가 반환됩니다.`)) return;
 
-        user.inventory.splice(index, 1);
-        user.pi += price;
+        const freshUser = db.users[detailStudentId];
+        const freshIndex = freshUser.inventory.indexOf(itemName);
+        if (freshIndex === -1 || (coupon && couponPriceFor(detailStudentId, coupon) !== price)) {
+            alert('그 사이 학생의 쿠폰이나 등급이 바뀌었어요. 다시 확인해주세요.');
+            renderStudentDetail();
+            return;
+        }
+        freshUser.inventory.splice(freshIndex, 1);
+        freshUser.pi += price;
         notifyStudent(detailStudentId, { k: 'refund', a: price, x: itemName });
+        await saveData();
+        renderStudentDetail();
+        renderAdminSection();
+    }
+
+    // 주식 관리: 산 금액 그대로 돌려주기 (주가와 상관없이 없던 일로 만듦)
+    async function adminRefundStock(companyId) {
+        await loadData();
+        const user = db.users[detailStudentId];
+        const company = companyById(companyId);
+        const h = holdingOf(user, companyId);
+        if (h.qty === 0) {
+            renderStudentDetail();
+            return;
+        }
+        if (!await confirmThenReload(`${user.name}의 ${company.name} 주식 ${h.qty}주를 환불할까요?\n\n산 금액 ${h.cost}π를 돌려주고 주식은 사라져요. (지금 주가와 상관없어요)`)) return;
+
+        const freshUser = db.users[detailStudentId];
+        const fresh = holdingOf(freshUser, companyId);
+        if (fresh.qty !== h.qty || fresh.cost !== h.cost) {
+            alert('그 사이 학생의 주식이 바뀌었어요. 다시 확인해주세요.');
+            renderStudentDetail();
+            return;
+        }
+        freshUser.pi += fresh.cost;
+        delete freshUser.stocks[companyId];
+        notifyStudent(detailStudentId, { k: 'refund', a: fresh.cost, x: `${company.name} 주식 ${fresh.qty}주` });
+        await saveData();
+        renderStudentDetail();
+        renderAdminSection();
+    }
+
+    // 주식 관리: 학생 대신 지금 주가로 팔아줌 (학생이 직접 판 것과 같게 처리)
+    async function adminSellStudentStock(companyId) {
+        await loadData();
+        const user = db.users[detailStudentId];
+        const company = companyById(companyId);
+        const h = holdingOf(user, companyId);
+        if (h.qty === 0) {
+            renderStudentDetail();
+            return;
+        }
+        const price = db.stocks.companies[companyId].price;
+        if (!await confirmThenReload(`${user.name}의 ${company.name} 주식 ${h.qty}주를 지금 가격에 팔까요?\n\n1주 ${price}π × ${h.qty}주 = ${price * h.qty}π를 지급해요. (산 금액 ${h.cost}π)`)) return;
+
+        const freshUser = db.users[detailStudentId];
+        const fresh = holdingOf(freshUser, companyId);
+        if (fresh.qty !== h.qty || db.stocks.companies[companyId].price !== price) {
+            alert('그 사이 학생의 주식이나 주가가 바뀌었어요. 다시 확인해주세요.');
+            renderStudentDetail();
+            return;
+        }
+        const total = price * fresh.qty;
+        freshUser.pi += total;
+        delete freshUser.stocks[companyId];
+        addStockTrade('sell', detailStudentId, companyId, fresh.qty, total, price);
+        recordStockFlow('sell', companyId, fresh.qty);
+        notifyStudent(detailStudentId, { k: 'bank', a: total, x: `${company.name} 주식 ${fresh.qty}주를 팔았어요 (1주 ${price}π)` });
         await saveData();
         renderStudentDetail();
         renderAdminSection();
@@ -2811,10 +2945,18 @@
             return;
         }
         const refund = lottoPriceFor(detailStudentId);
-        if (!confirm(`[${index + 1}번] 로또 티켓을 환불하시겠습니까?\n${refund}π가 반환됩니다.`)) return;
+        const ticketKey = user.lottoTickets[index].join(',');
+        if (!await confirmThenReload(`[${index + 1}번] 로또 티켓을 환불하시겠습니까?\n${refund}π가 반환됩니다.`)) return;
 
-        user.lottoTickets.splice(index, 1);
-        user.pi += refund;
+        const freshUser = db.users[detailStudentId];
+        const freshIndex = freshUser.lottoTickets.findIndex(t => t.join(',') === ticketKey);
+        if (freshIndex === -1 || lottoPriceFor(detailStudentId) !== refund) {
+            alert('그 사이 학생의 로또나 등급이 바뀌었어요. 다시 확인해주세요.');
+            renderStudentDetail();
+            return;
+        }
+        freshUser.lottoTickets.splice(freshIndex, 1);
+        freshUser.pi += refund;
         db.lotto.currentPot = Math.max(0, db.lotto.currentPot - LOTTO_TICKET_PRICE);
         notifyStudent(detailStudentId, { k: 'refund', a: refund, x: '로또 티켓' });
         await saveData();
@@ -3006,7 +3148,8 @@
         });
         COMPANIES.forEach(c => {
             const s = st.companies[c.id];
-            s.anchor = Math.round((s.anchor + (s.price - s.anchor) * STOCK_ANCHOR_FOLLOW) * 1000) / 1000;
+            const next = s.anchor + (s.price - s.anchor) * STOCK_ANCHOR_FOLLOW + (c.startPrice - s.anchor) * STOCK_ANCHOR_HOME;
+            s.anchor = Math.round(clamp(next, STOCK_MIN_PRICE, STOCK_MAX_PRICE) * 1000) / 1000;
         });
 
         Object.assign(item, buildTemplateNews(item));
@@ -3020,7 +3163,8 @@
     function buildTemplateNews(item) {
         const a = companyById(item.companyId);
         const levelWord = { small: '소폭 ', medium: '', large: '큰 폭으로 ' }[item.level] || '';
-        const move = levelWord + (item.sentiment === 'good' ? '올랐다' : '떨어졌다');
+        const moved = Object.values(item.deltas || {}).some(d => d !== 0);
+        const move = moved ? levelWord + (item.sentiment === 'good' ? '올랐다' : '떨어졌다') : '거의 움직이지 않았다';
 
         if (item.kind === 'single') {
             const reason = NEWS_REASONS[a.id][item.sentiment][item.reason];
