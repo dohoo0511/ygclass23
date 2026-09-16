@@ -1134,8 +1134,13 @@
     }
 
     /* ===================== 서버 데이터 ===================== */
-    // 성공하면 true. silent면 실패해도 알림창을 띄우지 않음 (백그라운드 작업용)
-    async function loadData({ silent = false } = {}) {
+    // 사용자가 무언가를 불러온 뒤 저장하기 전까지는, 백그라운드 새로고침이 데이터를 갈아끼우지 않게 함
+    // (갈아끼우면 화면이 수정 중이던 내용이 사라진 채로 저장됨 - 랜덤상자 보상이 사라지던 원인)
+    let userEditUntil = 0;
+    const USER_EDIT_GUARD_MS = 5 * 1000; // 불러오고 저장하기까지는 1초도 안 걸리지만, 연출·확인창을 감안해 조금 넉넉히 둠
+
+    // 성공하면 true. silent면 실패해도 알림창을 띄우지 않음, background면 사용자 작업 중에는 건너뜀 (둘 다 백그라운드 작업용)
+    async function loadData({ silent = false, background = false } = {}) {
         try {
             const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
                 headers: { 'X-Master-Key': API_KEY }
@@ -1143,6 +1148,7 @@
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const result = await response.json();
             if (!result.record || typeof result.record !== 'object') throw new Error('데이터 형식 오류');
+            if (background && Date.now() < userEditUntil) return false;
             db = result.record;
 
             if (!db.users || !db.users["1"]) {
@@ -1152,6 +1158,8 @@
             const migrated = migrateData();
             const timeChanged = applyTimeBasedUpdates();
             if (migrated || timeChanged) await saveData();
+            // 이 뒤에 화면이 db를 고치고 저장할 수 있으므로, 그때까지 백그라운드 새로고침을 막음
+            if (!background) userEditUntil = Date.now() + USER_EDIT_GUARD_MS;
             scheduleAiNews();
             return true;
         } catch (error) {
@@ -1179,6 +1187,7 @@
                 body: JSON.stringify(db)
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            userEditUntil = 0;
         } catch (error) {
             console.error("데이터 저장 실패:", error);
             alert("서버 저장 중 오류가 발생했습니다. 새로고침 후 다시 확인해주세요.");
@@ -1572,8 +1581,32 @@
             return;
         }
 
-        user.pi -= price;
+        // 연출을 하는 동안 백그라운드 새로고침이 끼어들어 보상이 사라지지 않도록, 결과를 먼저 저장하고 연출은 그 뒤에 함
         const reward = drawRandomBoxReward();
+        user.pi -= price;
+        let resultText = '';
+        if (reward.type === 'none') {
+            resultText = '😢 꽝! 다음 기회에...';
+        } else if (reward.type === 'pi') {
+            user.pi += reward.amount;
+            resultText = `${reward.name} 획득!`;
+        } else if (reward.type === 'lotto') {
+            const numbers = [];
+            while (numbers.length < 5) {
+                const n = Math.floor(Math.random() * 20) + 1;
+                if (!numbers.includes(n)) numbers.push(n);
+            }
+            numbers.sort((a, b) => a - b);
+            user.lottoTickets.push(numbers);
+            db.lotto.currentPot += LOTTO_TICKET_PRICE;
+            resultText = `로또 1장 획득! (번호: ${numbers.join(', ')})`;
+        } else {
+            user.inventory.push(reward.name);
+            resultText = `${reward.name} 획득!`;
+        }
+        const tier = reward.tier;
+        if (tier === 'hidden') resultText = `🌟 히든 보상! ${resultText}`;
+        await saveData();
 
         const stage = document.getElementById('randomBoxStage');
         const icon = document.getElementById('randomBoxIcon');
@@ -1593,35 +1626,11 @@
             reelIdx++;
         }, 80);
 
-        setTimeout(async () => {
+        setTimeout(() => {
             clearInterval(reelTimer);
             reel.textContent = '';
 
-            let resultText = '';
-            if (reward.type === 'none') {
-                resultText = '😢 꽝! 다음 기회에...';
-            } else if (reward.type === 'pi') {
-                user.pi += reward.amount;
-                resultText = `${reward.name} 획득!`;
-            } else if (reward.type === 'lotto') {
-                const numbers = [];
-                while (numbers.length < 5) {
-                    const n = Math.floor(Math.random() * 20) + 1;
-                    if (!numbers.includes(n)) numbers.push(n);
-                }
-                numbers.sort((a, b) => a - b);
-                user.lottoTickets.push(numbers);
-                db.lotto.currentPot += LOTTO_TICKET_PRICE;
-                resultText = `로또 1장 획득! (번호: ${numbers.join(', ')})`;
-            } else {
-                user.inventory.push(reward.name);
-                resultText = `${reward.name} 획득!`;
-            }
-
-            const tier = reward.tier;
             const icons = { none: '💨', common: '🎉', rare: '🎉', legendary: '🏆', hidden: '🌟' };
-            if (tier === 'hidden') resultText = `🌟 히든 보상! ${resultText}`;
-
             icon.className = 'random-box-icon opened';
             icon.textContent = icons[tier];
             resultEl.textContent = resultText;
@@ -1634,7 +1643,6 @@
                 spawnConfetti(stage, tier === 'legendary' ? 24 : 12);
             }
 
-            await saveData();
             updateHeader();
             btn.disabled = false;
         }, 1200);
@@ -3974,7 +3982,11 @@
         for (let attempt = 0; attempt < 10; attempt++) {
             while (Date.now() - lastUserActionAt < 4000) await sleep(1000);
             const startedAt = Date.now();
-            if (!(await loadData({ silent: true }))) return false;
+            // 사용자가 저장하기 직전이면 건너뛰고 잠시 뒤 다시 시도
+            if (!(await loadData({ silent: true, background: true }))) {
+                await sleep(1000);
+                continue;
+            }
             if (lastUserActionAt >= startedAt) continue;
             if (mutate() === false) return false;
             await saveData();
@@ -4084,7 +4096,7 @@
         if (stockAutoRefreshRunning || Math.floor(Date.now() / STOCK_TICK_MS) <= db.stocks.lastTick || Date.now() - lastUserActionAt < 4000) return;
         stockAutoRefreshRunning = true;
         try {
-            if (await loadData({ silent: true })) rerenderStockViews();
+            if (await loadData({ silent: true, background: true })) rerenderStockViews();
         } finally {
             stockAutoRefreshRunning = false;
         }
