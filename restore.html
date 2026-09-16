@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>데이터 복구 도구</title>
+<style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif; margin: 0; padding: 16px; background: #f4f6f8; color: #222; line-height: 1.6; }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 1.4em; margin: 0 0 4px; }
+    .sub { color: #666; font-size: .9em; margin-bottom: 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .warn { background: #fff4e5; border-left: 4px solid #ef6c00; }
+    button { font: inherit; padding: 8px 14px; border: 0; border-radius: 6px; background: #1976d2; color: #fff; cursor: pointer; }
+    button:disabled { background: #b0bec5; cursor: default; }
+    button.ghost { background: #eceff1; color: #263238; }
+    button.danger { background: #d32f2f; }
+    input[type=password], input[type=text] { font: inherit; padding: 8px; border: 1px solid #cfd8dc; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: .92em; }
+    th, td { padding: 8px 6px; border-bottom: 1px solid #eceff1; text-align: left; vertical-align: top; }
+    th { background: #fafafa; position: sticky; top: 0; }
+    .scroll { max-height: 60vh; overflow: auto; }
+    .num { text-align: right; white-space: nowrap; }
+    pre { background: #263238; color: #cfd8dc; padding: 12px; border-radius: 6px; overflow: auto; max-height: 40vh; font-size: .8em; }
+    .muted { color: #78909c; }
+    .night { background: #e8f5e9; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>🛟 데이터 복구 도구</h1>
+    <div class="sub">저장소에 남아 있는 예전 버전을 찾아서, 사라지기 전 시점으로 되돌립니다.</div>
+
+    <div class="card warn">
+        <b>먼저 읽어주세요</b>
+        <ul style="margin:8px 0 0; padding-left:20px;">
+            <li>되돌리면 <b>그 시점 이후의 모든 변화가 사라집니다.</b> 되돌릴 시점을 먼저 [내용 보기]로 확인하세요.</li>
+            <li>되돌리기 전에 학생들에게 사이트를 잠시 쓰지 말라고 알려주세요.</li>
+            <li>되돌리기는 기존 버전을 지우지 않고 새 버전으로 덧붙입니다. 잘못 되돌려도 다시 되돌릴 수 있습니다.</li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <div class="actions">
+            <button id="loadBtn">버전 목록 불러오기</button>
+            <label class="muted"><input type="checkbox" id="nightOnly"> 밤 시간(22:00~07:00)만 보기</label>
+            <span id="status" class="muted"></span>
+        </div>
+    </div>
+
+    <div class="card" id="listCard" style="display:none;">
+        <div class="scroll">
+            <table>
+                <thead><tr><th>버전</th><th>저장 시각 (한국 시간)</th><th class="num">전체 파이</th><th class="num">기록 수</th><th></th></tr></thead>
+                <tbody id="rows"></tbody>
+            </table>
+        </div>
+        <div style="margin-top:12px;"><button id="moreBtn" class="ghost">더 보기</button></div>
+    </div>
+
+    <div class="card" id="detailCard" style="display:none;">
+        <h3 id="detailTitle" style="margin-top:0;"></h3>
+        <div id="detailSummary"></div>
+        <div class="actions" style="margin:12px 0;">
+            <input type="password" id="adminPw" placeholder="관리자 비밀번호" autocomplete="off">
+            <button id="restoreBtn" class="danger">이 시점으로 되돌리기</button>
+        </div>
+        <pre id="detailJson"></pre>
+    </div>
+</div>
+
+<script>
+    // index.html 과 같은 저장소를 씁니다
+    const BIN_ID = "6a6dfa71da38895dfeaca6df";
+    const API_KEY = "$2a$10$1vUEwfxTb/KEjjRvdB2EneV8kJHW9N3YPTUZXbG5tH.bNookiSSJq";
+    const HEADERS = { 'X-Master-Key': API_KEY };
+    const PAGE = 50;
+
+    const $ = id => document.getElementById(id);
+    const setStatus = t => { $('status').textContent = t; };
+
+    let versions = [];      // { version, createdAt }
+    let shown = 0;
+    let cache = {};         // version -> record
+    let selected = null;    // { version, record }
+
+    async function api(path, opts = {}) {
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}${path}`, {
+            ...opts,
+            headers: { ...HEADERS, ...(opts.headers || {}) },
+            cache: 'no-store'
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text().catch(() => '')}`);
+        return res.json();
+    }
+
+    // 저장소마다 응답 모양이 조금씩 달라서, 배열이 들어 있을 만한 곳을 모두 확인
+    function pickVersionList(json) {
+        const candidates = [json && json.record && json.record.versions, json && json.versions, json && json.record];
+        for (const c of candidates) if (Array.isArray(c)) return c;
+        return null;
+    }
+    function versionNumber(v) {
+        return v.version ?? v.id ?? v.versionNumber ?? v.snippetMeta?.version;
+    }
+    function kst(iso) {
+        if (!iso) return '(시각 정보 없음)';
+        return new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short' });
+    }
+    function isNight(iso) {
+        if (!iso) return false;
+        const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', hour12: false }).format(new Date(iso)));
+        return h >= 22 || h < 7;
+    }
+    function summarize(record) {
+        if (!record || typeof record !== 'object') return { pi: '?', logs: '?' };
+        const users = record.users || {};
+        let pi = 0;
+        Object.values(users).forEach(u => { if (u && typeof u.pi === 'number' && u.role === 'student') pi += u.pi; });
+        const logs = (record.bank && Array.isArray(record.bank.logs) ? record.bank.logs.length : 0)
+            + (Array.isArray(record.usageRequests) ? record.usageRequests.length : 0);
+        return { pi, logs };
+    }
+
+    $('loadBtn').onclick = async () => {
+        $('loadBtn').disabled = true;
+        setStatus('불러오는 중…');
+        try {
+            const list = pickVersionList(await api('/versions'));
+            if (!list) throw new Error('버전 목록을 찾을 수 없습니다');
+            versions = list
+                .map(v => ({ version: versionNumber(v), createdAt: v.createdAt || v.created_at }))
+                .filter(v => v.version !== undefined)
+                .sort((a, b) => b.version - a.version);
+            shown = 0;
+            $('rows').innerHTML = '';
+            $('listCard').style.display = '';
+            renderMore();
+            setStatus(`총 ${versions.length}개 버전`);
+        } catch (e) {
+            console.error(e);
+            setStatus('');
+            alert('버전 목록을 불러오지 못했습니다.\n' + e.message +
+                '\n\n저장소에 버전 보관 기능이 꺼져 있으면 예전 내용을 되살릴 수 없습니다.\n' +
+                'jsonbin.io 에 로그인해 해당 Bin의 Versioning 설정을 확인해보세요.');
+        } finally {
+            $('loadBtn').disabled = false;
+        }
+    };
+
+    $('nightOnly').onchange = () => {
+        shown = 0;
+        $('rows').innerHTML = '';
+        renderMore();
+    };
+
+    $('moreBtn').onclick = renderMore;
+
+    function renderMore() {
+        const filtered = $('nightOnly').checked ? versions.filter(v => isNight(v.createdAt)) : versions;
+        const slice = filtered.slice(shown, shown + PAGE);
+        shown += slice.length;
+        $('rows').insertAdjacentHTML('beforeend', slice.map(v => {
+            const s = cache[v.version] ? summarize(cache[v.version]) : null;
+            return `<tr class="${isNight(v.createdAt) ? 'night' : ''}" id="row-${v.version}">
+                <td>#${v.version}</td>
+                <td>${kst(v.createdAt)}</td>
+                <td class="num">${s ? s.pi + 'π' : '<span class="muted">-</span>'}</td>
+                <td class="num">${s ? s.logs : '<span class="muted">-</span>'}</td>
+                <td><button class="ghost" onclick="viewVersion(${v.version})">내용 보기</button></td>
+            </tr>`;
+        }).join(''));
+        $('moreBtn').style.display = shown < filtered.length ? '' : 'none';
+        if (filtered.length === 0) $('rows').innerHTML = '<tr><td colspan="5" class="muted">해당하는 버전이 없습니다.</td></tr>';
+    }
+
+    window.viewVersion = async function (version) {
+        setStatus(`#${version} 불러오는 중…`);
+        try {
+            if (!cache[version]) cache[version] = (await api(`/${version}`)).record;
+            const record = cache[version];
+            selected = { version, record };
+            const s = summarize(record);
+            const meta = versions.find(v => v.version === version) || {};
+            $('detailCard').style.display = '';
+            $('detailTitle').textContent = `버전 #${version} — ${kst(meta.createdAt)}`;
+            $('detailSummary').innerHTML =
+                `학생 보유 파이 합계 <b>${s.pi}π</b> · 은행/사용 기록 <b>${s.logs}건</b> · 학생 수 <b>${Object.keys(record.users || {}).length}명</b>`;
+            $('detailJson').textContent = JSON.stringify(record, null, 2);
+            const row = $('row-' + version);
+            if (row) { row.children[2].textContent = s.pi + 'π'; row.children[3].textContent = s.logs; }
+            $('detailCard').scrollIntoView({ behavior: 'smooth' });
+            setStatus('');
+        } catch (e) {
+            console.error(e);
+            setStatus('');
+            alert('해당 버전을 불러오지 못했습니다.\n' + e.message);
+        }
+    };
+
+    $('restoreBtn').onclick = async () => {
+        if (!selected) return;
+        const pw = $('adminPw').value.trim();
+        if (!pw) return alert('관리자 비밀번호를 입력하세요.');
+
+        setStatus('확인 중…');
+        let current;
+        try {
+            current = (await api('/latest')).record;
+        } catch (e) {
+            setStatus('');
+            return alert('현재 데이터를 확인하지 못해 중단했습니다.\n' + e.message);
+        }
+        const admin = current && current.users && current.users.admin;
+        if (!admin || admin.password !== pw) {
+            setStatus('');
+            return alert('관리자 비밀번호가 맞지 않습니다.');
+        }
+
+        const meta = versions.find(v => v.version === selected.version) || {};
+        if (!confirm(`버전 #${selected.version} (${kst(meta.createdAt)}) 시점으로 되돌립니다.\n\n그 시점 이후의 모든 변화가 사라집니다.\n계속할까요?`)) {
+            setStatus('');
+            return;
+        }
+        if (!confirm('정말 되돌릴까요? 마지막 확인입니다.')) { setStatus('');  return; }
+
+        // 되돌린 뒤에도 index.html 의 덮어쓰기 방지(rev)가 계속 맞도록 판번호는 현재보다 크게 올려 둔다
+        const currentRev = typeof current.rev === 'number' ? current.rev : 0;
+        const restored = { ...JSON.parse(JSON.stringify(selected.record)), rev: currentRev + 1 };
+
+        setStatus('되돌리는 중…');
+        try {
+            await api('', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(restored)
+            });
+            setStatus('');
+            alert(`버전 #${selected.version} 시점으로 되돌렸습니다.\n사이트를 새로고침해서 확인해주세요.`);
+        } catch (e) {
+            console.error(e);
+            setStatus('');
+            alert('되돌리기에 실패했습니다. 데이터는 그대로입니다.\n' + e.message);
+        }
+    };
+</script>
+</body>
+</html>
