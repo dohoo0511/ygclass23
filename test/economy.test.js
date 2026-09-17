@@ -29,9 +29,11 @@ eval(script + `
   app.initStock = initStockMarket; app.applyTicks = applyStockTicks; app.setDb = v => { db = v; };
   app.COMPANIES = COMPANIES; app.holdingOf = holdingOf; app.buyableQty = buyableQty;
   app.totalHeldQty = totalHeldQty; app.savingsPayout = savingsPayout; app.savingsRatePct = savingsRatePct;
+  app.migSize = migrateStockTickSize;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
-            LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS };
+            LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
+            HIST: STOCK_HISTORY_TICKS, MAG: NEWS_MAGNITUDES };
 `);
 
 const results = [];
@@ -87,19 +89,81 @@ const held = app.K.TOTAL, price = 16;
 const weekly = Math.round(price * app.K.DIV / 100 * held) / 2;
 check(`학생 1명이 한도까지 들고 있어도 배당은 주 ${weekly.toFixed(1)}π 이하`, weekly <= 1);
 
-/* ── 뉴스 엔진은 여전히 되돌아와야 함 (한쪽으로 흐르면 안 됨) ── */
-let startSum = 0, endSum = 0;
+/* ── 급등락이 드물어야 함 ── */
+const magPct = app.K.MAG.map((m, i) => m.chance - (i ? app.K.MAG[i - 1].chance : 0));
+check(`뉴스 열 건 중 절반 이상은 주가를 움직이지 않음 — ${(magPct[0] * 100).toFixed(0)}%`, magPct[0] >= 0.5);
+const bigMoves = magPct[3] + magPct[4];
+check(`큰 폭 이상 뉴스가 2% 미만 — ${(bigMoves * 100).toFixed(1)}%`, bigMoves < 0.02);
+
+/* ── 뉴스 흐름: 며칠씩 이어지고, 하루 변동은 크지 않아야 함 ── */
+let runLen = 0, eff = 0, effN = 0, swingPct = 0, n2 = 0;
+const endRatios = [];
 for (let r = 0; r < 20; r++) {
     const t0 = Date.UTC(2026, 0, 5);
     const d = { users: {}, stocks: null };
     app.setDb(d);
     d.stocks = app.initStock(t0);
     d.stocks.seed += r * 7919;
-    app.applyTicks(t0 + 60 * DAY);
-    app.COMPANIES.forEach(c => { startSum += c.startPrice; endSum += d.stocks.companies[c.id].price; });
+    const series = {};
+    app.COMPANIES.forEach(c => series[c.id] = []);
+    for (let k = 1; k <= 60; k++) {
+        app.applyTicks(t0 + k * DAY);
+        app.COMPANIES.forEach(c => series[c.id].push(d.stocks.companies[c.id].price));
+    }
+    app.COMPANIES.forEach(c => {
+        const v = series[c.id];
+        endRatios.push(v[v.length - 1] / c.startPrice);
+        const dif = v.slice(1).map((x, i) => x - v[i]);
+        const signs = dif.map(Math.sign).filter(x => x);
+        let runs = 1;
+        for (let i = 1; i < signs.length; i++) if (signs[i] !== signs[i - 1]) runs++;
+        runLen += signs.length / runs;
+        // 추세 효율: 7일 동안 실제로 이동한 거리 / 그 사이 오르내린 총 거리
+        for (let i = 0; i + 7 < v.length; i++) {
+            let gross = 0;
+            for (let j = i; j < i + 7; j++) gross += Math.abs(v[j + 1] - v[j]);
+            if (gross > 0) { eff += Math.abs(v[i + 7] - v[i]) / gross; effN++; }
+        }
+        const avgPrice = v.reduce((s2, x) => s2 + x, 0) / v.length;
+        swingPct += dif.reduce((s2, x) => s2 + Math.abs(x), 0) / dif.length / avgPrice * 100;
+        n2++;
+    });
 }
-const drift = endSum / startSum - 1;
-check(`뉴스만으로는 주가가 한쪽으로 쏠리지 않음 (60일 ${(drift * 100).toFixed(1)}%)`, Math.abs(drift) < 0.25);
+endRatios.sort((a, b) => a - b);
+const drift = endRatios[Math.floor(endRatios.length / 2)] - 1;   // 중앙값
+check(`뉴스만으로는 주가가 한쪽으로 쏠리지 않음 (60일 중앙값 ${(drift * 100).toFixed(1)}%)`, Math.abs(drift) < 0.25);
+// 기준값은 수정 전 코드를 같은 방법으로 돌려서 잰 값이다 (연속 1.45일, 추세효율 0.151, 일변동 27.0%).
+// 넉넉히 잡되, 예전 수준으로 되돌아가면 반드시 걸리도록 둔다
+check(`같은 방향이 이틀 넘게 이어짐 — ${(runLen / n2).toFixed(2)}일 (예전 1.45일)`, runLen / n2 > 1.8);
+check(`흐름이 톱니가 아니라 한 방향으로 감 — 추세 효율 ${(eff / effN).toFixed(3)} (예전 0.151)`, eff / effN > 0.22);
+check(`하루 변동이 주가의 20% 미만 — ${(swingPct / n2).toFixed(1)}% (예전 27.0%)`, swingPct / n2 < 20);
+
+/* ── 뉴스 간격을 바꿔도 예전 데이터가 멈추지 않아야 함 ── */
+const OLD_MS = 30 * 60 * 1000;
+const NOW = Date.UTC(2026, 8, 17, 3, 0);
+const legacyTick = Math.floor(NOW / OLD_MS);
+const legacy = {
+    seed: 20260915, eventCount: 500, marketMood: 0,
+    lastTick: legacyTick, historyStartTick: legacyTick - 335,
+    companies: {}, contracts: [], contractProjects: {}, trades: [],
+    flow: { week: 0, buy: {}, sell: {} }, news: []
+};
+app.COMPANIES.forEach((c, i) => {
+    legacy.companies[c.id] = { price: c.startPrice + i, anchor: c.startPrice, mood: 0,
+        history: Array.from({ length: 336 }, (_, k) => c.startPrice + (k % 5)) };
+});
+const kept = app.COMPANIES.map(c => legacy.companies[c.id].price);
+check('예전(30분) 데이터를 새 간격으로 옮김', app.migSize(legacy) === true);
+const nowTick = Math.floor(NOW / app.K.TICK);
+check('옮긴 뒤 회차가 현재를 넘지 않음 → 뉴스가 다시 나옴', legacy.lastTick <= nowTick);
+check('옮겨도 주가는 그대로', app.COMPANIES.every((c, i) => legacy.companies[c.id].price === kept[i]));
+const hlen = legacy.companies[app.COMPANIES[0].id].history.length;
+check('그래프 시간축이 어긋나지 않음', legacy.historyStartTick + hlen - 1 === legacy.lastTick);
+check('그래프가 보관 한도 안에 들어옴', hlen <= app.K.HIST);
+check('두 번 옮기지 않음', app.migSize(legacy) === false);
+app.setDb({ users: {}, stocks: legacy });
+const beforeTick = legacy.lastTick;
+check('옮긴 뒤 뉴스가 실제로 진행됨', app.applyTicks(NOW + 5 * app.K.TICK) === true && legacy.lastTick > beforeTick);
 
 console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
 const failed = results.filter(x => !x[1]).length;

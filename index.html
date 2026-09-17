@@ -505,7 +505,7 @@
             <div class="card" style="margin-top: 16px;">
                 <h4>📘 주식 규칙</h4>
                 <ul class="rule-list">
-                    <li>30분마다 네 회사의 경제 뉴스가 하나씩 나오고, 좋은 뉴스면 주가가 오르고 나쁜 뉴스면 내려가요.</li>
+                    <li>4시간마다 네 회사의 경제 뉴스가 하나씩 나오고, 좋은 뉴스면 주가가 오르고 나쁜 뉴스면 내려가요.</li>
                     <li>계약을 맺은 회사끼리는 한 회사의 소식에 함께 영향을 받아요.</li>
                     <li>주식은 지금 주가 그대로 사고팔아요. 사거나 팔아도 주가가 바로 바뀌지 않아요.</li>
                     <li>일주일 동안 학생들이 사고판 주식을 모아서 매주 월요일 0시에 주가에 반영해요. 산 주식이 판 주식보다 1주 많을 때마다 주가가 1% 오르고, 1주 적을 때마다 1% 내려요. (한 주에 최대 20%, 1π 단위로 반올림)</li>
@@ -830,7 +830,9 @@
 
     /* ===================== 설정: 주식 ===================== */
     const HOUR_MS = 60 * 60 * 1000;
-    const STOCK_TICK_MS = 30 * 60 * 1000; // 30분마다 회사별 뉴스 1개씩
+    const STOCK_TICK_MS = 4 * 60 * 60 * 1000; // 4시간마다 회사별 뉴스 1개씩
+    // 예전에는 30분마다(하루 48건) 나왔는데, 뉴스가 너무 잦아 주가가 하루에도 몇 번씩 뒤집혔다.
+    // 간격을 늘리니 흐름이 며칠씩 이어지고 하루 변동폭도 26% → 15% 로 줄었다
     const STOCK_MIN_PRICE = 5;   // 주가가 너무 싸지면 한 번에 수십 주를 사서 크게 벌 수 있어 최저가를 둠
     // 최저가에서는 더 떨어질 수가 없어서, 사두기만 하면 손해를 볼 수 없는 공짜 수익이 된다.
     // (실제로 돌려보면 최저가에 사서 2주 뒤 평균 +117%, 400번 중 내려간 적 0번)
@@ -845,8 +847,8 @@
     const STOCK_FLOW_PCT_PER_SHARE = 1;   // 산 주식이 판 주식보다 1주 많을 때마다 +1% (적으면 -1%)
     const STOCK_FLOW_MAX_PCT = 20;        // 한 주에 거래로 움직이는 최대 비율 (많이 사서 한 주 만에 두 배가 되는 일을 막음)
     const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-    const STOCK_HISTORY_TICKS = 336;      // 그래프용 30분 간격 가격 보관 (7일)
-    const STOCK_MAX_CATCHUP_TICKS = 144;  // 오래 아무도 접속하지 않았을 때 따라잡는 최대 회차 (3일), 그 이전은 가격 그대로
+    const STOCK_HISTORY_TICKS = 180;      // 그래프용 가격 보관 회차 (4시간 × 180 = 30일)
+    const STOCK_MAX_CATCHUP_TICKS = 18;   // 오래 아무도 접속하지 않았을 때 따라잡는 최대 회차 (3일), 그 이전은 가격 그대로
     const STOCK_NEWS_TICKS_ON_CATCHUP = 2; // 한꺼번에 따라잡을 때 뉴스로 남기는 최근 회차 수 (그 전 회차는 주가만 반영)
     const STOCK_MAX_NEWS = 32;
     const STOCK_MAX_TRADES = 60;
@@ -854,18 +856,32 @@
     const AI_RETRY_COOLDOWN_MS = 3 * 60 * 1000;
     const STOCK_SPILLOVER_PCT = 50;       // 계약 상대 회사가 함께 움직이는 비율 (소수점 버림 → 1π짜리 뉴스는 옮겨가지 않음)
     // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
-    // 30분마다 회사별로 뉴스가 나오므로(하루 48번), 한 건의 폭이 크면 하루 사이에 주가가 몇 배로 벌어짐
+    // chance 는 누적 확률. 열 개 중 예닐곱은 주가를 움직이지 않고, 큰 폭 이상은 1% 남짓이다.
+    // 이렇게 해야 갑자기 뛰거나 떨어지는 일이 드물어지고, 흐름이 눈에 보인다
     const NEWS_MAGNITUDES = [
-        { level: 'none',   chance: 0.2,  amount: 0 },
-        { level: 'small',  chance: 0.57, amount: 1 },
-        { level: 'medium', chance: 0.82, amount: 2 },
-        { level: 'large',  chance: 0.97, amount: 3 },
-        { level: 'huge',   chance: 1,    amount: 4 }
+        { level: 'none',   chance: 0.65,  amount: 0 },
+        { level: 'small',  chance: 0.93,  amount: 1 },
+        { level: 'medium', chance: 0.99,  amount: 2 },
+        { level: 'large',  chance: 0.999, amount: 3 },
+        { level: 'huge',   chance: 1,     amount: 4 }
     ];
     const STOCK_MOOD_STRENGTH = 0.2;      // 시장·회사 분위기가 호재 확률에 주는 영향
-    const STOCK_REVERSION_STRENGTH = 0.6; // 기준가에서 멀어질수록 반대 방향 뉴스가 나올 확률을 높임
+    const STOCK_REVERSION_STRENGTH = 0.8; // 기준가에서 멀어질수록 반대 방향 뉴스가 나올 확률을 높임
+    // 지금까지 나온 뉴스의 흐름(추세). 오르던 회사는 계속 오르고, 내리던 회사는 계속 내리게 함.
+    // 추세가 없으면 호재·악재가 매번 동전 던지기라 주가가 오르락내리락만 하고 흐름이 안 보인다.
+    // 추세는 반드시 되돌림(0.8)보다 약해야 한다. 추세가 더 세면 기준가에서 아무리 벗어나도
+    // 추세가 이겨서 주가가 한없이 오르기만 한다 (실제로 60일에 +92% 까지 올라갔다)
+    const STOCK_TREND_STRENGTH = 0.5;     // 추세가 호재 확률에 주는 영향
+    const STOCK_TREND_DECAY = 0.97;       // 추세가 남아 있는 정도. 높을수록 흐름이 오래 감 (뉴스 1건마다 갱신)
+    const STOCK_TREND_STEP = 0.5;         // 뉴스 1건이 추세를 바꾸는 정도
     const STOCK_ANCHOR_FOLLOW = 0.01;     // 기준가가 실제 가격을 따라가는 속도 (뉴스 1건마다)
-    const STOCK_ANCHOR_HOME = 0.03;       // 기준가가 시작 주가로 돌아오는 속도 → 몇 달이 지나도 주가가 1π까지 흘러내리지 않음
+    // 최저가(5π) 아래로는 못 내려가니 위로만 열려 있어, 귀환력이 약하면 주가가 슬금슬금 오르기만 한다.
+    // 0.12 면 90일 드리프트가 거의 0 이면서 추세도 살아 있다 (실측으로 고름)
+    const STOCK_ANCHOR_HOME = 0.12;       // 기준가가 시작 주가로 돌아오는 속도
+    // 흐름이 이어지는 동안 기준가 자체를 조금씩 밀어준다.
+    // 주가는 되돌림이 세서 기준가에 바짝 붙어 다니므로, 하루 안에서는 잔잔하면서
+    // 날짜가 지나면 상승세·하락세가 눈에 보이게 된다
+    const STOCK_ANCHOR_DRIFT = 0.15;      // 뉴스 1건마다 기준가를 흐름 방향으로 미는 정도(π)
     const DIVIDEND_PERIOD_DAYS = 14;
     // 배당은 주가가 떨어져도 계속 나오는 '손실 없는 수입'이라, 높으면 그것만으로 물가가 오름
     const DIVIDEND_RATE_PCT = 1;          // 2주 보유마다 (현재 주가 × 1%) × 보유 수량
@@ -1451,6 +1467,7 @@
         if (db.stocks && typeof db.stocks === 'object') {
             if (!db.stocks.contractProjects || typeof db.stocks.contractProjects !== 'object') db.stocks.contractProjects = {};
             if (migrateStockTicks(db.stocks)) changed = true;
+            if (migrateStockTickSize(db.stocks)) changed = true;
             if (!db.stocks.flow || typeof db.stocks.flow.week !== 'number') {
                 db.stocks.flow = emptyStockFlow(stockWeekOf(db.stocks.lastTick * STOCK_TICK_MS));
                 changed = true;
@@ -3254,16 +3271,16 @@
     function initStockMarket(now) {
         const tick = Math.floor(now / STOCK_TICK_MS);
         const companies = {};
-        COMPANIES.forEach(c => { companies[c.id] = { price: c.startPrice, anchor: c.startPrice, mood: 0, history: [c.startPrice] }; });
+        COMPANIES.forEach(c => { companies[c.id] = { price: c.startPrice, anchor: c.startPrice, mood: 0, trend: 0, history: [c.startPrice] }; });
         return {
-            seed: STOCK_SEED, eventCount: 0, marketMood: 0,
+            seed: STOCK_SEED, eventCount: 0, marketMood: 0, tickMs: STOCK_TICK_MS,
             lastTick: tick, historyStartTick: tick,
             companies, contracts: [], contractProjects: {}, trades: [],
             flow: emptyStockFlow(stockWeekOf(now)),
             news: [{
                 id: 'n0', t: now, kind: 'open', sentiment: 'good', deltas: {}, ai: true,
                 title: '학급 주식시장 개장!',
-                body: '태훈전자, 땍이네 땍배, 도후식품, 23제약 네 회사의 주식을 사고팔 수 있어요. 30분마다 네 회사의 경제 뉴스가 하나씩 나오고, 뉴스에 따라 주가가 오르내립니다.'
+                body: '태훈전자, 땍이네 땍배, 도후식품, 23제약 네 회사의 주식을 사고팔 수 있어요. 4시간마다 네 회사의 경제 뉴스가 하나씩 나오고, 뉴스에 따라 주가가 오르내립니다. 좋은 흐름이 이어지면 한동안 계속 오르기도 해요.'
             }]
         };
     }
@@ -3312,6 +3329,33 @@
         st.flow = emptyStockFlow(week);
     }
 
+    // 뉴스 간격이 바뀌었을 때, 저장된 회차 번호와 그래프 값을 새 간격에 맞게 옮김. 바꿨으면 true
+    // 이걸 안 하면 lastTick 이 새 기준보다 훨씬 커서 '이미 다 지난 회차'로 보여 뉴스가 영영 안 나옴
+    function migrateStockTickSize(st) {
+        const prevMs = typeof st.tickMs === 'number' ? st.tickMs : 30 * 60 * 1000;
+        if (prevMs === STOCK_TICK_MS) { st.tickMs = STOCK_TICK_MS; return false; }
+        if (typeof st.lastTick !== 'number') return false;
+
+        // 회차 번호는 '시각'을 나타내므로, 실제 시각으로 바꿨다가 새 간격으로 다시 나눔
+        st.lastTick = Math.floor(st.lastTick * prevMs / STOCK_TICK_MS);
+
+        // 그래프 값도 새 간격으로 솎아냄 (촘촘하면 골라내고, 성기면 그대로 둠)
+        const step = Math.max(1, Math.round(STOCK_TICK_MS / prevMs));
+        COMPANIES.forEach(c => {
+            const company = st.companies[c.id];
+            if (!company || !Array.isArray(company.history) || company.history.length === 0) return;
+            const src = company.history;
+            const out = [];
+            for (let i = src.length - 1; i >= 0 && out.length < STOCK_HISTORY_TICKS; i -= step) out.unshift(src[i]);
+            company.history = out;
+        });
+        // 마지막 값이 지금 회차가 되도록 시작 번호를 맞춤 (그래프 시간축이 어긋나지 않게)
+        const len = st.companies[COMPANIES[0].id].history.length;
+        st.historyStartTick = st.lastTick - (len - 1);
+        st.tickMs = STOCK_TICK_MS;
+        return true;
+    }
+
     // 예전 1시간 단위 데이터(lastTickHour)를 30분 단위(lastTick)로 바꿈. 바꿨으면 true
     function migrateStockTicks(st) {
         if (typeof st.lastTick === 'number' || typeof st.lastTickHour !== 'number') return false;
@@ -3346,6 +3390,7 @@
             const s = st.companies[c.id];
             s.mood = clamp(s.mood * 0.8 + (rand() - 0.5) * 0.8, -1, 1);
             if (typeof s.anchor !== 'number') s.anchor = s.price;
+            if (typeof s.trend !== 'number') s.trend = 0;   // 예전 데이터에는 추세가 없음
         });
         // 기준가(최근 가격을 천천히 따라가는 값)보다 많이 오르면 악재가, 많이 내리면 호재가 조금 더 잘 나옴 → 너무 크게 출렁이지 않음
         const pull = id => {
@@ -3353,7 +3398,10 @@
             return clamp((s.price - s.anchor) / Math.max(s.anchor, 10) * 2, -1, 1);
         };
         const goodChance = id => clamp(
-            0.5 + STOCK_MOOD_STRENGTH * clamp((st.marketMood + st.companies[id].mood) / 2, -1, 1) - STOCK_REVERSION_STRENGTH * pull(id),
+            0.5
+            + STOCK_MOOD_STRENGTH * clamp((st.marketMood + st.companies[id].mood) / 2, -1, 1)
+            + STOCK_TREND_STRENGTH * st.companies[id].trend    // 오르던 흐름이면 호재가 더 잘 나옴
+            - STOCK_REVERSION_STRENGTH * pull(id),
             0.1, 0.9);
 
         const item = { id: 'n' + st.eventCount, t: time, ai: false };
@@ -3406,9 +3454,19 @@
             item.deltas[id] = next - s.price;
             s.price = next;
         });
+        // 이번에 실제로 움직인 방향(과 크기)을 흐름에 더한다. 뉴스가 안 나온 회사는 흐름이 서서히 옅어짐
         COMPANIES.forEach(c => {
             const s = st.companies[c.id];
-            const next = s.anchor + (s.price - s.anchor) * STOCK_ANCHOR_FOLLOW + (c.startPrice - s.anchor) * STOCK_ANCHOR_HOME;
+            const moved = item.deltas[c.id] || 0;
+            const push = moved === 0 ? 0 : Math.sign(moved) * Math.min(1, Math.abs(moved) / 2) * STOCK_TREND_STEP;
+            s.trend = clamp(s.trend * STOCK_TREND_DECAY + push, -1, 1);
+        });
+        COMPANIES.forEach(c => {
+            const s = st.companies[c.id];
+            const next = s.anchor
+                + (s.price - s.anchor) * STOCK_ANCHOR_FOLLOW
+                + (c.startPrice - s.anchor) * STOCK_ANCHOR_HOME
+                + s.trend * STOCK_ANCHOR_DRIFT;
             s.anchor = Math.round(clamp(next, STOCK_MIN_PRICE, STOCK_MAX_PRICE) * 1000) / 1000;
         });
 
@@ -3459,7 +3517,7 @@
         }
     }
 
-    // 지난 30분 회차마다 네 회사의 뉴스를 하나씩 만들어 반영. 바뀐 게 있으면 true
+    // 지나간 회차마다 네 회사의 뉴스를 하나씩 만들어 반영. 바뀐 게 있으면 true
     function applyStockTicks(now) {
         const st = db.stocks;
         const currentTick = Math.floor(now / STOCK_TICK_MS);
@@ -3744,8 +3802,13 @@
     function minutesToNextNews() {
         return Math.ceil((STOCK_TICK_MS - (Date.now() % STOCK_TICK_MS)) / 60000);
     }
+    // 4시간 간격이라 '227분' 처럼 나오면 읽기 어려워서 시간·분으로 나눠 보여줌
+    function nextNewsText() {
+        const m = minutesToNextNews();
+        return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`;
+    }
 
-    // 범위 안의 30분 간격 가격 + 지금 가격. 범위 시작 직전 값 하나를 앞에 두어 선이 끊기지 않게 함
+    // 범위 안의 회차별 가격 + 지금 가격. 범위 시작 직전 값 하나를 앞에 두어 선이 끊기지 않게 함
     function stockSeries(companyId, hours) {
         const st = db.stocks;
         const s = st.companies[companyId];
@@ -3801,7 +3864,7 @@
         document.getElementById('stockSummary').innerHTML = `
             <div class="stock-summary">
                 <div class="stat"><span class="muted">내 주식</span><b class="stat-value">${shares}주</b><span class="muted">투자 원금 ${cost}π</span></div>
-                <div class="stat"><span class="muted">다음 뉴스까지</span><b class="stat-value" id="stockCountdown">${minutesToNextNews()}분</b><span class="muted">30분마다 회사별 뉴스</span></div>
+                <div class="stat"><span class="muted">다음 뉴스까지</span><b class="stat-value" id="stockCountdown">${nextNewsText()}</b><span class="muted">4시간마다 회사별 뉴스</span></div>
                 <div class="stat"><span class="muted">거래 반영까지</span><b class="stat-value stock-flow-countdown">${nextFlowSettleText()}</b><span class="muted">매주 월요일 0시</span></div>
             </div>`;
         document.getElementById('stockFlow').innerHTML = lastFlowHtml();
@@ -3915,7 +3978,7 @@
                     <tbody>${rows}</tbody>
                 </table>
             </div>
-            <h4 style="margin: 16px 0 6px;">🕒 30분 간격 가격 (π)</h4>
+            <h4 style="margin: 16px 0 6px;">🕒 4시간 간격 가격 (π)</h4>
             <div class="table-container" style="max-height: 320px;">
                 <table>
                     <thead><tr><th>시각</th>${COMPANIES.map(c => `<th>${c.name}</th>`).join('')}</tr></thead>
@@ -4377,7 +4440,7 @@
         const staff = isStaff(db.users[currentUser]);
         if ((staff ? currentAdminSection : currentStudentSection) !== 'stock') return;
         const countdown = document.getElementById('stockCountdown');
-        if (countdown) countdown.textContent = `${minutesToNextNews()}분`;
+        if (countdown) countdown.textContent = nextNewsText();
         document.querySelectorAll('.stock-flow-countdown').forEach(el => { el.textContent = nextFlowSettleText(); });
         if (stockAutoRefreshRunning || Math.floor(Date.now() / STOCK_TICK_MS) <= db.stocks.lastTick || Date.now() - lastUserActionAt < 4000) return;
         stockAutoRefreshRunning = true;
