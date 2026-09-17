@@ -32,7 +32,7 @@ eval(script + `
   app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
   app.wipe = resetStockHistoryOnce; app.HVER = STOCK_HISTORY_VERSION; app.event = runStockEvent;
   app.COUPONS = COUPONS; app.basePrice = couponBasePrice; app.priceFor = couponPriceFor;
-  app.clamp = clampStockTick; app.push = pushStockHistory;
+  app.clamp = clampStockTick; app.push = pushStockHistory; app.nextNews = minutesToNextNews;
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
   app.getDbCouponPrices = () => db.couponPrices;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
@@ -354,6 +354,48 @@ const REAL_NOW = Date.now();
     // 모든 회사가 함께 늘어야 함 (한 회사만 늘면 그래프가 어긋난다)
     const lengths = app.COMPANIES.map(c => d.stocks.companies[c.id].history.length);
     check('네 회사의 점 개수가 모두 같음', lengths.every(l => l === lengths[0]));
+}
+
+/* ── 앞당긴 점이 그래프 밖으로 삐져나가지 않아야 함 ──
+   '뉴스 추가' 로 회차를 앞당기면 기록의 시각이 실제 시각보다 미래가 된다.
+   가로축 오른쪽 끝을 실제 시각으로 잡으면 그 점들이 그림 영역 밖에 그려진다 (실제로 그랬다) */
+{
+    const now = Date.now();
+    const d = { users: {}, stocks: null };
+    app.setDb(d);
+    d.stocks = app.initStock(now);
+    const cid = app.COMPANIES[0].id;
+
+    const seriesFits = () => {
+        const pts = app.series(cid, 24);
+        const right = pts[pts.length - 1].t;
+        return pts.every(pt => pt.t <= right);
+    };
+    check('평소에는 모든 점이 가로축 안에 들어옴', seriesFits());
+
+    // 뉴스 추가를 여섯 번 눌러 시장 시간을 6시간 앞당긴다
+    for (let i = 0; i < 6; i++) {
+        app.COMPANIES.forEach(c => app.event(Date.now(), c.id, true, true));
+        d.stocks.lastTick += 1;
+        app.push();
+    }
+    check('앞당긴 뒤에도 모든 점이 가로축 안에 들어옴', seriesFits());
+
+    const pts = app.series(cid, 24);
+    check(`앞당긴 점들이 그래프에 보임 — 점 ${pts.length}개`, pts.length >= 7);
+    check('마지막 점이 지금 주가', pts[pts.length - 1].p === d.stocks.companies[cid].price);
+    check('가로축 오른쪽 끝이 앞당긴 마지막 회차와 맞음',
+        pts[pts.length - 1].t === d.stocks.lastTick * app.K.TICK);
+
+    // 남은 시간이 실제로 기다려야 하는 시간이어야 함
+    const mins = app.nextNews();
+    check(`시장이 앞서 있으면 남은 시간도 그만큼 길어짐 — ${mins}분`, mins > 5 * 60);
+
+    // 앞서 있지 않을 때는 한 시간 안으로 나와야 함
+    const fresh = { users: {}, stocks: null };
+    app.setDb(fresh);
+    fresh.stocks = app.initStock(now);
+    check(`평소 남은 시간은 한 시간 이내 — ${app.nextNews()}분`, app.nextNews() <= 60);
 }
 
 /* ── 회차 번호가 미래로 가 있으면 스스로 낫는지 ──

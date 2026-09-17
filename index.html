@@ -1216,7 +1216,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-forcepoint';
+    const APP_VERSION = '2026-09-17-axisfit';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
@@ -3966,8 +3966,21 @@
     function fmtDay(ms) {
         return new Date(ms).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
     }
+    // 시장이 흘러온 마지막 시각. 관리자가 '뉴스 추가' 를 누르면 실제 시각보다 앞설 수 있다
+    function marketNowMs() {
+        const st = db.stocks;
+        const lastTickMs = st && typeof st.lastTick === 'number' ? st.lastTick * STOCK_TICK_MS : 0;
+        return Math.max(Date.now(), lastTickMs);
+    }
+
+    // 다음 뉴스까지 실제로 기다려야 하는 시간.
+    // 시장이 앞서 있으면 그만큼 더 기다려야 하므로, 벽시계만 보고 계산하면 안 된다
     function minutesToNextNews() {
-        return Math.ceil((STOCK_TICK_MS - (Date.now() % STOCK_TICK_MS)) / 60000);
+        const st = db.stocks;
+        const nextAt = st && typeof st.lastTick === 'number'
+            ? (st.lastTick + 1) * STOCK_TICK_MS
+            : Math.ceil(Date.now() / STOCK_TICK_MS) * STOCK_TICK_MS;
+        return Math.max(0, Math.ceil((nextAt - Date.now()) / 60000));
     }
     // 4시간 간격이라 '227분' 처럼 나오면 읽기 어려워서 시간·분으로 나눠 보여줌
     function nextNewsText() {
@@ -3980,10 +3993,13 @@
         const st = db.stocks;
         const s = st.companies[companyId];
         const points = s.history.map((p, i) => ({ t: (st.historyStartTick + i) * STOCK_TICK_MS, p }));
-        const from = Date.now() - hours * HOUR_MS;
+        // 가로축 오른쪽 끝은 '시장이 흘러온 마지막 시각' 이어야 한다.
+        // 실제 시각으로 잡으면, 관리자가 앞당긴 점들이 그래프 밖으로 밀려나 선이 오른쪽으로 삐져나간다
+        const marketNow = marketNowMs();
+        const from = marketNow - hours * HOUR_MS;
         const firstInside = points.findIndex(pt => pt.t >= from);
         const start = firstInside === -1 ? points.length - 1 : Math.max(0, firstInside - 1);
-        return [...points.slice(start), { t: Date.now(), p: s.price, live: true }];
+        return [...points.slice(start), { t: marketNow, p: s.price, live: true }];
     }
 
     function deltaBadge(change, base) {
