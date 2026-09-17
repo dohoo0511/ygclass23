@@ -4004,6 +4004,27 @@
         return el;
     }
 
+    // 세로축 범위. 실제로 움직인 폭에 맞춰 확대한다.
+    // 예전에는 높이를 무조건 10π 이상 잡아서(여백까지 붙으면 15~20π), 주가가 1~2π 움직여도
+    // 화면에서는 일자로 보였다. 주가가 11~18π 라 1π 도 큰 변화인데 그게 안 보였던 것
+    function chartScale(prices) {
+        const top = Math.max(...prices);
+        const bottom = Math.min(...prices);
+        const margin = Math.max(1, Math.round((top - bottom) * 0.35));
+        let lo = Math.max(STOCK_MIN_PRICE, bottom - margin);
+        let hi = Math.min(STOCK_MAX_PRICE, top + margin);
+        // 가운데 눈금이 정수로 떨어지도록 높이를 짝수로 맞춤 (세 눈금: 아래·가운데·위)
+        if ((hi - lo) % 2 !== 0) {
+            if (hi + 1 <= STOCK_MAX_PRICE) hi += 1;
+            else lo -= 1;
+        }
+        if (hi - lo < 2) {
+            hi = Math.min(STOCK_MAX_PRICE, lo + 2);
+            lo = Math.max(STOCK_MIN_PRICE, hi - 2);
+        }
+        return { lo, hi };
+    }
+
     function drawStockChart(companyId) {
         const box = document.getElementById('chart-' + companyId);
         if (!box) return;
@@ -4016,19 +4037,7 @@
         const plotH = height - pad.top - pad.bottom;
 
         const prices = series.map(pt => pt.p);
-        const span = Math.max(10, Math.max(...prices) - Math.min(...prices));
-        const mid = (Math.max(...prices) + Math.min(...prices)) / 2;
-        let lo = Math.max(STOCK_MIN_PRICE, Math.floor((mid - span * 0.6) / 5) * 5);
-        let hi = Math.min(STOCK_MAX_PRICE, Math.ceil((mid + span * 0.6) / 5) * 5);
-        if (hi - lo < 10) {
-            hi = Math.min(STOCK_MAX_PRICE, lo + 10);
-            lo = Math.max(STOCK_MIN_PRICE, hi - 10);
-        }
-        // 가운데 눈금도 5 단위 숫자가 되도록 범위를 10의 배수로 맞춤
-        if ((hi - lo) % 10 !== 0) {
-            if (hi + 5 <= STOCK_MAX_PRICE) hi += 5;
-            else lo -= 5;
-        }
+        const { lo, hi } = chartScale(prices);
 
         const t0 = series[0].t;
         const t1 = series[series.length - 1].t;

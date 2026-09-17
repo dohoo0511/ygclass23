@@ -29,7 +29,7 @@ eval(script + `
   app.initStock = initStockMarket; app.applyTicks = applyStockTicks; app.setDb = v => { db = v; };
   app.COMPANIES = COMPANIES; app.holdingOf = holdingOf; app.buyableQty = buyableQty;
   app.totalHeldQty = totalHeldQty; app.savingsPayout = savingsPayout; app.savingsRatePct = savingsRatePct;
-  app.migSize = migrateStockTickSize; app.series = stockSeries;
+  app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
             LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
@@ -214,6 +214,26 @@ const spanHours = (pts[pts.length - 2].t - pts[0].t) / HOUR;
 check(`24시간 보기의 점이 20개 이상 — ${pts.length}개 (각져 보이지 않을 만큼)`, pts.length >= 20);
 check(`24시간 보기가 실제로 24시간을 덮음 — ${spanHours.toFixed(1)}시간`, spanHours > 20 && spanHours < 30);
 check('그래프 마지막 점이 지금 가격', pts[pts.length - 1].live === true);
+
+/* ── 세로축 ──
+   주가가 11~18π 라 1π 만 움직여도 큰 변화인데, 세로축 높이를 무조건 10π 이상 잡으면
+   (여백까지 붙어 15~20π) 그 움직임이 화면 높이의 5% 밖에 안 돼서 일자로 보인다.
+   선이 화면 높이를 충분히 쓰는지 검사한다. */
+function heightUsed(prices) {
+    const { lo, hi } = app.scale(prices);
+    return (Math.max(...prices) - Math.min(...prices)) / (hi - lo) * 100;
+}
+check(`1π 움직임이 화면 높이의 15% 이상 — ${heightUsed([14, 15, 14, 15]).toFixed(0)}%`, heightUsed([14, 15, 14, 15]) >= 15);
+check(`2π 움직임이 화면 높이의 30% 이상 — ${heightUsed([13, 14, 15, 14]).toFixed(0)}%`, heightUsed([13, 14, 15, 14]) >= 30);
+check(`4π 움직임이 화면 높이의 40% 이상 — ${heightUsed([11, 13, 15, 12]).toFixed(0)}%`, heightUsed([11, 13, 15, 12]) >= 40);
+check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFixed(0)}%`, heightUsed([10, 18, 12, 22]) <= 85);
+
+[[15, 15, 15], [14, 15], [5, 5, 5], [5, 6, 7], [198, 200], [11, 13, 15, 12]].forEach(ps => {
+    const { lo, hi } = app.scale(ps);
+    check(`세로축이 늘 올바름 [${ps.join(',')}] → ${lo}~${hi}π`,
+        hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
+        && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
+});
 
 console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
 const failed = results.filter(x => !x[1]).length;
