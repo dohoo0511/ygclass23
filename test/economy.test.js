@@ -30,6 +30,7 @@ eval(script + `
   app.COMPANIES = COMPANIES; app.holdingOf = holdingOf; app.buyableQty = buyableQty;
   app.totalHeldQty = totalHeldQty; app.savingsPayout = savingsPayout; app.savingsRatePct = savingsRatePct;
   app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
+  app.wipe = resetStockHistoryOnce; app.HVER = STOCK_HISTORY_VERSION;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
             LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
@@ -200,6 +201,37 @@ const REAL_NOW = Date.now();
     check(`${name} → 시간축이 현재 회차와 맞음`, st.historyStartTick === st.lastTick);
     check(`${name} → 주가는 그대로`, st.companies[app.COMPANIES[0].id].price === priceBefore);
 });
+
+/* ── 화면에서 본 것과 같은, 값이 뒤섞인 기록을 털어내는지 ──
+   세로축이 5~27 로 잡혔다는 건 기록에 5 와 21 이 함께 들어 있다는 뜻이었다.
+   지금 주가(15)와 맞지 않는 옛 값이 왼쪽에 남아 나머지를 눌러 평평하게 만들었다. */
+{
+    const broken = makeMarket(app.K.TICK, 24, REAL_NOW);
+    broken.tickMs = app.K.TICK;                       // 간격은 이미 맞은 상태 = 간격 옮김으로는 안 지워짐
+    const cid = app.COMPANIES[0].id;
+    broken.companies[cid].price = 15;
+    broken.companies[cid].history = [5, 21, ...Array(22).fill(15)];   // 화면과 같은 모양
+    const before = app.scale(broken.companies[cid].history);
+    check(`고장난 기록이면 세로축이 크게 벌어짐 — ${before.lo}~${before.hi}π (화면과 같음)`,
+        before.hi - before.lo >= 20);
+
+    app.setDb({ users: {}, stocks: broken });
+    check('간격 옮김만으로는 안 지워짐', app.migSize(broken) === false);
+    check('기록 비우기가 한 번 일어남', app.wipe(broken) === true);
+    check('기록이 지금 가격 하나로 새로 시작', broken.companies[cid].history.length === 1
+        && broken.companies[cid].history[0] === 15);
+    check('시간축이 현재 회차와 맞음', broken.historyStartTick === broken.lastTick);
+    check('주가는 그대로', broken.companies[cid].price === 15);
+    check('두 번은 비우지 않음', app.wipe(broken) === false);
+
+    // 비운 뒤 하루 돌리면 정상적인 24시간 그래프가 나오는지
+    for (let h2 = 1; h2 <= 26; h2++) app.applyTicks(REAL_NOW + h2 * HOUR);
+    const last24 = broken.companies[cid].history.slice(-24);
+    const after = app.scale(last24);
+    const used = (Math.max(...last24) - Math.min(...last24)) / (after.hi - after.lo) * 100;
+    check(`비운 뒤 하루 만에 세로축이 좁아짐 — ${after.lo}~${after.hi}π`, after.hi - after.lo < 20);
+    check(`비운 뒤 선이 화면 높이를 씀 — ${used.toFixed(0)}%`, used >= 30);
+}
 
 // 간격이 그대로면 기록을 건드리지 않아야 함
 const keepSt = makeMarket(app.K.TICK, 100, REAL_NOW);

@@ -886,6 +886,10 @@
     const DIVIDEND_PERIOD_DAYS = 14;
     // 배당은 주가가 떨어져도 계속 나오는 '손실 없는 수입'이라, 높으면 그것만으로 물가가 오름
     const DIVIDEND_RATE_PCT = 1;          // 2주 보유마다 (현재 주가 × 1%) × 보유 수량
+    // 그래프 기록의 판번호. 이 값을 올리면 모든 기기가 한 번씩 기록을 비우고 새로 쌓는다.
+    // 뉴스 간격을 30분 → 4시간 → 1시간으로 바꾸는 사이, 기록을 줄였다 늘렸다 하는 과정에서
+    // 옛날 값과 최근 값이 뒤섞여 그래프에 엉뚱한 봉우리가 남았다. 그걸 한 번에 털어내기 위한 값
+    const STOCK_HISTORY_VERSION = 2;
     const STOCK_SEED = 20260915;          // 모든 기기에서 같은 뉴스가 나오도록 고정한 난수 시드
     // Netlify 주소에서 열면 Netlify 함수, GitHub Pages는 서버 함수를 실행할 수 없어 AI 기사 없이 기본 뉴스 문장 사용(null),
     // 그 밖(Cloudflare Pages)에서는 Cloudflare 함수를 사용
@@ -1177,7 +1181,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-chart';
+    const APP_VERSION = '2026-09-17-chart2';
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1469,6 +1473,7 @@
             if (!db.stocks.contractProjects || typeof db.stocks.contractProjects !== 'object') db.stocks.contractProjects = {};
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
+            if (resetStockHistoryOnce(db.stocks)) changed = true;
             if (!db.stocks.flow || typeof db.stocks.flow.week !== 'number') {
                 db.stocks.flow = emptyStockFlow(stockWeekOf(db.stocks.lastTick * STOCK_TICK_MS));
                 changed = true;
@@ -3284,6 +3289,7 @@
         COMPANIES.forEach(c => { companies[c.id] = { price: c.startPrice, anchor: c.startPrice, mood: 0, trend: 0, history: [c.startPrice] }; });
         return {
             seed: STOCK_SEED, eventCount: 0, marketMood: 0, tickMs: STOCK_TICK_MS,
+            historyVersion: STOCK_HISTORY_VERSION,
             lastTick: tick, historyStartTick: tick,
             companies, contracts: [], contractProjects: {}, trades: [],
             flow: emptyStockFlow(stockWeekOf(now)),
@@ -3337,6 +3343,19 @@
         // 거래가 없던 주는 지난 결과를 그대로 보여줌
         if (Object.keys(items).length > 0) st.lastFlow = { week: st.flow.week, t: stockWeekStart(week), items };
         st.flow = emptyStockFlow(week);
+    }
+
+    // 예전에 뒤섞인 그래프 기록을 한 번만 털어냄. 주가·보유 주식·파이는 건드리지 않음.
+    // 비운 뒤에는 1시간마다 한 칸씩 쌓여, 하루면 24시간 그래프가 정상적으로 채워진다
+    function resetStockHistoryOnce(st) {
+        if (st.historyVersion === STOCK_HISTORY_VERSION) return false;
+        COMPANIES.forEach(c => {
+            const company = st.companies[c.id];
+            if (company) company.history = [company.price];
+        });
+        if (typeof st.lastTick === 'number') st.historyStartTick = st.lastTick;
+        st.historyVersion = STOCK_HISTORY_VERSION;
+        return true;
     }
 
     // 뉴스 간격이 바뀌었을 때, 저장된 회차 번호와 그래프 값을 새 간격에 맞게 옮김. 바꿨으면 true
