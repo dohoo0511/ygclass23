@@ -21,8 +21,9 @@ fs.copyFileSync(SRC, tmp);
 const ENV = { JSONBIN_BIN_ID: 'bin123', JSONBIN_KEY: 'secret-key' };
 
 let storage = null;      // 저장소에 들어 있다고 가정하는 내용
-let versionStore = {};   // 버전 번호 -> 내용
+var versionStore = {};   // 버전 번호 -> 내용
 let storageUp = true;
+let versionsStatus = 200;   // 저장소가 버전 목록에 주는 응답
 let sentKeys = [];       // 저장소로 나간 요청의 열쇠 (서버만 알고 있어야 함)
 
 global.fetch = async (url, opts = {}) => {
@@ -34,7 +35,9 @@ global.fetch = async (url, opts = {}) => {
         return { ok: true, status: 200, json: async () => ({ record: JSON.parse(JSON.stringify(storage)) }) };
     }
     if (method === 'GET' && u.endsWith('/versions')) {
-        return { ok: true, status: 200, json: async () => ({ record: { versions: Object.keys(versionStore).map(v => ({ id: Number(v), createdAt: '2026-09-17T00:00:00Z' })) } }) };
+        if (versionsStatus !== 200) return { ok: false, status: versionsStatus, json: async () => ({}) };
+        const list = Object.keys(versionStore).map((v, i) => ({ id: Number(v), createdAt: `2026-09-1${i + 5}T00:00:00Z` }));
+        return { ok: true, status: 200, json: async () => ({ record: { versions: list } }) };
     }
     if (method === 'GET') {
         const v = u.split('/').pop();
@@ -88,6 +91,27 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('점검 주소 정상 응답', r.status === 200 && r.body.ok === true);
     check('점검 주소가 판번호·인원을 알려줌', r.body.rev === 10 && r.body.users === 2);
     check('점검 주소가 학생 정보를 흘리지 않음', !JSON.stringify(r.body).includes('비밀번호'));
+
+    /* ── 예전 버전이 남아 있는지 알려주기 (되살릴 수 있는지 판단) ── */
+    versionStore[3] = { rev: 3, users: { admin: {} } };
+    versionStore[4] = { rev: 4, users: { admin: {} } };
+    r = await call('GET', '?check=1');
+    check('버전이 있으면 개수를 알려줌', r.body.versions.available === true && r.body.versions.count === 2);
+    check('가장 오래된/최근 시각을 알려줌', !!r.body.versions.oldest && !!r.body.versions.newest);
+    check('되살릴 수 있다고 안내', /restore\.html/.test(r.body.versions.hint));
+
+    versionsStatus = 403;   // 요금제에서 지원하지 않거나 꺼져 있는 경우
+    r = await call('GET', '?check=1');
+    check('버전을 쓸 수 없으면 그렇게 알려줌', r.body.versions.available === false && r.body.versions.reason === 'HTTP 403');
+    check('대신 쓸 방법을 안내', /빨간 띠/.test(r.body.versions.hint));
+    check('버전을 못 읽어도 연결 자체는 정상으로 봄', r.body.ok === true);
+    versionsStatus = 200;
+
+    const savedVersions = { ...versionStore };
+    versionStore = {};
+    r = await call('GET', '?check=1');
+    check('보관된 버전이 하나도 없으면 그렇게 알려줌', r.body.versions.available === false && /없어요/.test(r.body.versions.reason));
+    versionStore = savedVersions;
 
     /* ── 읽기 ── */
     r = await call('GET', '');

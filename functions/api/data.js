@@ -57,6 +57,40 @@ async function writeRecord(env, record) {
   if (!res.ok) throw new Error(`저장소에 쓰지 못했어요 (${res.status})`);
 }
 
+// 저장소에 예전 버전이 남아 있는지 확인 (되살릴 수 있는지 판단용)
+function pickVersions(data) {
+  const candidates = [data && data.record && data.record.versions, data && data.versions, data && data.record];
+  for (const c of candidates) if (Array.isArray(c)) return c;
+  return null;
+}
+
+const NO_VERSION_HINT =
+  "예전 버전을 쓸 수 없어요. jsonbin 요금제에서 버전 보관을 지원하지 않거나 꺼져 있을 수 있어요. " +
+  "이때는 restore.html 대신, 사이트 화면 위 빨간 띠의 '이 기기에 남은 … 상태로 되살리기' 를 쓰세요.";
+
+async function versionSummary(env) {
+  let res;
+  try {
+    res = await binFetch(env, "/versions");
+  } catch (error) {
+    return { available: false, reason: error.message, hint: NO_VERSION_HINT };
+  }
+  if (!res.ok) return { available: false, reason: `HTTP ${res.status}`, hint: NO_VERSION_HINT };
+
+  const list = pickVersions(await res.json().catch(() => null));
+  if (!Array.isArray(list) || list.length === 0) {
+    return { available: false, reason: "보관된 예전 버전이 없어요", hint: NO_VERSION_HINT };
+  }
+  const times = list.map((v) => v && (v.createdAt || v.created_at)).filter(Boolean).sort();
+  return {
+    available: true,
+    count: list.length,
+    oldest: times[0] || null,
+    newest: times[times.length - 1] || null,
+    hint: `예전 버전 ${list.length}개가 남아 있어요. restore.html 에서 되살릴 시점을 고르면 됩니다.`,
+  };
+}
+
 // 관리자 비밀번호 확인 (되돌리기처럼 위험한 작업에만 사용)
 function isAdminPassword(current, password) {
   const admin = current && current.users && current.users.admin;
@@ -119,6 +153,7 @@ export async function onRequest({ request, env }) {
         users: Object.keys(record.users || {}).length,
         lastSave: record.lastSave || null,
         restoredFrom: typeof record.restoredFrom === "number" ? record.restoredFrom : null,
+        versions: await versionSummary(env),
       });
     } catch (error) {
       return json({
