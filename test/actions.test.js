@@ -1,15 +1,16 @@
 /*
- * 주식 주문이 사라지지 않는지 확인하는 테스트
+ * 학생이 한 일이 사라지지 않는지 확인하는 테스트
  *
- * 실행:  node test/stock-trade.test.js
+ * 실행:  node test/actions.test.js
  *
- * index.html 의 실제 매매 코드(buyStock / sellStock)를 그대로 불러와,
+ * index.html 의 실제 코드(주식·쿠폰·로또·송금·대출·적금·랜덤상자)를 그대로 불러와,
  * 서버를 흉내 낸 환경에서 '다른 기기와 저장이 겹치는' 상황을 만들어 봅니다.
  *
  * 확인하는 것:
- *   한 시간마다 뉴스가 뜨면 서른 명이 동시에 사고판다. 저장이 겹칠 수밖에 없는데,
- *   예전에는 그때 주문을 버리면서도 '샀어요!' 라고 알렸다. 학생 눈에는
- *   분명히 샀는데 주식이 없는 것처럼 보였다. 그 일이 다시 생기지 않아야 한다.
+ *   서른 명이 같은 시간에 쓰면, 자료를 읽은 뒤 저장하기까지의 짧은 사이에
+ *   다른 사람이 먼저 저장하는 일이 자주 생긴다. 예전에는 그때 저장이 조용히
+ *   버려지는데도 화면에는 '완료되었습니다' 가 떴다. 학생 눈에는 분명히 했는데
+ *   없어진 것처럼 보였다 (주식이 사라지던 증상). 그 일이 어디에서도 다시 생기면 안 된다.
  */
 'use strict';
 const fs = require('fs');
@@ -69,19 +70,28 @@ eval(script + `
   app.COMPANIES = COMPANIES;
   app.BUILD = APP_BUILD;
   app.load = () => loadData({ silent: true });
+  app.buyItem = buyItem; app.buyLotto = buyLotto; app.transfer = sendTransfer;
+  app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox;
+  app.COUPONS = COUPONS; app.couponPriceFor = couponPriceFor;
 `);
 
 /* ---------- 도구 ---------- */
 const CO = app.COMPANIES[0].id;
 
-// 화면이 '수량' 칸에서 읽어가는 값을 정해 준다
+// 화면의 입력칸이 어떤 값을 담고 있는지 정해 준다
+let inputs = {};
+const elements = {};
+global.document.getElementById = (id) => {
+    const key = String(id);
+    if (!elements[key]) elements[key] = stub();
+    if (key in inputs) elements[key].value = String(inputs[key]);
+    return elements[key];
+};
 function setOrderQty(n) {
-    global.document.getElementById = (id) => {
-        const el = stub();
-        if (String(id).startsWith('qty-')) el.value = String(n);
-        return el;
-    };
+    inputs = {};
+    for (const c of ['taehoon', 'ttaek', 'dohoo', 'pharma23']) inputs['qty-' + c] = n;
 }
+function setInputs(map) { inputs = { ...map }; }
 
 function freshServer(price = 20, pi = 100) {
     const market = app.initStock(Date.now());
@@ -93,7 +103,8 @@ function freshServer(price = 20, pi = 100) {
         rev: 5,
         users: {
             admin: { name: '관리자', role: 'admin', password: '00', pi: 0, exp: 0, inventory: [], lottoTickets: [], stocks: {} },
-            '7': { name: '7번 학생', role: 'student', password: '7', pi, exp: 0, inventory: [], lottoTickets: [], stocks: {} }
+            '7': { name: '7번 학생', role: 'student', password: '7', pi, exp: 0, inventory: [], lottoTickets: [], stocks: {} },
+            '8': { name: '8번 학생', role: 'student', password: '8', pi: 50, exp: 0, inventory: [], lottoTickets: [], stocks: {} }
         },
         lotto: { currentPot: 0, rolloverPot: 0 },
         usageRequests: [], notice: '', bank: { loans: [], savings: [], logs: [] },
@@ -190,6 +201,103 @@ const check = (name, cond) => results.push([name, !!cond]);
     await app.sell(CO);                  // 가진 게 없는데 팔려 함
     check('없는 주식은 팔지 않는다', piOnServer() === 100);
     check('없다고 알려준다', alerts.some(m => /부족/.test(m)));
+
+    /* ══════════════════ 주식 말고 다른 것들 ══════════════════
+       똑같은 '겹치면 조용히 버려지는' 문제가 있었다. 전부 같은 방식으로 고쳤다. */
+
+    const student = () => server.users['7'];
+
+    // ── 쿠폰 구매 ──
+    server = freshServer(20, 500);
+    alerts = []; setInputs({});
+    await openScreen();
+    const couponPrice = app.couponPriceFor('7', app.COUPONS[0]);
+    beforeNextSave = () => { server.rev += 1; };
+    await app.buyItem(0);
+    check('쿠폰: 겹쳐도 산 쿠폰이 남는다', student().inventory.length === 1);
+    check('쿠폰: 겹쳐도 파이가 맞다', student().pi === 500 - couponPrice);
+    check('쿠폰: 샀다고 알려준다', alerts.some(m => /구매가 완료/.test(m)));
+
+    // ── 송금 (돈이 사라지면 제일 곤란하다) ──
+    server = freshServer(20, 500);
+    alerts = []; setInputs({ transferTo: '8', transferAmount: 30 });
+    await openScreen();
+    beforeNextSave = () => { server.rev += 1; };
+    await app.transfer();
+    check('송금: 겹쳐도 보낸 사람 파이가 줄어든다', student().pi === 470);
+    check('송금: 겹쳐도 받는 사람 파이가 늘어난다', server.users['8'].pi === 80);
+    check('송금: 보냈다고 알려준다', alerts.some(m => /보냈어요/.test(m)));
+
+    // 송금은 한 쪽만 반영되는 일이 절대 없어야 한다
+    server = freshServer(20, 500);
+    alerts = []; setInputs({ transferTo: '8', transferAmount: 30 });
+    await openScreen();
+    const keepBump = () => { server.rev += 1; beforeNextSave = keepBump; };
+    beforeNextSave = keepBump;
+    await app.transfer();
+    beforeNextSave = null;
+    check('송금: 끝내 안 되면 양쪽 다 그대로', student().pi === 500 && server.users['8'].pi === 50);
+    check('송금: 끝내 안 되면 보냈다고 하지 않는다', !alerts.some(m => /보냈어요/.test(m)));
+
+    // ── 로또 ──
+    server = freshServer(20, 500);
+    alerts = []; setInputs({ lottoNumbersInput: '1,2,3,4,5' });
+    await openScreen();
+    beforeNextSave = () => { server.rev += 1; };
+    await app.buyLotto();
+    check('로또: 겹쳐도 표가 남는다', student().lottoTickets.length === 1);
+    check('로또: 겹쳐도 당첨금이 쌓인다', server.lotto.currentPot > 0);
+
+    // ── 대출 ──
+    server = freshServer(20, 500);
+    alerts = []; setInputs({ loanAmountInput: 10 });   // 브론즈 등급 한도
+    await openScreen();
+    beforeNextSave = () => { server.rev += 1; };
+    await app.takeLoan();
+    check('대출: 겹쳐도 빌린 돈이 들어온다', student().pi === 510);
+    check('대출: 겹쳐도 갚을 기록이 남는다', server.bank.loans.length === 1);
+    check('대출: 돈과 기록이 따로 놀지 않는다',
+        (student().pi === 510) === (server.bank.loans.length === 1));
+
+    // ── 적금 ──
+    server = freshServer(20, 500);
+    alerts = []; setInputs({ savingsAmountInput: 100, savingsTermSelect: 2 });
+    await openScreen();
+    beforeNextSave = () => { server.rev += 1; };
+    await app.openSavings();
+    check('적금: 겹쳐도 가입이 남는다', server.bank.savings.length === 1);
+    check('적금: 겹쳐도 파이가 맞다', student().pi === 400);
+
+    // ── 랜덤상자 (연출 전에 반드시 저장되어야 함) ──
+    server = freshServer(20, 500);
+    alerts = []; setInputs({});
+    await openScreen();
+    beforeNextSave = () => { server.rev += 1; };
+    await app.box();
+    check('랜덤상자: 겹쳐도 결과가 저장된다', student().pi !== 500 || student().inventory.length > 0 || student().lottoTickets.length > 0);
+
+    server = freshServer(20, 500);
+    alerts = []; setInputs({});
+    await openScreen();
+    const boxBump = () => { server.rev += 1; beforeNextSave = boxBump; };
+    beforeNextSave = boxBump;
+    await app.box();
+    beforeNextSave = null;
+    check('랜덤상자: 끝내 안 되면 열지 않은 것으로 둔다',
+        student().pi === 500 && student().inventory.length === 0 && student().lottoTickets.length === 0);
+
+    // ── 할 수 없는 일은 예전처럼 그대로 막아야 한다 ──
+    server = freshServer(20, 1);
+    alerts = []; setInputs({ transferTo: '8', transferAmount: 30 });
+    await openScreen();
+    await app.transfer();
+    check('파이보다 많이 보내지 못한다', student().pi === 1 && server.users['8'].pi === 50);
+
+    server = freshServer(20, 500);
+    alerts = []; setInputs({ transferTo: '7', transferAmount: 10 });
+    await openScreen();
+    await app.transfer();
+    check('자기 자신에게는 보내지 못한다', student().pi === 500);
 
     console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
     const failed = results.filter(x => !x[1]).length;

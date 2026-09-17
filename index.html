@@ -1220,9 +1220,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-trade';
+    const APP_VERSION = '2026-09-17-actions';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 8;
+    const APP_BUILD = 9;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1527,6 +1527,53 @@
         return false;
     }
 
+    /* ---------- 작업 하나를 '끝까지 책임지고' 처리하기 ----------
+       파이가 오가는 일은 모두 이 함수를 거친다.
+
+       apply() 는 최신 자료를 읽은 직후에 불리며, 둘 중 하나를 돌려준다.
+         { stop: '안내문' } → 할 수 없는 상황 (돈 부족, 한도 초과 등). 알리고 끝낸다
+         { ok:   '안내문' } → db 를 고쳤으니 저장해 달라
+
+       왜 필요한가: 서른 명이 같은 시간에 쓰면, 내가 자료를 읽은 뒤 저장하기까지의
+       아주 짧은 사이에 다른 사람이 먼저 저장하는 일이 자주 생긴다. 예전에는 그때
+       저장이 조용히 버려지는데도 화면에는 '완료되었습니다' 가 떴다. 학생 눈에는
+       분명히 했는데 없어진 것처럼 보였다 (주식이 사라지던 증상).
+       이제는 최신 자료를 다시 읽어 같은 작업을 조용히 세 번까지 시도하고,
+       끝내 안 되면 안 됐다고 분명히 알린다. 되지 않은 일을 됐다고 알리지 않는다. */
+    const ACTION_TRIES = 3;
+    async function runAction(apply) {
+        for (let attempt = 1; attempt <= ACTION_TRIES; attempt++) {
+            if (!await loadData()) return null;      // 읽지 못하면 아무것도 건드리지 않음
+            const outcome = apply();
+            if (!outcome) return null;               // apply 가 스스로 안내하고 끝낸 경우
+            if (outcome.stop) {
+                alert(outcome.stop);
+                return null;
+            }
+            if (await saveData({ silentConflict: attempt < ACTION_TRIES })) return outcome;
+            // 겹친 게 아니라 연결 문제 등이면 saveData 가 이미 알렸다. 더 해봐야 소용없음
+            if (!lastSaveConflict) return null;
+        }
+        alert('지금 다른 사람들도 함께 쓰고 있어요. 잠시 뒤에 다시 해주세요.\n(이번 작업은 처리되지 않았어요)');
+        return null;
+    }
+
+    // db 를 이미 고친 뒤에 부른다. 저장에 성공하면 true.
+    // 실패하면 (알림은 saveData 가 띄웠다) 화면에 남은 '하다 만 변경' 을 서버의 진짜 내용으로 되돌린다.
+    // 되돌리기까지 실패하면 화면을 건드리지 않는다 — 그 상태로는 아무것도 저장되지 않으므로 안전하다.
+    async function saveOrRevert() {
+        if (await saveData()) return true;
+        if (await loadData({ silent: true })) renderCurrentScreen();
+        return false;
+    }
+
+    function renderCurrentScreen() {
+        const user = currentUser && db.users[currentUser];
+        if (!user) return;
+        if (isStaff(user)) renderAdminSection();
+        else renderStudentSection();
+    }
+
     // 예전 데이터에 없던 항목을 채워 넣음 (기존 값은 건드리지 않음). 서버에 저장해야 할 변화가 있으면 true
     function migrateData() {
         let changed = false;
@@ -1757,7 +1804,7 @@
         if (!await loadData()) return;
         const fresh = db.users[currentUser];
         fresh.noticeReadAt = Date.now();
-        await saveData();
+        await saveData({ silentConflict: true });   // 겹치면 다음 기회에 표시됨
         if (currentStudentSection === 'notices') renderStudentSection();
     }
 
@@ -1876,19 +1923,17 @@
 
     async function buyItem(couponIdx) {
         const coupon = COUPONS[couponIdx];
-        if (!await loadData()) return;
-        const user = db.users[currentUser];
-        const price = couponPriceFor(currentUser, coupon);
-        if (user.pi < price) {
-            alert("파이(π)가 부족합니다.");
-            return;
-        }
-        user.pi -= price;
-        user.inventory.push(coupon.name);
-        const exp = couponBasePrice(coupon);
-        const promoted = addExp(currentUser, exp, '쿠폰 구매');
-        await saveData();
-        alert(`${coupon.name} 구매가 완료되었습니다. (${price}π · 경험치 +${exp})` + promotionText(promoted));
+        const done = await runAction(() => {
+            const user = db.users[currentUser];
+            const price = couponPriceFor(currentUser, coupon);
+            if (user.pi < price) return { stop: "파이(π)가 부족합니다." };
+            user.pi -= price;
+            user.inventory.push(coupon.name);
+            const exp = couponBasePrice(coupon);
+            const promoted = addExp(currentUser, exp, '쿠폰 구매');
+            return { ok: `${coupon.name} 구매가 완료되었습니다. (${price}π · 경험치 +${exp})` + promotionText(promoted) };
+        });
+        if (done) alert(done.ok);
         renderStudentSection();
     }
 
@@ -1908,32 +1953,30 @@
 
     async function useItem(index) {
         if (!await loadData()) return;
-        const user = db.users[currentUser];
-        const itemName = user.inventory[index];
+        const itemName = db.users[currentUser].inventory[index];
         if (itemName === undefined) {
             renderStudentSection();
             return;
         }
+        // 확인창은 되풀이할 수 없으므로 다시 시도하는 바깥에 둔다
         if (!await confirmThenReload(`[${itemName}] 쿠폰을 사용하시겠습니까?\n(선생님께 사용 확인 요청이 전송됩니다)`)) return;
 
-        const fresh = db.users[currentUser];
-        const freshIndex = fresh.inventory.indexOf(itemName);
-        if (freshIndex === -1) {
-            alert('그 사이 쿠폰이 사용되었거나 없어졌어요.');
-            renderStudentSection();
-            return;
-        }
-        fresh.inventory.splice(freshIndex, 1);
-        db.usageRequests.push({
-            id: makeId(),
-            studentId: currentUser,
-            studentName: fresh.name,
-            item: itemName,
-            requestedAt: new Date().toISOString(),
-            status: 'pending'
+        const done = await runAction(() => {
+            const fresh = db.users[currentUser];
+            const freshIndex = fresh.inventory.indexOf(itemName);
+            if (freshIndex === -1) return { stop: '그 사이 쿠폰이 사용되었거나 없어졌어요.' };
+            fresh.inventory.splice(freshIndex, 1);
+            db.usageRequests.push({
+                id: makeId(),
+                studentId: currentUser,
+                studentName: fresh.name,
+                item: itemName,
+                requestedAt: new Date().toISOString(),
+                status: 'pending'
+            });
+            return { ok: "선생님에게 쿠폰 사용 확인 요청을 보냈습니다." };
         });
-        await saveData();
-        alert("선생님에게 쿠폰 사용 확인 요청을 보냈습니다.");
+        if (done) alert(done.ok);
         renderStudentSection();
     }
 
@@ -1999,41 +2042,42 @@
         if (btn.disabled) return;
         btn.disabled = true;
 
-        if (!await loadData()) { btn.disabled = false; return; }
-        const user = db.users[currentUser];
-        const price = randomBoxPriceFor(currentUser);
-        if (user.pi < price) {
-            alert("파이(π)가 부족합니다.");
-            btn.disabled = false;
-            return;
-        }
+        // 연출을 하는 동안 백그라운드 새로고침이 끼어들어 보상이 사라지지 않도록, 결과를 먼저 저장하고 연출은 그 뒤에 함.
+        // 저장이 다른 사람과 겹치면 상자를 다시 뽑는다. 아직 학생에게 아무것도 보여주지 않았으므로 공정하다
+        const done = await runAction(() => {
+            const user = db.users[currentUser];
+            const price = randomBoxPriceFor(currentUser);
+            if (user.pi < price) return { stop: "파이(π)가 부족합니다." };
 
-        // 연출을 하는 동안 백그라운드 새로고침이 끼어들어 보상이 사라지지 않도록, 결과를 먼저 저장하고 연출은 그 뒤에 함
-        const reward = drawRandomBoxReward();
-        user.pi -= price;
-        let resultText = '';
-        if (reward.type === 'none') {
-            resultText = '😢 꽝! 다음 기회에...';
-        } else if (reward.type === 'pi') {
-            user.pi += reward.amount;
-            resultText = `${reward.name} 획득!`;
-        } else if (reward.type === 'lotto') {
-            const numbers = [];
-            while (numbers.length < 5) {
-                const n = Math.floor(Math.random() * LOTTO_NUMBER_MAX) + 1;
-                if (!numbers.includes(n)) numbers.push(n);
+            const reward = drawRandomBoxReward();
+            user.pi -= price;
+            let resultText = '';
+            if (reward.type === 'none') {
+                resultText = '😢 꽝! 다음 기회에...';
+            } else if (reward.type === 'pi') {
+                user.pi += reward.amount;
+                resultText = `${reward.name} 획득!`;
+            } else if (reward.type === 'lotto') {
+                const numbers = [];
+                while (numbers.length < 5) {
+                    const n = Math.floor(Math.random() * LOTTO_NUMBER_MAX) + 1;
+                    if (!numbers.includes(n)) numbers.push(n);
+                }
+                numbers.sort((a, b) => a - b);
+                user.lottoTickets.push(numbers);
+                db.lotto.currentPot += LOTTO_TICKET_PRICE;
+                resultText = `로또 1장 획득! (번호: ${numbers.join(', ')})`;
+            } else {
+                user.inventory.push(reward.name);
+                resultText = `${reward.name} 획득!`;
             }
-            numbers.sort((a, b) => a - b);
-            user.lottoTickets.push(numbers);
-            db.lotto.currentPot += LOTTO_TICKET_PRICE;
-            resultText = `로또 1장 획득! (번호: ${numbers.join(', ')})`;
-        } else {
-            user.inventory.push(reward.name);
-            resultText = `${reward.name} 획득!`;
-        }
-        const tier = reward.tier;
-        if (tier === 'hidden') resultText = `🌟 히든 보상! ${resultText}`;
-        await saveData();
+            if (reward.tier === 'hidden') resultText = `🌟 히든 보상! ${resultText}`;
+            return { ok: resultText, tier: reward.tier };
+        });
+        // 저장되지 않았으면 연출도 하지 않는다. 열지 않은 상자로 되돌아간다
+        if (!done) { btn.disabled = false; return; }
+        const resultText = done.ok;
+        const tier = done.tier;
 
         const stage = document.getElementById('randomBoxStage');
         const icon = document.getElementById('randomBoxIcon');
@@ -2092,26 +2136,23 @@
             return;
         }
 
-        if (!await loadData()) return;
-        const user = db.users[currentUser];
-        const price = lottoPriceFor(currentUser);
-        if (user.lottoTickets.length >= LOTTO_WEEKLY_LIMIT) {
-            alert(`주간 구매 한도(${LOTTO_WEEKLY_LIMIT}장)를 초과했습니다.`);
-            return;
-        }
-        if (user.pi < price) {
-            alert("파이가 부족합니다.");
-            return;
-        }
+        const done = await runAction(() => {
+            const user = db.users[currentUser];
+            const price = lottoPriceFor(currentUser);
+            if (user.lottoTickets.length >= LOTTO_WEEKLY_LIMIT) {
+                return { stop: `주간 구매 한도(${LOTTO_WEEKLY_LIMIT}장)를 초과했습니다.` };
+            }
+            if (user.pi < price) return { stop: "파이가 부족합니다." };
 
-        user.pi -= price;
-        db.lotto.currentPot += LOTTO_TICKET_PRICE;
-        numbers.sort((a, b) => a - b);
-        user.lottoTickets.push(numbers);
-        const promoted = addExp(currentUser, LOTTO_TICKET_PRICE, '로또 구매');
-
-        await saveData();
-        alert(`로또가 정상적으로 발급되었습니다. (${price}π · 경험치 +${LOTTO_TICKET_PRICE})` + promotionText(promoted));
+            user.pi -= price;
+            db.lotto.currentPot += LOTTO_TICKET_PRICE;
+            numbers.sort((a, b) => a - b);
+            user.lottoTickets.push(numbers);
+            const promoted = addExp(currentUser, LOTTO_TICKET_PRICE, '로또 구매');
+            return { ok: `로또가 정상적으로 발급되었습니다. (${price}π · 경험치 +${LOTTO_TICKET_PRICE})` + promotionText(promoted) };
+        });
+        if (!done) return;
+        alert(done.ok);
         document.getElementById('lottoNumbersInput').value = '';
         renderStudentSection();
     }
@@ -2217,24 +2258,16 @@
             alert("모든 항목을 입력해주세요.");
             return;
         }
-        if (!await loadData()) return;
-        const user = db.users[currentUser];
-        if (user.password !== currentPw) {
-            alert("현재 비밀번호가 일치하지 않습니다.");
-            return;
-        }
-        if (newPw === currentPw) {
-            alert("새 비밀번호는 기존 비밀번호와 달라야 합니다.");
-            return;
-        }
-        if (newPw !== confirmPw) {
-            alert("새 비밀번호와 확인란이 일치하지 않습니다.");
-            return;
-        }
-
-        user.password = newPw;
-        await saveData();
-        alert("비밀번호가 성공적으로 변경되었습니다.");
+        const done = await runAction(() => {
+            const user = db.users[currentUser];
+            if (user.password !== currentPw) return { stop: "현재 비밀번호가 일치하지 않습니다." };
+            if (newPw === currentPw) return { stop: "새 비밀번호는 기존 비밀번호와 달라야 합니다." };
+            if (newPw !== confirmPw) return { stop: "새 비밀번호와 확인란이 일치하지 않습니다." };
+            user.password = newPw;
+            return { ok: "비밀번호가 성공적으로 변경되었습니다." };
+        });
+        if (!done) return;
+        alert(done.ok);
         document.getElementById('currentPwInput').value = '';
         document.getElementById('newPwInput').value = '';
         document.getElementById('confirmPwInput').value = '';
@@ -2321,23 +2354,22 @@
         const weeklyInterest = Math.round(amount * LOAN_WEEKLY_INTEREST_PCT / 100);
         if (!await confirmThenReload(`${amount}π를 대출받을까요?\n\n상환 기한: ${fmtDate(Date.now() + LOAN_TERM_DAYS * DAY_MS)}\n1주일마다 이자가 약 ${weeklyInterest}π씩 늘어나요.`)) return;
 
-        const fresh = db.users[currentUser];
-        if (activeLoanOf(currentUser) || amount > getGrade(fresh).loanLimit) {
-            alert('그 사이 대출 정보가 바뀌었어요. 다시 확인해주세요.');
-            renderStudentSection();
-            return;
-        }
-        const now = Date.now();
-        const dueAt = now + LOAN_TERM_DAYS * DAY_MS;
-        db.bank.loans.push({
-            id: makeId(), studentId: currentUser, principal: amount, paid: 0,
-            startAt: now, dueAt, penaltiesApplied: 0, status: 'active'
+        const done = await runAction(() => {
+            const fresh = db.users[currentUser];
+            if (activeLoanOf(currentUser) || amount > getGrade(fresh).loanLimit) {
+                return { stop: '그 사이 대출 정보가 바뀌었어요. 다시 확인해주세요.' };
+            }
+            const now = Date.now();
+            const dueAt = now + LOAN_TERM_DAYS * DAY_MS;
+            db.bank.loans.push({
+                id: makeId(), studentId: currentUser, principal: amount, paid: 0,
+                startAt: now, dueAt, penaltiesApplied: 0, status: 'active'
+            });
+            fresh.pi += amount;
+            addBankLog('loan', `💸 ${fresh.name} ${amount}π 대출 (기한 ${fmtDate(dueAt)})`, [currentUser]);
+            return { ok: `${amount}π 대출이 완료되었어요. 기한 안에 꼭 갚아주세요!` };
         });
-        fresh.pi += amount;
-        addBankLog('loan', `💸 ${fresh.name} ${amount}π 대출 (기한 ${fmtDate(dueAt)})`, [currentUser]);
-
-        await saveData();
-        alert(`${amount}π 대출이 완료되었어요. 기한 안에 꼭 갚아주세요!`);
+        if (done) alert(done.ok);
         renderStudentSection();
     }
 
@@ -2348,38 +2380,33 @@
             return;
         }
 
-        if (!await loadData()) return;
-        const user = db.users[currentUser];
-        const loan = activeLoanOf(currentUser);
-        if (!loan) {
-            alert('갚을 대출이 없어요.');
-            renderStudentSection();
-            return;
-        }
+        const done = await runAction(() => {
+            const user = db.users[currentUser];
+            const loan = activeLoanOf(currentUser);
+            if (!loan) return { stop: '갚을 대출이 없어요.' };
 
-        const remaining = loanRemaining(loan);
-        const amount = full ? remaining : Math.min(inputAmount, remaining);
-        if (user.pi < amount) {
-            alert(`파이가 부족해요. (필요 ${amount}π / 보유 ${user.pi}π)`);
-            return;
-        }
+            const remaining = loanRemaining(loan);
+            const amount = full ? remaining : Math.min(inputAmount, remaining);
+            if (user.pi < amount) {
+                return { stop: `파이가 부족해요. (필요 ${amount}π / 보유 ${user.pi}π)` };
+            }
 
-        user.pi -= amount;
-        loan.paid += amount;
-        let message;
-        if (loanRemaining(loan) <= 0) {
-            loan.status = 'repaid';
-            loan.closedAt = Date.now();
-            addBankLog('loan', `✅ ${user.name} 대출 상환 완료 (원금 ${loan.principal}π · 총 ${loan.paid}π 상환)`, [currentUser]);
-            message = '🎉 대출을 모두 갚았어요!';
-        } else {
-            addBankLog('loan', `💰 ${user.name} 대출 ${amount}π 상환 (남은 금액 ${loanRemaining(loan)}π)`, [currentUser]);
-            message = `${amount}π를 갚았어요. 남은 금액: ${loanRemaining(loan)}π`;
-        }
-        pruneBankRecords();
-
-        await saveData();
-        alert(message);
+            user.pi -= amount;
+            loan.paid += amount;
+            let message;
+            if (loanRemaining(loan) <= 0) {
+                loan.status = 'repaid';
+                loan.closedAt = Date.now();
+                addBankLog('loan', `✅ ${user.name} 대출 상환 완료 (원금 ${loan.principal}π · 총 ${loan.paid}π 상환)`, [currentUser]);
+                message = '🎉 대출을 모두 갚았어요!';
+            } else {
+                addBankLog('loan', `💰 ${user.name} 대출 ${amount}π 상환 (남은 금액 ${loanRemaining(loan)}π)`, [currentUser]);
+                message = `${amount}π를 갚았어요. 남은 금액: ${loanRemaining(loan)}π`;
+            }
+            pruneBankRecords();
+            return { ok: message };
+        });
+        if (done) alert(done.ok);
         renderStudentSection();
     }
 
@@ -2464,23 +2491,20 @@
         };
         if (!await confirmThenReload(`${amount}π를 ${weeks}주 적금에 넣을까요?\n\n만기일: ${fmtDate(preview.maturesAt)}\n만기 시 받을 금액: ${savingsPayout(preview)}π`)) return;
 
-        const fresh = db.users[currentUser];
-        if (fresh.pi < amount) {
-            alert(`파이가 부족해요. (보유 ${fresh.pi}π)`);
-            renderStudentSection();
-            return;
-        }
-        const now = Date.now();
-        const savings = {
-            id: makeId(), studentId: currentUser, principal: amount, weeks,
-            weeklyRatePct: savingsRatePct(weeks), startAt: now, maturesAt: now + weeks * WEEK_MS, status: 'active'
-        };
-        fresh.pi -= amount;
-        db.bank.savings.push(savings);
-        addBankLog('savings', `🐷 ${fresh.name} 적금 가입: ${amount}π · ${weeks}주 (만기 ${savingsPayout(savings)}π)`, [currentUser]);
-
-        await saveData();
-        alert('적금 가입이 완료되었어요!');
+        const done = await runAction(() => {
+            const fresh = db.users[currentUser];
+            if (fresh.pi < amount) return { stop: `파이가 부족해요. (보유 ${fresh.pi}π)` };
+            const now = Date.now();
+            const savings = {
+                id: makeId(), studentId: currentUser, principal: amount, weeks,
+                weeklyRatePct: savingsRatePct(weeks), startAt: now, maturesAt: now + weeks * WEEK_MS, status: 'active'
+            };
+            fresh.pi -= amount;
+            db.bank.savings.push(savings);
+            addBankLog('savings', `🐷 ${fresh.name} 적금 가입: ${amount}π · ${weeks}주 (만기 ${savingsPayout(savings)}π)`, [currentUser]);
+            return { ok: '적금 가입이 완료되었어요!' };
+        });
+        if (done) alert(done.ok);
         renderStudentSection();
     }
 
@@ -2498,23 +2522,22 @@
         const refund = s.principal - penalty;
         if (!await confirmThenReload(`적금을 중도 해지할까요?\n\n원금 ${s.principal}π - 위약금 ${penalty}π = ${refund}π를 돌려받아요.\n쌓인 이자는 받을 수 없어요.`)) return;
 
-        const fresh = db.users[currentUser];
-        const freshSavings = db.bank.savings.find(x => x.id === savingsId && x.status === 'active' && x.studentId === currentUser);
-        if (!freshSavings || freshSavings.principal !== s.principal) {
-            alert('그 사이 적금 내용이 바뀌었어요. 다시 확인해주세요.');
-            renderStudentSection();
-            return;
-        }
-        fresh.pi += refund;
-        freshSavings.status = 'canceled';
-        freshSavings.closedAt = Date.now();
-        freshSavings.refund = refund;
-        freshSavings.canceledBy = 'student';
-        addBankLog('savings', `❌ ${fresh.name} 적금 중도 해지: ${refund}π 반환 (위약금 ${penalty}π)`, [currentUser]);
-        pruneBankRecords();
-
-        await saveData();
-        alert(`적금이 해지되어 ${refund}π를 돌려받았어요.`);
+        const done = await runAction(() => {
+            const fresh = db.users[currentUser];
+            const freshSavings = db.bank.savings.find(x => x.id === savingsId && x.status === 'active' && x.studentId === currentUser);
+            if (!freshSavings || freshSavings.principal !== s.principal) {
+                return { stop: '그 사이 적금 내용이 바뀌었어요. 다시 확인해주세요.' };
+            }
+            fresh.pi += refund;
+            freshSavings.status = 'canceled';
+            freshSavings.closedAt = Date.now();
+            freshSavings.refund = refund;
+            freshSavings.canceledBy = 'student';
+            addBankLog('savings', `❌ ${fresh.name} 적금 중도 해지: ${refund}π 반환 (위약금 ${penalty}π)`, [currentUser]);
+            pruneBankRecords();
+            return { ok: `적금이 해지되어 ${refund}π를 돌려받았어요.` };
+        });
+        if (done) alert(done.ok);
         renderStudentSection();
     }
 
@@ -2564,20 +2587,19 @@
         }
         if (!await confirmThenReload(`${target.name}에게 ${amount}π를 보낼까요?`)) return;
 
-        const fresh = db.users[currentUser];
-        const freshTarget = db.users[toId];
-        if (!freshTarget || fresh.pi - amount < 0) {
-            alert(`보유 파이(${fresh.pi}π)보다 많이 보낼 수 없어요.`);
-            renderStudentSection();
-            return;
-        }
-        fresh.pi -= amount;
-        freshTarget.pi += amount;
-        addBankLog('transfer', `📤 ${fresh.name} → ${freshTarget.name} ${amount}π 송금`, [currentUser, toId]);
-        notifyStudent(toId, { k: 'transfer', a: amount, from: currentUser });
-
-        await saveData();
-        alert(`${target.name}에게 ${amount}π를 보냈어요.`);
+        const done = await runAction(() => {
+            const fresh = db.users[currentUser];
+            const freshTarget = db.users[toId];
+            if (!freshTarget || fresh.pi - amount < 0) {
+                return { stop: `보유 파이(${fresh.pi}π)보다 많이 보낼 수 없어요.` };
+            }
+            fresh.pi -= amount;
+            freshTarget.pi += amount;
+            addBankLog('transfer', `📤 ${fresh.name} → ${freshTarget.name} ${amount}π 송금`, [currentUser, toId]);
+            notifyStudent(toId, { k: 'transfer', a: amount, from: currentUser });
+            return { ok: `${freshTarget.name}에게 ${amount}π를 보냈어요.` };
+        });
+        if (done) alert(done.ok);
         renderStudentSection();
     }
 
@@ -2642,7 +2664,7 @@
         const text = document.getElementById('noticeInput').value.trim();
         if (!await loadData()) return;
         db.notice = text;
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderNotice();
         alert("공지사항이 저장되었습니다.");
     }
@@ -2675,7 +2697,7 @@
                 const keep = new Set(completed.slice(-MAX_COMPLETED_USAGE_REQUESTS));
                 db.usageRequests = db.usageRequests.filter(r => r.status === 'pending' || keep.has(r));
             }
-            await saveData();
+            if (!await saveOrRevert()) return;
         }
         renderAdminSection();
     }
@@ -2745,7 +2767,7 @@
             db.users[id].pi += r.amount;
             notifyStudent(id, { k: 'grant', a: r.amount, x: r.label });
         });
-        await saveData();
+        if (!await saveOrRevert()) return;
 
         alert(`[${r.label}] ${ids.length}명에게 ${signed(r.amount)}π 적용 완료`);
         selectAllStudents(false);
@@ -2854,7 +2876,7 @@
             notifyStudent(id, { k: 'lotto', a: win.pi, x: summary });
         });
 
-        await saveData();
+        if (!await saveOrRevert()) return;
 
         const resultArea = document.getElementById('lottoResultArea');
         resultArea.innerHTML = resultLog;
@@ -2930,7 +2952,7 @@
         // 새 기한 기준으로 연체 벌칙을 다시 세도록, 이미 지난 주차는 적용된 것으로 처리
         loan.penaltiesApplied = loanOverdueWeeks(loan);
         addBankLog('loan', `🗓️ [${actorName()}] ${db.users[loan.studentId].name} 대출 기한 변경 → ${fmtDate(loan.dueAt)}`, [loan.studentId]);
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderAdminSection();
     }
 
@@ -2972,7 +2994,7 @@
         addBankLog('loan', `❌ [${actorName()}] ${freshUser.name} 대출 취소 (학생 파이 ${signed(change)}π)`, [freshLoan.studentId]);
         notifyStudent(loan.studentId, { k: 'bank', a: change, x: '대출이 취소됐어요' });
         pruneBankRecords();
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderAdminSection();
     }
 
@@ -3030,7 +3052,7 @@
         s.maturesAt = computeDue(s);
         addBankLog('savings', `🗓️ [${actorName()}] ${db.users[s.studentId].name} 적금 만기일 변경 → ${fmtDate(s.maturesAt)}`, [s.studentId]);
         applyTimeBasedUpdates();
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderAdminSection();
     }
 
@@ -3073,7 +3095,7 @@
         addBankLog('savings', `❌ [${actorName()}] ${freshUser.name} 적금 취소 (원금 ${freshSavings.principal}π 반환)`, [freshSavings.studentId]);
         notifyStudent(freshSavings.studentId, { k: 'bank', a: freshSavings.principal, x: '적금이 취소되어 원금을 돌려받았어요' });
         pruneBankRecords();
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderAdminSection();
     }
 
@@ -3130,7 +3152,7 @@
             return;
         }
         addExp(userId, GRADES[targetIdx].minExp - user.exp, `${actorName()} 변경`);
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderAdminSection();
     }
 
@@ -3142,7 +3164,7 @@
         }
         if (!await loadData()) return;
         addExp(userId, delta, `${actorName()} 조정`);
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderAdminSection();
     }
 
@@ -3181,7 +3203,7 @@
         if (!await loadData()) return;
         const log = db.bank.logs.find(l => l.id === logId);
         if (log) log.read = true;
-        await saveData();
+        await saveData({ silentConflict: true });   // 겹치면 다음 기회에 표시됨
         renderAdminSection();
     }
 
@@ -3190,7 +3212,7 @@
         db.bank.logs.forEach(l => {
             if (currentAlertFilter === 'all' || l.type === currentAlertFilter) l.read = true;
         });
-        await saveData();
+        await saveData({ silentConflict: true });   // 겹치면 다음 기회에 표시됨
         renderAdminSection();
     }
 
@@ -3311,7 +3333,7 @@
         freshUser.inventory.splice(freshIndex, 1);
         freshUser.pi += price;
         notifyStudent(detailStudentId, { k: 'refund', a: price, x: itemName });
-        await saveData();
+        if (!await saveOrRevert()) { renderStudentDetail(); return; }
         renderStudentDetail();
         renderAdminSection();
     }
@@ -3338,7 +3360,7 @@
         freshUser.pi += fresh.cost;
         delete freshUser.stocks[companyId];
         notifyStudent(detailStudentId, { k: 'refund', a: fresh.cost, x: `${company.name} 주식 ${fresh.qty}주` });
-        await saveData();
+        if (!await saveOrRevert()) { renderStudentDetail(); return; }
         renderStudentDetail();
         renderAdminSection();
     }
@@ -3369,7 +3391,7 @@
         addStockTrade('sell', detailStudentId, companyId, fresh.qty, total, price);
         recordStockFlow('sell', companyId, fresh.qty);
         notifyStudent(detailStudentId, { k: 'bank', a: total, x: `${company.name} 주식 ${fresh.qty}주를 팔았어요 (1주 ${price}π)` });
-        await saveData();
+        if (!await saveOrRevert()) { renderStudentDetail(); return; }
         renderStudentDetail();
         renderAdminSection();
     }
@@ -3397,7 +3419,7 @@
         freshUser.pi += refund;
         db.lotto.currentPot = Math.max(0, db.lotto.currentPot - LOTTO_TICKET_PRICE);
         notifyStudent(detailStudentId, { k: 'refund', a: refund, x: '로또 티켓' });
-        await saveData();
+        if (!await saveOrRevert()) { renderStudentDetail(); return; }
         renderStudentDetail();
         renderAdminSection();
     }
@@ -3828,32 +3850,6 @@
         return qty;
     }
 
-    // 주문 하나를 '끝까지 책임지고' 처리한다.
-    //
-    // apply() 는 최신 자료를 읽은 직후에 불리며, 다음 중 하나를 돌려준다.
-    //   { stop: '안내문' } → 주문할 수 없는 상황 (돈 부족, 한도 초과 등). 알리고 끝낸다
-    //   { ok:   '안내문' } → db 를 고쳤으니 저장해 달라
-    //
-    // 저장이 다른 기기와 겹치면 예전에는 주문을 버리면서도 '샀어요!' 라고 알렸다.
-    // 학생 눈에는 주식이 사라진 것처럼 보였다. 이제는 최신 자료를 다시 읽어
-    // 같은 주문을 조용히 한 번 더 시도하고, 끝내 안 되면 안 됐다고 정직하게 알린다.
-    const TRADE_TRIES = 3;
-    async function runTrade(apply) {
-        for (let attempt = 1; attempt <= TRADE_TRIES; attempt++) {
-            if (!await loadData()) return null;      // 읽지 못하면 아무것도 건드리지 않음
-            const outcome = apply();
-            if (outcome.stop) {
-                alert(outcome.stop);
-                return null;
-            }
-            if (await saveData({ silentConflict: attempt < TRADE_TRIES })) return outcome;
-            // 겹친 게 아니라 연결 문제 등이면 saveData 가 이미 알렸다. 더 해봐야 소용없음
-            if (!lastSaveConflict) return null;
-        }
-        alert('지금 주문이 몰려 있어요. 잠시 뒤에 다시 해주세요.\n(이번 주문은 처리되지 않았어요)');
-        return null;
-    }
-
     async function buyStock(companyId) {
         const qty = readOrderQty(companyId);
         if (!qty) return;
@@ -3861,7 +3857,7 @@
         const previewPrice = db.stocks.companies[companyId].price;
         if (!confirm(`${company.name} ${qty}주를 ${previewPrice * qty}π에 살까요? (1주 ${previewPrice}π)`)) return;
 
-        const done = await runTrade(() => {
+        const done = await runAction(() => {
             const user = db.users[currentUser];
             const price = db.stocks.companies[companyId].price;
 
@@ -3908,7 +3904,7 @@
         const previewPrice = db.stocks.companies[companyId].price;
         if (!confirm(`${company.name} ${qty}주를 ${previewPrice * qty}π에 팔까요? (1주 ${previewPrice}π)`)) return;
 
-        const done = await runTrade(() => {
+        const done = await runAction(() => {
             const user = db.users[currentUser];
             const holding = holdingOf(user, companyId);
             if (holding.qty < qty) {
@@ -4555,7 +4551,7 @@
             refundTotal += refund;
         });
         db.stocks = initStockMarket(Date.now());
-        await saveData();
+        if (!await saveOrRevert()) return;
         alert('주식시장을 새로 시작했어요.' + (holderCount ? `\n${holderCount}명에게 총 ${refundTotal}π를 돌려줬어요.` : ''));
         renderAdminSection();
     }
@@ -4569,7 +4565,7 @@
         if (!await loadData()) return;
         db.stocks.companies[companyId].price = value;
         db.stocks.companies[companyId].anchor = value;
-        await saveData();
+        if (!await saveOrRevert()) return;
         renderAdminSection();
     }
 
@@ -4605,7 +4601,7 @@
             }
             if (lastUserActionAt >= startedAt) continue;
             if (mutate() === false) return false;
-            await saveData();
+            if (!await saveData({ silentConflict: true })) return false;
             return true;
         }
         return false;
