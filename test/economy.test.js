@@ -29,7 +29,7 @@ eval(script + `
   app.initStock = initStockMarket; app.applyTicks = applyStockTicks; app.setDb = v => { db = v; };
   app.COMPANIES = COMPANIES; app.holdingOf = holdingOf; app.buyableQty = buyableQty;
   app.totalHeldQty = totalHeldQty; app.savingsPayout = savingsPayout; app.savingsRatePct = savingsRatePct;
-  app.migSize = migrateStockTickSize;
+  app.migSize = migrateStockTickSize; app.series = stockSeries;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
             LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
@@ -167,6 +167,53 @@ check('두 번 옮기지 않음', app.migSize(legacy) === false);
 app.setDb({ users: {}, stocks: legacy });
 const beforeTick = legacy.lastTick;
 check('옮긴 뒤 뉴스가 실제로 진행됨', app.applyTicks(NOW + 5 * app.K.TICK) === true && legacy.lastTick > beforeTick);
+
+/* ── 그래프 시간축 ──
+   그래프는 '배열의 칸 하나 = 뉴스 1회차' 로 보고 x축을 그린다.
+   간격이 바뀔 때 값을 옮기지 않으면 30일치가 7일 자리에 밀려 들어가 그래프가 찌그러진다. */
+const HOUR = 3600 * 1000, DAY_MS = 24 * HOUR;
+function makeMarket(prevMs, histLen, now) {
+    const lastTick = Math.floor(now / prevMs);
+    const companies = {};
+    app.COMPANIES.forEach((c, i) => {
+        companies[c.id] = { price: c.startPrice + i, anchor: c.startPrice, mood: 0, trend: 0,
+            history: Array.from({ length: histLen }, (_, k) => 10 + (k % 7)) };
+    });
+    const st = { seed: 20260915, eventCount: 100, marketMood: 0, lastTick,
+        historyStartTick: lastTick - (histLen - 1), companies, contracts: [], contractProjects: {},
+        trades: [], flow: { week: 0, buy: {}, sell: {} }, news: [] };
+    if (prevMs !== 30 * 60 * 1000) st.tickMs = prevMs;   // 예전 30분 데이터에는 tickMs 가 없다
+    return st;
+}
+const REAL_NOW = Date.now();
+[['30분 데이터 336칸(7일)', 30 * 60 * 1000, 336, 7],
+ ['4시간 데이터 42칸(7일)', 4 * HOUR, 42, 7],
+ ['4시간 데이터 180칸(30일)', 4 * HOUR, 180, 30],
+ ['이미 1시간 240칸(10일)', 1 * HOUR, 240, 10]].forEach(([name, prevMs, len, realDays]) => {
+    const st = makeMarket(prevMs, len, REAL_NOW);
+    app.setDb({ users: {}, stocks: st });
+    app.migSize(st);
+    const h = st.companies[app.COMPANIES[0].id].history;
+    const shownDays = h.length * app.K.TICK / DAY_MS;
+    const expected = Math.min(realDays, app.K.HIST * app.K.TICK / DAY_MS);
+    check(`${name} → 그래프가 덮는 기간 ${shownDays.toFixed(1)}일 (실제 ${expected}일)`, Math.abs(shownDays - expected) < 0.6);
+    // 넓은 간격에서 좁은 간격으로 올 때는 '그 칸 안 어디였는지' 를 알 수 없어 최대 옛 간격만큼 어긋난다.
+    // 다음 회차에 곧바로 따라잡히므로 그 범위까지는 정상
+    const endMs = (st.historyStartTick + h.length - 1) * app.K.TICK;
+    const nowMs = Math.floor(REAL_NOW / app.K.TICK) * app.K.TICK;
+    check(`${name} → 시간축 끝이 현재와 맞음`, Math.abs(endMs - nowMs) <= Math.max(prevMs, app.K.TICK));
+    check(`${name} → 보관 한도 이내`, h.length <= app.K.HIST);
+});
+
+// 실제 그래프 함수로 24시간 보기를 만들어 확인
+const chartSt = makeMarket(30 * 60 * 1000, 336, REAL_NOW);
+app.setDb({ users: {}, stocks: chartSt });
+app.migSize(chartSt);
+const pts = app.series(app.COMPANIES[0].id, 24);
+const spanHours = (pts[pts.length - 2].t - pts[0].t) / HOUR;
+check(`24시간 보기의 점이 20개 이상 — ${pts.length}개 (각져 보이지 않을 만큼)`, pts.length >= 20);
+check(`24시간 보기가 실제로 24시간을 덮음 — ${spanHours.toFixed(1)}시간`, spanHours > 20 && spanHours < 30);
+check('그래프 마지막 점이 지금 가격', pts[pts.length - 1].live === true);
 
 console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
 const failed = results.filter(x => !x[1]).length;

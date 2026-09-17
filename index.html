@@ -3340,14 +3340,24 @@
         // 회차 번호는 '시각'을 나타내므로, 실제 시각으로 바꿨다가 새 간격으로 다시 나눔
         st.lastTick = Math.floor(st.lastTick * prevMs / STOCK_TICK_MS);
 
-        // 그래프 값도 새 간격으로 솎아냄 (촘촘하면 골라내고, 성기면 그대로 둠)
-        const step = Math.max(1, Math.round(STOCK_TICK_MS / prevMs));
+        // 그래프는 '배열의 칸 하나 = 뉴스 1회차' 로 보고 시간축을 그린다.
+        // 그래서 간격이 바뀌면 값도 같이 옮겨야 시간축이 어긋나지 않는다.
+        //   간격이 넓어지면(30분 → 1시간) 촘촘한 값을 솎아내고,
+        //   간격이 좁아지면(4시간 → 1시간) 값 하나가 여러 회차를 덮도록 늘린다.
+        // 늘리지 않고 번호만 바꾸면 30일치가 7일 자리에 밀려 들어가 그래프가 찌그러진다
         COMPANIES.forEach(c => {
             const company = st.companies[c.id];
             if (!company || !Array.isArray(company.history) || company.history.length === 0) return;
             const src = company.history;
-            const out = [];
-            for (let i = src.length - 1; i >= 0 && out.length < STOCK_HISTORY_TICKS; i -= step) out.unshift(src[i]);
+            let out = [];
+            if (STOCK_TICK_MS > prevMs) {
+                const step = Math.max(1, Math.round(STOCK_TICK_MS / prevMs));
+                for (let i = src.length - 1; i >= 0; i -= step) out.unshift(src[i]);
+            } else {
+                const times = Math.max(1, Math.round(prevMs / STOCK_TICK_MS));
+                src.forEach(price => { for (let k = 0; k < times; k++) out.push(price); });
+            }
+            if (out.length > STOCK_HISTORY_TICKS) out = out.slice(out.length - STOCK_HISTORY_TICKS);
             company.history = out;
         });
         // 마지막 값이 지금 회차가 되도록 시작 번호를 맞춤 (그래프 시간축이 어긋나지 않게)
