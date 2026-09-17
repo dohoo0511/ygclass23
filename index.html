@@ -1183,7 +1183,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-chart3';
+    const APP_VERSION = '2026-09-17-chart4';
+    // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
+    const APP_BUILD = 7;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1345,6 +1347,12 @@
             body: JSON.stringify({ baseRev, record })
         });
         if (response.status === 409) return { conflict: true };
+        // 426: 이 화면이 예전 버전이라 서버가 저장을 받지 않음 → 새 화면을 받아 온다
+        if (response.status === 426) {
+            alert('사이트가 새로 바뀌었어요.\n확인을 누르면 새 화면으로 바뀝니다.');
+            location.reload();
+            return { outdated: true };
+        }
         if (!response.ok) throw await endpointError(response);
         const result = await response.json();
         return { ok: true, rev: result && result.rev };
@@ -1422,12 +1430,14 @@
         db.lastSave = {
             at: new Date().toISOString(),
             by: currentUser && db.users[currentUser] ? db.users[currentUser].name : '로그인 전',
-            v: APP_VERSION
+            v: APP_VERSION,
+            build: APP_BUILD
         };
         let lastError;
         for (let attempt = 0; attempt <= NET_RETRIES; attempt++) {
             try {
                 const result = await putRecord(baseRev, db);
+                if (result.outdated) return false;
                 if (result.conflict) {
                     alert("그 사이 다른 기기에서 저장한 내용이 있어, 덮어쓰지 않고 멈췄습니다.\n새로고침한 뒤 다시 해주세요.");
                     return false;

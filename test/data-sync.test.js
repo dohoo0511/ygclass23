@@ -38,7 +38,9 @@ let serverFnUp = true;    // /api/data (Cloudflare 함수) 사용 가능 여부
 let putBodies = [];       // 저장 요청으로 실제 나간 내용
 
 // 브라우저 전역 흉내
-const location = { protocol: 'https:', hostname: 'example.pages.dev' };
+let reloaded = 0;
+const location = { protocol: 'https:', hostname: 'example.pages.dev', reload: () => { reloaded++; } };
+let rejectOldBuild = false;   // 서버가 '예전 화면' 이라며 저장을 거부하는 상황
 const store = {};
 const localStorage = {
     getItem: k => (k in store ? store[k] : null),
@@ -72,6 +74,9 @@ async function fetch(url, opts = {}) {
         return res(200, viaServerFn ? { record: copy, rev: revOfRecord(copy) } : { record: copy });
     }
 
+    if (viaServerFn && method === 'PUT' && rejectOldBuild) {
+        return res(426, { error: 'outdated', message: '사이트가 새로 바뀌었어요.', needBuild: 99, gotBuild: 7 });
+    }
     if (viaServerFn && method === 'PUT') {
         // 서버 함수: 판번호가 맞을 때만 저장 (구조적 방어)
         const { baseRev, record } = JSON.parse(opts.body);
@@ -195,6 +200,22 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
     keep = JSON.stringify(server);
     check('10초 이내 저장이어도 서버가 막음', await sut.saveData() === false);
     check('그래도 서버 내용 그대로', JSON.stringify(server) === keep);
+
+    /* ── 예전 화면이라 서버가 저장을 거부하면, 스스로 새 화면을 받아 와야 함 ── */
+    server = { rev: 400, users: { admin: {}, '1': { pi: 1 } }, note: '지켜야 할 내용' };
+    check('로드 성공', await sut.loadData() === true);
+    rejectOldBuild = true;
+    alerts = [];
+    const keptNote = server.note;
+    check('예전 화면이면 저장이 실패로 끝남', await sut.saveData() === false);
+    check('서버 내용을 건드리지 않음', server.note === keptNote);
+    check('사용자에게 알리고 화면을 새로 받아옴', reloaded === 1 && alerts.some(a => a.includes('새로')));
+    rejectOldBuild = false;
+
+    /* ── 저장하는 내용에 화면 버전이 담겨야 서버가 가려낼 수 있음 ── */
+    check('다시 로드', await sut.loadData() === true);
+    check('정상 저장', await sut.saveData() === true);
+    check('저장한 내용에 빌드 번호가 들어감', Number.isInteger(server.lastSave && server.lastSave.build));
 
     /* ── 서버 설정이 아직 안 됐을 때: 조용히 실패하지 말고 무엇을 할지 알려줘야 함 ── */
     serverFnUp = false;

@@ -117,19 +117,20 @@ const check = (name, cond) => results.push([name, !!cond]);
     r = await call('GET', '');
     check('읽기 성공', r.status === 200 && r.body.rev === 10 && !!r.body.record.users);
 
-    /* ── 저장: 판번호가 맞을 때만 ── */
-    const good = { users: { admin: {}, '1': { pi: 6 } }, note: '새 내용' };
+    /* ── 저장: 판번호가 맞을 때만 ──
+       (lastSave.build 는 화면 버전. 이게 없거나 낮으면 아래 '예전 화면 차단' 에서 거부된다) */
+    const good = { users: { admin: {}, '1': { pi: 6 } }, note: '새 내용', lastSave: { build: 7 } };
     r = await call('PUT', '', { baseRev: 10, record: good });
     check('판번호가 맞으면 저장됨', r.status === 200 && r.body.rev === 11);
     check('저장소에 반영되고 판번호가 올라감', storage.rev === 11 && storage.note === '새 내용');
 
     const before = JSON.stringify(storage);
-    r = await call('PUT', '', { baseRev: 10, record: { users: { admin: {} }, note: '오래된 화면' } });
+    r = await call('PUT', '', { baseRev: 10, record: { users: { admin: {} }, note: '오래된 화면', lastSave: { build: 7 } } });
     check('오래된 판번호로 저장하면 409', r.status === 409);
     check('409 일 때 저장소가 바뀌지 않음', JSON.stringify(storage) === before);
     check('409 가 최신 내용을 함께 돌려줌', r.body.rev === 11 && !!r.body.record);
 
-    r = await call('PUT', '', { baseRev: 11, record: { note: '학생 정보 없음' } });
+    r = await call('PUT', '', { baseRev: 11, record: { note: '학생 정보 없음', lastSave: { build: 7 } } });
     check('학생 정보 없는 저장은 400 으로 거부', r.status === 400);
     check('거부 후 저장소 그대로', JSON.stringify(storage) === before);
 
@@ -148,6 +149,29 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('비밀번호 맞으면 되돌아감', r.status === 200 && storage.users['1'].pi === 99);
     check('판번호는 이전 최고값 위로 올라감', storage.rev === 51);
     check('어느 버전에서 되살렸는지 남음', storage.restoredFrom === 7);
+
+    /* ── 예전 화면의 저장을 막는가 ──
+       기기마다 다른 버전이 돌면 예전 버전이 주가 기록을 되돌려 놓아, 그래프가
+       계속 1시간치에서 멈춥니다. 서버에서 막아야 모든 기기가 같은 버전으로 모입니다. */
+    storage = { rev: 200, users: { admin: {}, '1': { pi: 1 } }, note: '지켜야 할 내용' };
+    const keepStorage = JSON.stringify(storage);
+    const withBuild = b => ({ users: { admin: {}, '1': { pi: 2 } }, lastSave: { at: 'x', by: 'y', v: 'z', build: b } });
+
+    r = await call('PUT', '', { baseRev: 200, record: withBuild(6) });
+    check('예전 빌드(6)의 저장은 426 으로 거부', r.status === 426 && r.body.error === 'outdated');
+    check('거부하면 저장소가 그대로', JSON.stringify(storage) === keepStorage);
+    check('어느 버전이 필요한지 알려줌', r.body.needBuild >= 7 && r.body.gotBuild === 6);
+
+    r = await call('PUT', '', { baseRev: 200, record: { users: { admin: {} } } });
+    check('빌드 번호가 아예 없으면 거부', r.status === 426 && r.body.gotBuild === null);
+    check('그때도 저장소 그대로', JSON.stringify(storage) === keepStorage);
+
+    r = await call('PUT', '', { baseRev: 200, record: withBuild(7) });
+    check('현재 빌드(7)의 저장은 통과', r.status === 200 && storage.users['1'].pi === 2);
+
+    storage = { rev: 300, users: { admin: {}, '1': { pi: 3 } } };
+    r = await call('PUT', '', { baseRev: 300, record: withBuild(99) });
+    check('더 새로운 빌드도 통과', r.status === 200 && storage.users['1'].pi === 2);
 
     /* ── 백업 파일로 되돌리기 (버전 보관이 없는 요금제용) ── */
     storage = { rev: 60, users: { admin: { password: 'pw!' }, '1': { pi: 1 } } };

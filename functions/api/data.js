@@ -11,6 +11,13 @@
 
 const JSONBIN = "https://api.jsonbin.io/v3/b";
 
+// 저장을 허용할 최소 화면 버전.
+// 기기마다 다른 버전이 돌면, 예전 버전이 주가 기록을 자기 방식으로 되돌려 놓고
+// 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
+// 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
+// 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
+const MIN_CLIENT_BUILD = 7;
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -242,6 +249,17 @@ export async function onRequest({ request, env }) {
     const record = payload && payload.record;
     if (!Number.isInteger(baseRev) || baseRev < 0) return json({ error: "baseRev 가 필요해요." }, 400);
     if (!looksValid(record)) return json({ error: "학생 정보가 없는 데이터는 저장할 수 없어요." }, 400);
+
+    // 예전 화면이 보낸 저장은 받지 않는다 (426: 화면을 새로 고쳐야 함)
+    const build = record.lastSave && record.lastSave.build;
+    if (!Number.isInteger(build) || build < MIN_CLIENT_BUILD) {
+      return json({
+        error: "outdated",
+        message: "사이트가 새로 바뀌었어요. 화면을 새로고침해 주세요.",
+        needBuild: MIN_CLIENT_BUILD,
+        gotBuild: Number.isInteger(build) ? build : null,
+      }, 426);
+    }
 
     let current;
     try {
