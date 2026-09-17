@@ -559,6 +559,7 @@
                 <button class="menu-card" data-section="bank" onclick="openAdminSection('bank')"><span class="menu-emoji">🏦</span>은행 관리<span class="badge-count" id="bankBadge"></span></button>
                 <button class="menu-card" data-section="students" onclick="openAdminSection('students')"><span class="menu-emoji">📊</span>학생 현황</button>
                 <button class="menu-card" data-section="stock" onclick="openAdminSection('stock')"><span class="menu-emoji">📈</span>주식 관리</button>
+                <button class="menu-card" data-section="shop" onclick="openAdminSection('shop')"><span class="menu-emoji">🎫</span>쿠폰 가격</button>
             </div>
         </div>
 
@@ -663,6 +664,26 @@
         </div>
 
         <!-- 학생 현황 -->
+        <div id="adm-shop" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+                <button class="small-btn" onclick="refreshAdminData()">🔄 새로고침</button>
+            </div>
+            <h3>🎫 쿠폰 가격</h3>
+            <p style="font-size:14px; color:#666; margin-top:0;">
+                상점에 보이는 기본 가격이에요. 다이아·에메랄드 등급 할인은 여기서 정한 가격에서 따로 빠집니다.<br>
+                쿠폰을 살 때 오르는 경험치도 이 가격만큼이에요. 0π로 두면 공짜가 됩니다.
+            </p>
+            <div id="adminShopContent"></div>
+            <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="admin-btn" onclick="saveCouponPrices()">가격 저장</button>
+                <button class="admin-btn" style="background-color:#8d6e63;" onclick="resetCouponPrices()">처음 가격으로</button>
+            </div>
+            <p style="font-size:13px; color:#888;">
+                ⚠️ 가격을 바꾸면, 학생이 이미 산 쿠폰을 환불할 때도 <b>바뀐 가격</b>으로 돌려줍니다.
+            </p>
+        </div>
+
         <div id="adm-students" class="section">
             <div class="section-bar">
                 <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
@@ -737,7 +758,10 @@
     const LOTTO_NUMBER_MAX = 25;
 
     /* ===================== 설정: 쿠폰 ===================== */
-    // price = 상점 기본가 (등급 할인 전). 관리자 환불도 이 가격 기준으로 계산
+    // price = 처음 정해 둔 상점 기본가 (등급 할인 전).
+    // 관리자가 화면에서 바꾸면 db.couponPrices 에 저장되고, 그 값이 우선한다.
+    // 실제 가격은 언제나 couponBasePrice() 로 읽을 것
+    const COUPON_PRICE_MAX = 999;
     const COUPONS = [
         { name: '짝꿍 선택권',      price: 80 },
         { name: '자리 지정권',      price: 65 },
@@ -1010,12 +1034,21 @@
         return grade ? `\n\n🎉 축하해요! 회원 등급이 ${grade.icon} ${grade.name}(으)로 올랐어요!` : '';
     }
 
+    // 상점 기본가. 관리자가 바꿔 둔 값이 있으면 그 값, 없으면 처음 정해 둔 값
+    function couponBasePrice(coupon) {
+        const saved = db.couponPrices && db.couponPrices[coupon.name];
+        return Number.isInteger(saved) && saved >= 0 ? saved : coupon.price;
+    }
+    function couponByName(name) {
+        return COUPONS.find(c => c.name === name);
+    }
+
     function couponPriceFor(userId, coupon) {
         const idx = gradeIndexOf(db.users[userId].exp);
         let discount = 0;
         if (idx >= EMERALD_INDEX) discount = coupon.name === '음악 우선 신청권' ? 1 : 2;
         else if (idx >= DIAMOND_INDEX) discount = 1;
-        return Math.max(0, coupon.price - discount);
+        return Math.max(0, couponBasePrice(coupon) - discount);
     }
     function isEmerald(userId) {
         return gradeIndexOf(db.users[userId].exp) >= EMERALD_INDEX;
@@ -1183,7 +1216,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-force';
+    const APP_VERSION = '2026-09-17-shop';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
@@ -1474,6 +1507,7 @@
             db.users[id] = { name: id + "번 학생", role: "student", password: id, pi: 10, exp: 0, inventory: [], lottoTickets: [], stocks: {} };
             changed = true;
         });
+        if (!db.couponPrices || typeof db.couponPrices !== 'object') { db.couponPrices = {}; changed = true; }
         if (!db.lotto) db.lotto = { currentPot: 0, rolloverPot: 0 };
         if (!Array.isArray(db.usageRequests)) db.usageRequests = [];
         if (typeof db.notice !== 'string') db.notice = '';
@@ -1727,6 +1761,68 @@
         document.getElementById('myGradeCard').innerHTML = html;
     }
 
+    /* ===================== 관리자: 쿠폰 가격 ===================== */
+    function renderAdminShop() {
+        document.getElementById('adminShopContent').innerHTML = `
+            <table class="data-table">
+                <thead><tr><th>쿠폰</th><th>처음 가격</th><th>지금 가격</th></tr></thead>
+                <tbody>
+                    ${COUPONS.map(c => {
+                        const now = couponBasePrice(c);
+                        const changed = now !== c.price;
+                        return `<tr>
+                            <td>${esc(c.name)}</td>
+                            <td class="muted">${c.price}π</td>
+                            <td>
+                                <input type="number" id="couponPrice-${esc(c.name)}" min="0" max="${COUPON_PRICE_MAX}"
+                                       value="${now}" style="width:80px;">π
+                                ${changed ? '<span class="muted" style="font-size:.85em;"> (바꿈)</span>' : ''}
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>`;
+    }
+
+    // 입력칸에서 값을 읽어 확인. 잘못된 값이 하나라도 있으면 아무것도 바꾸지 않음
+    function readCouponPriceInputs() {
+        const next = {};
+        for (const c of COUPONS) {
+            const el = document.getElementById('couponPrice-' + c.name);
+            if (!el) continue;
+            const value = Number(el.value);
+            if (!Number.isInteger(value) || value < 0 || value > COUPON_PRICE_MAX) {
+                alert(`[${c.name}] 가격은 0부터 ${COUPON_PRICE_MAX} 사이의 정수로 입력해주세요.`);
+                el.focus();
+                return null;
+            }
+            next[c.name] = value;
+        }
+        return next;
+    }
+
+    async function saveCouponPrices() {
+        const next = readCouponPriceInputs();
+        if (!next) return;
+        const changes = COUPONS
+            .filter(c => next[c.name] !== couponBasePrice(c))
+            .map(c => `· ${c.name}: ${couponBasePrice(c)}π → ${next[c.name]}π`);
+        if (changes.length === 0) { alert('바뀐 가격이 없어요.'); return; }
+        if (!await confirmThenReload(`쿠폰 가격을 바꿀까요?\n\n${changes.join('\n')}`)) return;
+        db.couponPrices = next;
+        if (!await saveData()) return;
+        alert(`쿠폰 가격을 바꿨어요.\n\n${changes.join('\n')}`);
+        renderAdminSection();
+    }
+
+    async function resetCouponPrices() {
+        if (!await confirmThenReload('모든 쿠폰을 처음 가격으로 되돌릴까요?')) return;
+        db.couponPrices = {};
+        if (!await saveData()) return;
+        alert('처음 가격으로 되돌렸어요.');
+        renderAdminSection();
+    }
+
     /* ===================== 학생: 쿠폰 상점 ===================== */
     function renderShop() {
         const user = db.users[currentUser];
@@ -1737,7 +1833,7 @@
         document.getElementById('shopTableBody').innerHTML = COUPONS.map((coupon, idx) => `
             <tr>
                 <td>${esc(coupon.name)}</td>
-                <td>${priceHtml(coupon.price, couponPriceFor(currentUser, coupon))}</td>
+                <td>${priceHtml(couponBasePrice(coupon), couponPriceFor(currentUser, coupon))}</td>
                 <td><button onclick="buyItem(${idx})">구매</button></td>
             </tr>`).join('');
     }
@@ -1753,9 +1849,10 @@
         }
         user.pi -= price;
         user.inventory.push(coupon.name);
-        const promoted = addExp(currentUser, coupon.price, '쿠폰 구매');
+        const exp = couponBasePrice(coupon);
+        const promoted = addExp(currentUser, exp, '쿠폰 구매');
         await saveData();
-        alert(`${coupon.name} 구매가 완료되었습니다. (${price}π · 경험치 +${coupon.price})` + promotionText(promoted));
+        alert(`${coupon.name} 구매가 완료되었습니다. (${price}π · 경험치 +${exp})` + promotionText(promoted));
         renderStudentSection();
     }
 
@@ -2472,6 +2569,7 @@
         lotto: updateAdminLottoDisplay,
         bank: renderAdminBank,
         stock: renderAdminStock,
+        shop: renderAdminShop,
         students: showAllStudents
     };
 

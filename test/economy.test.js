@@ -31,6 +31,9 @@ eval(script + `
   app.totalHeldQty = totalHeldQty; app.savingsPayout = savingsPayout; app.savingsRatePct = savingsRatePct;
   app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
   app.wipe = resetStockHistoryOnce; app.HVER = STOCK_HISTORY_VERSION; app.event = runStockEvent;
+  app.COUPONS = COUPONS; app.basePrice = couponBasePrice; app.priceFor = couponPriceFor;
+  app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
+  app.getDbCouponPrices = () => db.couponPrices;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
             LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
@@ -68,6 +71,50 @@ const coupons = TICKETS * (p(3) + p(2));          // 3·4등으로 공짜로 풀
 check(`로또가 파이를 늘리지 않음 — 주 ${netCash.toFixed(0)}π`, netCash <= 0);
 check(`누적 상금이 끝없이 불어나지 않음 — ${pot.toFixed(0)}π 에서 멈춤`, pot < 10000);
 check(`쿠폰 살포가 주 100장 미만 — ${coupons.toFixed(0)}장 (상점 수요를 죽이지 않을 것)`, coupons < 100);
+
+/* ── 쿠폰 가격을 관리자가 바꿀 수 있어야 함 ── */
+{
+    const coupon = app.COUPONS.find(c => c.name === '청소 면제권');
+    const emeraldExp = app.GRADES[app.GRADES.length - 1].minExp;
+    const setDb = prices => app.setDb({
+        users: { '1': { exp: 0, pi: 999 }, '2': { exp: emeraldExp, pi: 999 } },
+        couponPrices: prices, stocks: null
+    });
+
+    setDb({});
+    check(`바꾼 적 없으면 처음 가격 — ${app.basePrice(coupon)}π`, app.basePrice(coupon) === coupon.price);
+
+    setDb({ '청소 면제권': 25 });
+    check('관리자가 바꾼 가격이 우선', app.basePrice(coupon) === 25);
+    check('브론즈 학생은 그 가격 그대로', app.priceFor('1', coupon) === 25);
+    check('에메랄드 할인은 바뀐 가격에서 빠짐 — 25 - 2 = 23', app.priceFor('2', coupon) === 23);
+
+    setDb({ '청소 면제권': 0 });
+    check('0π 로 두면 공짜', app.basePrice(coupon) === 0 && app.priceFor('1', coupon) === 0);
+    check('할인 때문에 음수가 되지 않음', app.priceFor('2', coupon) === 0);
+
+    setDb({ '청소 면제권': 1 });
+    check('할인이 가격보다 커도 0 밑으로 안 감', app.priceFor('2', coupon) === 0);
+
+    // 잘못된 값이 저장돼 있어도 처음 가격으로 버텨야 함
+    [-5, 1.5, '20', null, undefined, NaN].forEach(bad => {
+        setDb({ '청소 면제권': bad });
+        check(`이상한 값(${String(bad)})이면 처음 가격으로 — ${app.basePrice(coupon)}π`, app.basePrice(coupon) === coupon.price);
+    });
+
+    // 바꾼 쿠폰만 영향받아야 함
+    setDb({ '청소 면제권': 25 });
+    const other = app.COUPONS.find(c => c.name === '간식 교환권');
+    check('바꾸지 않은 쿠폰은 그대로', app.basePrice(other) === other.price);
+
+    // 저장 자리가 없던 예전 데이터도 안전해야 함
+    app.setDb({ users: { '1': { exp: 0, pi: 1 } }, lotto: {}, bank: {}, usageRequests: [], notice: '' });
+    check('couponPrices 가 없는 예전 데이터도 처음 가격', app.basePrice(coupon) === coupon.price);
+    app.migrate();
+    check('이전 처리가 저장 자리를 만들어 둠', typeof app.getDbCouponPrices() === 'object');
+
+    check('가격 상한이 정해져 있음', Number.isInteger(app.PRICE_MAX) && app.PRICE_MAX > 0);
+}
 
 /* ── 주식 보유 한도 ── */
 const user = { pi: 100000, stocks: {} };
