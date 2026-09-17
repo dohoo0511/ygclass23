@@ -420,7 +420,7 @@
             <div id="lottoRewardInfo" style="margin: 15px 0;"></div>
             <div id="myLottoResult" style="margin: 15px 0;"></div>
             <p style="font-size: 14px; color: #555;">1~<span id="lottoMaxHint"></span> 사이의 숫자 5개를 쉼표(,)로 구분하여 입력 (주 최대 15장) · 로또를 사면 경험치 +4</p>
-            <input type="text" id="lottoNumbersInput" placeholder="예: 3, 11, 18, 24, 29" style="width: 250px;">
+            <input type="text" id="lottoNumbersInput" placeholder="예: 3, 9, 14, 20, 24" style="width: 250px;">
             <button onclick="buyLotto()">구매하기</button>
             <div id="myLottoList" style="margin-top: 15px; background: #FFF8F0; padding: 15px; border-radius: 16px; font-size: 14px; box-shadow: inset 0 2px 6px rgba(230,81,0,0.06);"></div>
         </div>
@@ -733,8 +733,8 @@
     const LOTTO_WEEKLY_LIMIT = 15;
     // 번호 범위가 좁으면 2~3개 맞히기가 너무 쉬워서, 3·4등 쿠폰이 쏟아져 상점에서 쿠폰을 살 이유가 없어짐
     // 20까지였을 때: 4등(2개 일치) 29.4%, 3등(3개 일치) 6.8%
-    // 30까지로 넓히면: 4등 16.1%, 3등 2.1%
-    const LOTTO_NUMBER_MAX = 30;
+    // 25까지로 넓히면: 4등 21.5%, 3등 3.6%
+    const LOTTO_NUMBER_MAX = 25;
 
     /* ===================== 설정: 쿠폰 ===================== */
     // price = 상점 기본가 (등급 할인 전). 관리자 환불도 이 가격 기준으로 계산

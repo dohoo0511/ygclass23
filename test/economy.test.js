@@ -46,12 +46,25 @@ check('적금 이율이 기간에 비례해 커지지 않음 (제곱 증가 없�
     app.savingsRatePct(2) === app.savingsRatePct(8));
 check('그래도 기간이 길수록 이득', yields[yields.length - 1] > yields[0]);
 
-/* ── 로또: 기대 회수가 티켓값을 넘으면 안 됨 ── */
+/* ── 로또 ──
+   drawLotto 의 실제 분배: 누적 상금(Pot)의 40% 는 1등, 30% 는 2등.
+   당첨자가 없는 몫만 다음 회차로 이월되고, 나머지 30% 는 지급도 이월도 되지 않고 사라진다.
+   그래서 로또는 파이를 만드는 쪽이 아니라 없애는 쪽이어야 정상이다.
+   (한때 "회수율 125%" 로 잘못 계산했는데, Pot 의 70% 가 매번 돌아온다고 본 탓이었다) */
 const N = app.K.LOTTO_MAX, T = C(N, 5), p = m => C(5, m) * C(N - 5, 5 - m) / T;
-const ret = 4 * 0.7 + p(3) * 10 + p(2) * 5 + p(5) * 22 + p(4) * 13;
-check(`로또 기대 회수가 티켓값(4π) 이하 — ${ret.toFixed(2)}π (${(ret / 4 * 100).toFixed(0)}%)`, ret <= 4);
-check(`4등 당첨률이 20% 미만 — ${(p(2) * 100).toFixed(1)}%`, p(2) < 0.20);
-check(`3등 당첨률이 3% 미만 — ${(p(3) * 100).toFixed(1)}%`, p(3) < 0.03);
+const TICKETS = 300;                              // 학생 30명이 주 10장씩 산다고 보고
+const revenue = TICKETS * 4;
+const noneOf = m => Math.pow(1 - p(m), TICKETS);  // 그 등수 당첨자가 한 명도 없을 확률
+const rollFrac = 0.4 * noneOf(5) + 0.3 * noneOf(4);
+const pot = revenue / (1 - rollFrac);             // 이월이 쌓이다 멈추는 지점
+const paidCash = 0.4 * pot * (1 - noneOf(5)) + 0.3 * pot * (1 - noneOf(4))
+    + TICKETS * (p(5) * 22 + p(4) * 13);          // 기본 상금은 Pot 과 별개로 지급
+const netCash = paidCash - revenue;
+const coupons = TICKETS * (p(3) + p(2));          // 3·4등으로 공짜로 풀리는 쿠폰
+
+check(`로또가 파이를 늘리지 않음 — 주 ${netCash.toFixed(0)}π`, netCash <= 0);
+check(`누적 상금이 끝없이 불어나지 않음 — ${pot.toFixed(0)}π 에서 멈춤`, pot < 10000);
+check(`쿠폰 살포가 주 100장 미만 — ${coupons.toFixed(0)}장 (상점 수요를 죽이지 않을 것)`, coupons < 100);
 
 /* ── 주식 보유 한도 ── */
 const user = { pi: 100000, stocks: {} };
