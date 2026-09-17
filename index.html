@@ -1252,7 +1252,13 @@
         const baseRev = loadedRev || 0;
         let prevHigh = 0;
         try { prevHigh = Number(localStorage.getItem(HIGH_REV_KEY)) || 0; } catch (e) { /* 무시 */ }
-        const restored = { ...good.record, rev: Math.max(baseRev, prevHigh) };
+        const restored = {
+            ...good.record,
+            rev: Math.max(baseRev, prevHigh),
+            restoredFrom: '기기에 남은 기록',
+            restoredAt: new Date().toISOString(),
+            lastSave: { at: new Date().toISOString(), by: '관리자(되살리기)', v: APP_VERSION }
+        };
         try {
             const result = await putRecord(baseRev, restored);
             if (result.conflict) return alert('그 사이 다른 기기가 저장했습니다. 새로고침한 뒤 다시 해주세요.');

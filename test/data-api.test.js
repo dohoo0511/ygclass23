@@ -149,6 +149,25 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('판번호는 이전 최고값 위로 올라감', storage.rev === 51);
     check('어느 버전에서 되살렸는지 남음', storage.restoredFrom === 7);
 
+    /* ── 백업 파일로 되돌리기 (버전 보관이 없는 요금제용) ── */
+    storage = { rev: 60, users: { admin: { password: 'pw!' }, '1': { pi: 1 } } };
+    const backup = { rev: 55, users: { admin: { password: 'pw!' }, '1': { pi: 777 } }, note: '내려받아 둔 백업' };
+
+    r = await call('POST', '', { record: backup, password: '틀린비번' });
+    check('파일 되돌리기도 비밀번호 확인', r.status === 403 && storage.users['1'].pi === 1);
+
+    r = await call('POST', '', { record: { note: '학생 정보 없는 파일' }, password: 'pw!' });
+    check('학생 정보 없는 파일은 거부', r.status === 400 && storage.users['1'].pi === 1);
+
+    r = await call('POST', '', { record: backup, password: 'pw!' });
+    check('백업 파일로 되돌아감', r.status === 200 && storage.users['1'].pi === 777);
+    check('파일 되돌리기도 판번호가 올라감', storage.rev === 61);
+    check('백업 파일에서 왔다고 남음', storage.restoredFrom === '백업 파일' && !!storage.restoredAt);
+
+    r = await call('POST', '', { password: 'pw!' });
+    check('버전도 파일도 없으면 400', r.status === 400);
+
+    storage = { rev: 50, users: { admin: { password: 'pw!' }, '1': { pi: 1 } } };
     versionStore[8] = { rev: 21, note: '학생 정보 없는 버전' };
     const keep = JSON.stringify(storage);
     r = await call('POST', '', { restoreVersion: 8, password: 'pw!' });

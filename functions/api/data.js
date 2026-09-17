@@ -152,7 +152,8 @@ export async function onRequest({ request, env }) {
         rev: revOf(record),
         users: Object.keys(record.users || {}).length,
         lastSave: record.lastSave || null,
-        restoredFrom: typeof record.restoredFrom === "number" ? record.restoredFrom : null,
+        restoredFrom: record.restoredFrom !== undefined ? record.restoredFrom : null,
+        restoredAt: record.restoredAt || null,
         versions: await versionSummary(env),
       });
     } catch (error) {
@@ -229,7 +230,11 @@ export async function onRequest({ request, env }) {
       return json({ error: "요청 형식이 올바르지 않아요." }, 400);
     }
     const version = payload && payload.restoreVersion;
-    if (!Number.isInteger(version) || version < 0) return json({ error: "되돌릴 버전 번호가 필요해요." }, 400);
+    const uploaded = payload && payload.record;
+    const fromFile = uploaded !== undefined;
+    if (!fromFile && (!Number.isInteger(version) || version < 0)) {
+      return json({ error: "되돌릴 버전 번호나 백업 내용이 필요해요." }, 400);
+    }
 
     let current;
     try {
@@ -240,23 +245,32 @@ export async function onRequest({ request, env }) {
     if (!isAdminPassword(current, payload.password)) return json({ error: "관리자 비밀번호가 맞지 않아요." }, 403);
 
     let target;
-    try {
-      const res = await binFetch(env, `/${version}`);
-      if (!res.ok) throw new Error(`해당 버전을 읽지 못했어요 (${res.status})`);
-      target = (await res.json()).record;
-    } catch (error) {
-      return json({ error: error.message }, 502);
+    let source;
+    if (fromFile) {
+      target = uploaded;
+      source = "백업 파일";
+    } else {
+      try {
+        const res = await binFetch(env, `/${version}`);
+        if (!res.ok) throw new Error(`해당 버전을 읽지 못했어요 (${res.status})`);
+        target = (await res.json()).record;
+      } catch (error) {
+        return json({ error: error.message }, 502);
+      }
+      source = version;
     }
-    if (!looksValid(target)) return json({ error: "그 버전에는 학생 정보가 없어요. 다른 버전을 고르세요." }, 400);
+    if (!looksValid(target)) {
+      return json({ error: "되돌릴 내용에 학생 정보가 없어요. 올바른 백업인지 확인해주세요." }, 400);
+    }
 
     // 되돌린 뒤에도 판번호는 계속 커지도록 (되돌림 감지가 오작동하지 않게 함)
     const nextRev = Math.max(revOf(current), revOf(target)) + 1;
     try {
-      await writeRecord(env, { ...target, rev: nextRev, restoredFrom: version, restoredAt: new Date().toISOString() });
+      await writeRecord(env, { ...target, rev: nextRev, restoredFrom: source, restoredAt: new Date().toISOString() });
     } catch (error) {
       return json({ error: error.message }, 502);
     }
-    return json({ ok: true, rev: nextRev, restoredFrom: version });
+    return json({ ok: true, rev: nextRev, restoredFrom: source });
   }
 
   return json({ error: "GET, PUT, POST 만 받을 수 있어요." }, 405);

@@ -43,6 +43,29 @@
     </div>
 
     <div class="card">
+        <h3 style="margin-top:0;">1. 백업 내려받기</h3>
+        <div class="sub">지금 데이터를 파일로 저장합니다. <b>가끔 눌러서 보관해두세요.</b>
+            저장소에 예전 버전이 남지 않는 요금제라, 이 파일이 유일한 안전망입니다.</div>
+        <div class="actions">
+            <button id="backupBtn">지금 데이터 내려받기</button>
+            <span id="backupInfo" class="muted"></span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top:0;">2. 백업 파일로 되돌리기</h3>
+        <div class="sub">내려받아 둔 파일을 골라 그 시점으로 되돌립니다. 관리자 비밀번호가 필요합니다.</div>
+        <div class="actions">
+            <input type="file" id="backupFile" accept="application/json,.json">
+            <input type="password" id="filePw" placeholder="관리자 비밀번호" autocomplete="off">
+            <button id="fileRestoreBtn" class="danger">이 파일로 되돌리기</button>
+        </div>
+        <div id="fileInfo" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top:0;">3. 저장소에 남은 예전 버전</h3>
+        <div class="sub">요금제에 따라 쓸 수 없을 수 있습니다. 목록이 안 나오면 위 1·2번을 사용하세요.</div>
         <div class="actions">
             <button id="loadBtn">버전 목록 불러오기</button>
             <label class="muted"><input type="checkbox" id="nightOnly"> 밤 시간(22:00~07:00)만 보기</label>
@@ -125,6 +148,78 @@
         return { pi, logs };
     }
 
+    /* ---------- 백업 내려받기 ---------- */
+    $('backupBtn').onclick = async () => {
+        $('backupBtn').disabled = true;
+        setStatus('불러오는 중…');
+        try {
+            const data = await fetchLatest();
+            const record = data.record;
+            const s = summarize(record);
+            const stamp = new Date().toLocaleString('sv').replace(/[: ]/g, '-').slice(0, 16);
+            const blob = new Blob([JSON.stringify(record, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `ygclass23-백업-${stamp}.json`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+            $('backupInfo').textContent = `학생 ${Object.keys(record.users || {}).length}명 · 파이 합계 ${s.pi}π · 판번호 ${record.rev ?? '?'}`;
+            setStatus('');
+        } catch (e) {
+            setStatus('');
+            alert('백업을 내려받지 못했습니다.\n' + e.message);
+        } finally {
+            $('backupBtn').disabled = false;
+        }
+    };
+
+    /* ---------- 백업 파일로 되돌리기 ---------- */
+    let uploaded = null;
+
+    $('backupFile').onchange = async () => {
+        uploaded = null;
+        $('fileInfo').textContent = '';
+        const file = $('backupFile').files[0];
+        if (!file) return;
+        try {
+            const parsed = JSON.parse(await file.text());
+            if (!parsed || !parsed.users || Object.keys(parsed.users).length === 0) {
+                throw new Error('학생 정보가 없는 파일입니다');
+            }
+            uploaded = parsed;
+            const s = summarize(parsed);
+            const ls = parsed.lastSave;
+            $('fileInfo').innerHTML = `읽었습니다 — 학생 <b>${Object.keys(parsed.users).length}명</b> · 파이 합계 <b>${s.pi}π</b> · 기록 <b>${s.logs}건</b> · 판번호 ${parsed.rev ?? '?'}`
+                + (ls ? `<br><span class="muted">그 파일의 마지막 저장: ${ls.by || '?'} · ${kst(ls.at)}</span>` : '');
+        } catch (e) {
+            $('fileInfo').textContent = '이 파일은 쓸 수 없습니다: ' + e.message;
+        }
+    };
+
+    $('fileRestoreBtn').onclick = async () => {
+        if (!uploaded) return alert('먼저 백업 파일을 고르세요.');
+        const pw = $('filePw').value.trim();
+        if (!pw) return alert('관리자 비밀번호를 입력하세요.');
+        const s = summarize(uploaded);
+        if (!confirm(`이 백업 파일로 되돌립니다.\n\n학생 ${Object.keys(uploaded.users).length}명 · 파이 합계 ${s.pi}π\n\n지금 데이터는 이 내용으로 완전히 바뀝니다. 계속할까요?`)) return;
+        if (!confirm('정말 되돌릴까요? 마지막 확인입니다.')) return;
+
+        setStatus('되돌리는 중…');
+        try {
+            const result = await api('', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ record: uploaded, password: pw })
+            });
+            setStatus('');
+            alert(`백업 파일로 되돌렸습니다. (판번호 ${result.rev})\n사이트를 새로고침해서 확인해주세요.`);
+        } catch (e) {
+            console.error(e);
+            setStatus('');
+            alert('되돌리기에 실패했습니다. 데이터는 그대로입니다.\n' + e.message);
+        }
+    };
+
     $('loadBtn').onclick = async () => {
         $('loadBtn').disabled = true;
         setStatus('불러오는 중…');
@@ -143,9 +238,9 @@
         } catch (e) {
             console.error(e);
             setStatus('');
-            alert('버전 목록을 불러오지 못했습니다.\n' + e.message +
-                '\n\n저장소에 버전 보관 기능이 꺼져 있으면 예전 내용을 되살릴 수 없습니다.\n' +
-                'jsonbin.io 에 로그인해 해당 Bin의 Versioning 설정을 확인해보세요.');
+            alert('예전 버전을 쓸 수 없습니다.\n' + e.message +
+                '\n\n이 저장소 요금제는 버전 보관을 지원하지 않습니다.\n' +
+                '대신 위 1번으로 백업을 내려받아 보관하시고, 되돌릴 때는 2번을 쓰세요.');
         } finally {
             $('loadBtn').disabled = false;
         }
