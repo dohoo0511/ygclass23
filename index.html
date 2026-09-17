@@ -1183,7 +1183,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-chart5';
+    const APP_VERSION = '2026-09-17-force';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
@@ -3409,15 +3409,20 @@
         return true;
     }
 
-    function rollMagnitude(rand) {
-        const r = rand();
-        const m = NEWS_MAGNITUDES.find(x => r < x.chance) || NEWS_MAGNITUDES[NEWS_MAGNITUDES.length - 1];
+    // mustMove 면 '움직이지 않음' 을 빼고 고른다.
+    // 관리자가 직접 뉴스를 낼 때는 아무 일도 안 일어나면 안 되기 때문
+    function rollMagnitude(rand, mustMove = false) {
+        const table = mustMove ? NEWS_MAGNITUDES.filter(m => m.amount > 0) : NEWS_MAGNITUDES;
+        const first = mustMove ? NEWS_MAGNITUDES.find(m => m.amount > 0).chance : 0;
+        const total = table[table.length - 1].chance - first;
+        const r = first + rand() * total;
+        const m = table.find(x => r < x.chance) || table[table.length - 1];
         return { level: m.level, amount: m.amount };
     }
 
     // 뉴스 1건을 만들고 주가에 반영. 같은 상태에서 실행하면 어느 기기에서든 같은 결과가 나옴
     // companyId를 주면 그 회사의 뉴스를 만들고, record가 false면 주가만 움직이고 뉴스는 남기지 않음
-    function runStockEvent(time, companyId = null, record = true) {
+    function runStockEvent(time, companyId = null, record = true, mustMove = false) {
         const st = db.stocks;
         st.eventCount += 1;
         const rand = mulberry32(st.seed + st.eventCount * 7919);
@@ -3466,15 +3471,15 @@
                 st.contracts = st.contracts.filter(k => k !== key);
                 delete st.contractProjects[key];
             }
-            const magA = rollMagnitude(rand);
-            const magB = rollMagnitude(rand);
+            const magA = rollMagnitude(rand, mustMove);
+            const magB = rollMagnitude(rand, mustMove);
             Object.assign(item, { companyId: a.id, partnerId: b.id, sentiment: good ? 'good' : 'bad', level: magA.level });
             planned[a.id] = (good ? 1 : -1) * magA.amount;
             planned[b.id] = (good ? 1 : -1) * magB.amount;
         } else {
             const c = main;
             const good = rand() < goodChance(c.id);
-            const mag = rollMagnitude(rand);
+            const mag = rollMagnitude(rand, mustMove);
             const sentiment = good ? 'good' : 'bad';
             Object.assign(item, { kind: 'single', companyId: c.id, sentiment, level: mag.level, reason: Math.floor(rand() * NEWS_REASONS[c.id][sentiment].length) });
             planned[c.id] = (good ? 1 : -1) * mag.amount;
@@ -4309,11 +4314,12 @@
     }
 
     async function adminForceNews() {
-        if (!confirm(`지금 바로 네 회사의 뉴스를 1건씩 발생시킬까요? 주가가 뉴스에 따라 바로 움직여요.${AI_NEWS_ENDPOINT ? ' AI가 바로 기사를 써요.' : ''}`)) return;
+        if (!confirm(`지금 바로 네 회사의 뉴스를 1건씩 발생시킬까요?\n네 회사 주가가 모두 움직입니다.${AI_NEWS_ENDPOINT ? '\nAI가 바로 기사를 써요.' : ''}`)) return;
         if (!await loadData()) return;
-        // 30분마다 나오는 뉴스처럼 회사마다 1건씩
+        // 회사마다 1건씩. 관리자가 직접 누른 것이니 주가가 반드시 움직이게 한다
+        // (평소 뉴스는 열 중 일곱이 주가를 안 움직이므로, 그대로 두면 눌러도 아무 일이 없다)
         const now = Date.now();
-        const items = COMPANIES.map(c => runStockEvent(now, c.id));
+        const items = COMPANIES.map(c => runStockEvent(now, c.id, true, true));
         await saveData();
         renderAdminSection();
 

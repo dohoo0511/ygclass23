@@ -30,7 +30,7 @@ eval(script + `
   app.COMPANIES = COMPANIES; app.holdingOf = holdingOf; app.buyableQty = buyableQty;
   app.totalHeldQty = totalHeldQty; app.savingsPayout = savingsPayout; app.savingsRatePct = savingsRatePct;
   app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
-  app.wipe = resetStockHistoryOnce; app.HVER = STOCK_HISTORY_VERSION;
+  app.wipe = resetStockHistoryOnce; app.HVER = STOCK_HISTORY_VERSION; app.event = runStockEvent;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
             LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
@@ -235,6 +235,29 @@ const REAL_NOW = Date.now();
     const used = (Math.max(...last24) - Math.min(...last24)) / (after.hi - after.lo) * 100;
     check(`비운 뒤 하루 만에 세로축이 좁아짐 — ${after.lo}~${after.hi}π`, after.hi - after.lo < 20);
     check(`비운 뒤 선이 화면 높이를 씀 — ${used.toFixed(0)}%`, used >= 30);
+}
+
+/* ── 관리자가 직접 낸 뉴스는 반드시 주가를 움직여야 함 ──
+   평소 뉴스는 열 중 일곱이 주가를 안 움직인다. 관리자가 일부러 누른 것까지
+   그러면 '눌렀는데 아무 일도 안 일어난다' 가 된다 (실제로 그런 신고를 받았다) */
+{
+    const t0 = Date.UTC(2026, 0, 5);
+    const cid = app.COMPANIES[0].id;
+    let normalMoved = 0, forcedMoved = 0;
+    const N = 200;
+    for (let r = 0; r < N; r++) {
+        for (const forced of [false, true]) {
+            const d = { users: {}, stocks: null };
+            app.setDb(d);
+            d.stocks = app.initStock(t0);
+            d.stocks.seed += r * 7919;
+            const before = d.stocks.companies[cid].price;
+            app.event(t0, cid, true, forced);
+            if (d.stocks.companies[cid].price !== before) { forced ? forcedMoved++ : normalMoved++; }
+        }
+    }
+    check(`평소 뉴스는 대부분 주가를 안 움직임 — ${(normalMoved / N * 100).toFixed(0)}%`, normalMoved / N < 0.5);
+    check(`관리자가 낸 뉴스는 반드시 움직임 — ${(forcedMoved / N * 100).toFixed(0)}%`, forcedMoved === N);
 }
 
 /* ── 기록을 비운 뒤 실제로 다시 쌓이는지 ──
