@@ -18,7 +18,18 @@ const SRC = path.join(__dirname, '..', 'functions', 'api', 'data.js');
 const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ygfn-')), 'data.mjs');
 fs.copyFileSync(SRC, tmp);
 
-const ENV = { JSONBIN_BIN_ID: 'bin123', JSONBIN_KEY: 'secret-key' };
+// Cloudflare KV 를 흉내 낸 저장공간
+function makeKV() {
+    const store = new Map();
+    return {
+        store,
+        async get(k, o) { const v = store.get(k); return v === undefined ? null : (o && o.type === 'json' ? JSON.parse(v) : v); },
+        async put(k, v) { store.set(k, v); },
+        async delete(k) { store.delete(k); }
+    };
+}
+let KV = makeKV();
+const ENV = { JSONBIN_BIN_ID: 'bin123', JSONBIN_KEY: 'secret-key', get BACKUPS() { return KV; } };
 
 let storage = null;      // 저장소에 들어 있다고 가정하는 내용
 var versionStore = {};   // 버전 번호 -> 내용
@@ -48,6 +59,7 @@ global.fetch = async (url, opts = {}) => {
     return { ok: false, status: 405, json: async () => ({}) };
 };
 
+const backupIndexKey = 'backup:index';
 const req = (method, query = '', body = null) => new Request(`https://example.pages.dev/api/data${query}`, {
     method,
     ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {})
@@ -226,6 +238,53 @@ const check = (name, cond) => results.push([name, !!cond]);
     const keep = JSON.stringify(storage);
     r = await call('POST', '', { restoreVersion: 8, password: 'pw!' });
     check('학생 정보 없는 버전으로는 되돌리지 않음', r.status === 400 && JSON.stringify(storage) === keep);
+
+    /* ── 자동 백업: 아무도 아무것도 누르지 않아도 사본이 남아야 함 ── */
+    KV = makeKV();
+    storage = { rev: 100, users: { admin: { password: 'pw!' }, '1': { pi: 10 } }, note: '오늘 내용' };
+    r = await call('GET', '?check=1');
+    check('백업이 아직 없으면 그렇게 알려줌', r.body.backups.available === true && r.body.backups.count === 0);
+
+    r = await call('PUT', '', { baseRev: 100, record: { users: { admin: { password: 'pw!' }, '1': { pi: 11 } }, note: '첫 저장', lastSave: { build: 7 } } });
+    check('저장하면 자동으로 사본이 남음', r.status === 200 && KV.store.size === 2);
+
+    r = await call('GET', '?check=1');
+    check('백업 목록에 오늘 날짜가 있음', r.body.backups.count === 1 && /^\d{4}-\d{2}-\d{2}$/.test(r.body.backups.dates[0]));
+
+    const kvSizeAfterFirst = KV.store.size;
+    r = await call('PUT', '', { baseRev: 101, record: { users: { admin: { password: 'pw!' }, '1': { pi: 12 } }, lastSave: { build: 7 } } });
+    check('같은 날 또 저장해도 사본은 하나 (저장 횟수 아낌)', KV.store.size === kvSizeAfterFirst);
+
+    // 백업에서 되돌리기
+    const today = r.body ? null : null;
+    const idx = await KV.get(backupIndexKey, { type: 'json' });
+    const backupDate = idx[0].date;
+    storage = { rev: 500, users: { admin: { password: 'pw!' }, '1': { pi: 999 } }, note: '망가진 상태' };
+
+    r = await call('POST', '', { restoreBackup: backupDate, password: '틀린비번' });
+    check('백업 되돌리기도 비밀번호 확인', r.status === 403 && storage.note === '망가진 상태');
+
+    r = await call('POST', '', { restoreBackup: backupDate, password: '2323' });
+    check('복구 비밀번호로 백업에서 되돌림', r.status === 200 && storage.note === '첫 저장');
+    check('되돌린 뒤 판번호가 더 커짐', storage.rev > 500);
+    check('어디서 왔는지 남음', String(storage.restoredFrom).includes(backupDate));
+
+    r = await call('POST', '', { restoreBackup: '2020-01-01', password: '2323' });
+    check('없는 날짜는 404', r.status === 404);
+    r = await call('POST', '', { restoreBackup: '엉터리', password: '2323' });
+    check('날짜 형식이 아니면 400', r.status === 400);
+
+    // KV 가 없어도 사이트는 동작해야 함
+    const savedKV = KV;
+    KV = null;
+    storage = { rev: 900, users: { admin: {}, '1': { pi: 1 } } };
+    r = await call('PUT', '', { baseRev: 900, record: { users: { admin: {} }, note: 'KV 없음', lastSave: { build: 7 } } });
+    check('백업이 꺼져 있어도 저장은 정상', r.status === 200 && storage.note === 'KV 없음');
+    r = await call('GET', '?check=1');
+    check('백업이 꺼져 있으면 설정 방법을 안내', r.body.backups.available === false && /KV/.test(r.body.backups.hint));
+    r = await call('POST', '', { restoreBackup: '2026-09-17', password: '2323' });
+    check('백업이 꺼져 있으면 되돌리기도 막음', r.status === 400);
+    KV = savedKV;
 
     /* ── 그 밖 ── */
     r = await call('DELETE', '');

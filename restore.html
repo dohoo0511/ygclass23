@@ -43,9 +43,19 @@
     </div>
 
     <div class="card">
+        <h3 style="margin-top:0;">자동 백업에서 되돌리기</h3>
+        <div class="sub">서버가 하루 한 번 알아서 남겨 둔 사본입니다. <b>미리 해둘 일이 없습니다.</b></div>
+        <div class="actions">
+            <button id="autoBtn">자동 백업 목록 보기</button>
+            <span id="autoInfo" class="muted"></span>
+        </div>
+        <div id="autoList" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
         <h3 style="margin-top:0;">1. 백업 내려받기</h3>
-        <div class="sub">지금 데이터를 파일로 저장합니다. <b>가끔 눌러서 보관해두세요.</b>
-            저장소에 예전 버전이 남지 않는 요금제라, 이 파일이 유일한 안전망입니다.</div>
+        <div class="sub">지금 데이터를 파일로 저장합니다. 자동 백업과 별개로,
+            학기 말처럼 중요한 시점에 따로 보관해두고 싶을 때 쓰세요.</div>
         <div class="actions">
             <button id="backupBtn">지금 데이터 내려받기</button>
             <span id="backupInfo" class="muted"></span>
@@ -117,6 +127,58 @@
     }
 
     const fetchVersions = () => api('?versions=1');
+    const fetchBackups = () => api('?backups=1');
+
+    /* ---------- 자동 백업 ---------- */
+    $('autoBtn').onclick = async () => {
+        $('autoBtn').disabled = true;
+        setStatus('불러오는 중…');
+        try {
+            const info = await fetchBackups();
+            $('autoInfo').textContent = info.hint || '';
+            if (!info.available || !info.dates || info.dates.length === 0) {
+                $('autoList').innerHTML = '';
+            } else {
+                $('autoList').innerHTML = `
+                    <table><thead><tr><th>날짜</th><th class="num">학생 수</th><th class="num">판번호</th><th></th></tr></thead><tbody>
+                    ${info.dates.map(d => {
+                        const meta = info.newest && info.newest.date === d ? info.newest : null;
+                        return `<tr>
+                            <td><b>${d}</b>${meta ? ' <span class="muted">(가장 최근)</span>' : ''}</td>
+                            <td class="num">${meta ? meta.users + '명' : '<span class="muted">-</span>'}</td>
+                            <td class="num">${meta ? meta.rev : '<span class="muted">-</span>'}</td>
+                            <td><button class="danger" onclick="restoreBackup('${d}')">이 날짜로 되돌리기</button></td>
+                        </tr>`;
+                    }).join('')}
+                    </tbody></table>`;
+            }
+            setStatus('');
+        } catch (e) {
+            setStatus('');
+            alert('자동 백업 목록을 불러오지 못했습니다.\n' + e.message);
+        } finally {
+            $('autoBtn').disabled = false;
+        }
+    };
+
+    window.restoreBackup = async function (date) {
+        const pw = prompt(`${date} 백업으로 되돌립니다.\n그 뒤의 변화는 사라집니다.\n\n관리자 또는 복구 비밀번호를 입력하세요.`);
+        if (!pw) return;
+        if (!confirm(`정말 ${date} 시점으로 되돌릴까요?`)) return;
+        setStatus('되돌리는 중…');
+        try {
+            const result = await api('', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ restoreBackup: date, password: pw })
+            });
+            setStatus('');
+            alert(`${date} 시점으로 되돌렸습니다. (판번호 ${result.rev})\n사이트를 새로고침해서 확인해주세요.`);
+        } catch (e) {
+            setStatus('');
+            alert('되돌리기에 실패했습니다. 데이터는 그대로입니다.\n' + e.message);
+        }
+    };
     const fetchVersion = v => api('?version=' + v);
     const fetchLatest = () => api('');
 

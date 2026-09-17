@@ -144,6 +144,75 @@ function stockDiagnosis(record) {
 // 바꾸려면 Cloudflare 환경 변수 RECOVERY_PASSWORD 를 등록하세요 (그 값이 우선합니다).
 const DEFAULT_RECOVERY_PASSWORD = "2323";
 
+/* ===================== 자동 백업 =====================
+   Cloudflare 저장공간(KV)에 하루 한 번 자동으로 사본을 남깁니다.
+   아무도 아무것도 누르지 않아도 최근 며칠치가 남아 있어, 날짜를 골라 되돌릴 수 있습니다.
+   설정: Cloudflare → 프로젝트 → 설정 → KV 네임스페이스 바인딩 이름을 BACKUPS 로 등록
+   설정하지 않으면 백업만 건너뛰고 사이트는 그대로 동작합니다. */
+const BACKUP_KEEP_DAYS = 14;
+const BACKUP_INDEX_KEY = "backup:index";
+const KST_OFFSET = 9 * 60 * 60 * 1000;
+
+function kstDate(ms = Date.now()) {
+  return new Date(ms + KST_OFFSET).toISOString().slice(0, 10);
+}
+function backupKey(date) {
+  return `backup:${date}`;
+}
+async function readBackupIndex(kv) {
+  const raw = await kv.get(BACKUP_INDEX_KEY, { type: "json" });
+  return Array.isArray(raw) ? raw : [];
+}
+
+// 오늘 사본이 없으면 남긴다. 하루 한 번이라 저장 횟수가 거의 들지 않는다
+async function ensureDailyBackup(env, record) {
+  const kv = env && env.BACKUPS;
+  if (!kv || !looksValid(record)) return;
+  const today = kstDate();
+  const index = await readBackupIndex(kv);
+  if (index.some((e) => e.date === today)) return;
+
+  await kv.put(backupKey(today), JSON.stringify(record));
+  const entry = {
+    date: today,
+    at: new Date().toISOString(),
+    rev: revOf(record),
+    users: Object.keys(record.users || {}).length,
+  };
+  const next = [entry, ...index.filter((e) => e.date !== today)].slice(0, BACKUP_KEEP_DAYS);
+  await kv.put(BACKUP_INDEX_KEY, JSON.stringify(next));
+
+  // 보관 기간을 넘긴 사본은 지운다
+  for (const old of index) {
+    if (!next.some((e) => e.date === old.date)) await kv.delete(backupKey(old.date));
+  }
+}
+
+async function backupSummary(env) {
+  const kv = env && env.BACKUPS;
+  if (!kv) {
+    return {
+      available: false,
+      hint: "자동 백업이 꺼져 있어요. Cloudflare 에서 KV 네임스페이스를 만들고 바인딩 이름을 BACKUPS 로 등록하면 하루 한 번 자동으로 사본이 남습니다. (SETUP.md 참고)",
+    };
+  }
+  try {
+    const index = await readBackupIndex(kv);
+    return {
+      available: true,
+      count: index.length,
+      keepDays: BACKUP_KEEP_DAYS,
+      dates: index.map((e) => e.date),
+      newest: index[0] || null,
+      hint: index.length
+        ? `자동 백업 ${index.length}개가 있어요. restore.html 에서 날짜를 고르면 그 시점으로 되돌아갑니다.`
+        : "자동 백업이 켜졌어요. 다음 저장 때 첫 사본이 남습니다.",
+    };
+  } catch (error) {
+    return { available: false, reason: error.message, hint: "백업 목록을 읽지 못했어요." };
+  }
+}
+
 // 관리자 비밀번호 확인 (되돌리기처럼 위험한 작업에만 사용)
 function isAdminPassword(current, password) {
   const admin = current && current.users && current.users.admin;
@@ -216,6 +285,7 @@ export async function onRequest({ request, env }) {
         restoredFrom: record.restoredFrom !== undefined ? record.restoredFrom : null,
         restoredAt: record.restoredAt || null,
         versions: await versionSummary(env),
+        backups: await backupSummary(env),
         ...(url.searchParams.has("stocks") ? { stocks: stockDiagnosis(record) } : {}),
       });
     } catch (error) {
@@ -230,6 +300,10 @@ export async function onRequest({ request, env }) {
   /* ---------- 읽기 ---------- */
   if (request.method === "GET") {
     try {
+      // 복구 도구용: 자동 백업 목록
+      if (url.searchParams.has("backups")) {
+        return json(await backupSummary(env));
+      }
       // 복구 도구용: 예전 버전 목록
       if (url.searchParams.has("versions")) {
         const res = await binFetch(env, "/versions");
@@ -286,10 +360,17 @@ export async function onRequest({ request, env }) {
       // 내가 읽은 뒤에 누군가 저장함 → 덮어쓰지 않고, 최신 내용을 돌려줌
       return json({ error: "conflict", rev: currentRev, record: current }, 409);
     }
+    const saved = { ...record, rev: currentRev + 1 };
     try {
-      await writeRecord(env, { ...record, rev: currentRev + 1 });
+      await writeRecord(env, saved);
     } catch (error) {
       return json({ error: error.message }, 502);
+    }
+    // 백업이 실패해도 저장 자체는 성공으로 본다 (백업 때문에 수업이 막히면 안 됨)
+    try {
+      await ensureDailyBackup(env, saved);
+    } catch (error) {
+      console.error("자동 백업 실패:", error);
     }
     return json({ ok: true, rev: currentRev + 1 });
   }
@@ -304,9 +385,11 @@ export async function onRequest({ request, env }) {
     }
     const version = payload && payload.restoreVersion;
     const uploaded = payload && payload.record;
+    const backupDate = payload && payload.restoreBackup;
     const fromFile = uploaded !== undefined;
-    if (!fromFile && (!Number.isInteger(version) || version < 0)) {
-      return json({ error: "되돌릴 버전 번호나 백업 내용이 필요해요." }, 400);
+    const fromBackup = typeof backupDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(backupDate);
+    if (!fromFile && !fromBackup && (!Number.isInteger(version) || version < 0)) {
+      return json({ error: "되돌릴 날짜나 버전 번호, 백업 내용 중 하나가 필요해요." }, 400);
     }
 
     let current;
@@ -324,6 +407,16 @@ export async function onRequest({ request, env }) {
     if (fromFile) {
       target = uploaded;
       source = "백업 파일";
+    } else if (fromBackup) {
+      const kv = env && env.BACKUPS;
+      if (!kv) return json({ error: "자동 백업이 꺼져 있어요." }, 400);
+      try {
+        target = await kv.get(backupKey(backupDate), { type: "json" });
+      } catch (error) {
+        return json({ error: `백업을 읽지 못했어요: ${error.message}` }, 502);
+      }
+      if (!target) return json({ error: `${backupDate} 백업이 없어요.` }, 404);
+      source = `자동 백업 ${backupDate}`;
     } else {
       try {
         const res = await binFetch(env, `/${version}`);
