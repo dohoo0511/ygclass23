@@ -505,7 +505,7 @@
             <div class="card" style="margin-top: 16px;">
                 <h4>📘 주식 규칙</h4>
                 <ul class="rule-list">
-                    <li>4시간마다 네 회사의 경제 뉴스가 하나씩 나오고, 좋은 뉴스면 주가가 오르고 나쁜 뉴스면 내려가요.</li>
+                    <li>1시간마다 네 회사의 경제 뉴스가 하나씩 나오고, 좋은 뉴스면 주가가 오르고 나쁜 뉴스면 내려가요.</li>
                     <li>계약을 맺은 회사끼리는 한 회사의 소식에 함께 영향을 받아요.</li>
                     <li>주식은 지금 주가 그대로 사고팔아요. 사거나 팔아도 주가가 바로 바뀌지 않아요.</li>
                     <li>일주일 동안 학생들이 사고판 주식을 모아서 매주 월요일 0시에 주가에 반영해요. 산 주식이 판 주식보다 1주 많을 때마다 주가가 1% 오르고, 1주 적을 때마다 1% 내려요. (한 주에 최대 20%, 1π 단위로 반올림)</li>
@@ -830,9 +830,10 @@
 
     /* ===================== 설정: 주식 ===================== */
     const HOUR_MS = 60 * 60 * 1000;
-    const STOCK_TICK_MS = 4 * 60 * 60 * 1000; // 4시간마다 회사별 뉴스 1개씩
+    const STOCK_TICK_MS = 60 * 60 * 1000; // 1시간마다 회사별 뉴스 1개씩
     // 예전에는 30분마다(하루 48건) 나왔는데, 뉴스가 너무 잦아 주가가 하루에도 몇 번씩 뒤집혔다.
-    // 간격을 늘리니 흐름이 며칠씩 이어지고 하루 변동폭도 26% → 15% 로 줄었다
+    // 간격을 늘리면 흐름이 잘 보이지만 그래프 점이 너무 드물어져 선이 각져 보인다.
+    // 1시간이면 하루 24점이라 그래프가 촘촘하면서, 아래 변동 분포로 급등락을 눌렀다
     const STOCK_MIN_PRICE = 5;   // 주가가 너무 싸지면 한 번에 수십 주를 사서 크게 벌 수 있어 최저가를 둠
     // 최저가에서는 더 떨어질 수가 없어서, 사두기만 하면 손해를 볼 수 없는 공짜 수익이 된다.
     // (실제로 돌려보면 최저가에 사서 2주 뒤 평균 +117%, 400번 중 내려간 적 0번)
@@ -847,8 +848,8 @@
     const STOCK_FLOW_PCT_PER_SHARE = 1;   // 산 주식이 판 주식보다 1주 많을 때마다 +1% (적으면 -1%)
     const STOCK_FLOW_MAX_PCT = 20;        // 한 주에 거래로 움직이는 최대 비율 (많이 사서 한 주 만에 두 배가 되는 일을 막음)
     const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-    const STOCK_HISTORY_TICKS = 180;      // 그래프용 가격 보관 회차 (4시간 × 180 = 30일)
-    const STOCK_MAX_CATCHUP_TICKS = 18;   // 오래 아무도 접속하지 않았을 때 따라잡는 최대 회차 (3일), 그 이전은 가격 그대로
+    const STOCK_HISTORY_TICKS = 240;      // 그래프용 가격 보관 회차 (1시간 × 240 = 10일)
+    const STOCK_MAX_CATCHUP_TICKS = 72;   // 오래 아무도 접속하지 않았을 때 따라잡는 최대 회차 (3일), 그 이전은 가격 그대로
     const STOCK_NEWS_TICKS_ON_CATCHUP = 2; // 한꺼번에 따라잡을 때 뉴스로 남기는 최근 회차 수 (그 전 회차는 주가만 반영)
     const STOCK_MAX_NEWS = 32;
     const STOCK_MAX_TRADES = 60;
@@ -856,12 +857,12 @@
     const AI_RETRY_COOLDOWN_MS = 3 * 60 * 1000;
     const STOCK_SPILLOVER_PCT = 50;       // 계약 상대 회사가 함께 움직이는 비율 (소수점 버림 → 1π짜리 뉴스는 옮겨가지 않음)
     // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
-    // chance 는 누적 확률. 열 개 중 예닐곱은 주가를 움직이지 않고, 큰 폭 이상은 1% 남짓이다.
-    // 이렇게 해야 갑자기 뛰거나 떨어지는 일이 드물어지고, 흐름이 눈에 보인다
+    // chance 는 누적 확률. 1시간마다 나오므로 하루 24건인데, 그 중 3~4건만 주가를 움직인다.
+    // 주가가 11~18π 라 1π 만 움직여도 6~9% 여서, 자주 움직이면 그래프가 곧바로 요동친다
     const NEWS_MAGNITUDES = [
-        { level: 'none',   chance: 0.65,  amount: 0 },
-        { level: 'small',  chance: 0.93,  amount: 1 },
-        { level: 'medium', chance: 0.99,  amount: 2 },
+        { level: 'none',   chance: 0.85,  amount: 0 },
+        { level: 'small',  chance: 0.97,  amount: 1 },
+        { level: 'medium', chance: 0.996, amount: 2 },
         { level: 'large',  chance: 0.999, amount: 3 },
         { level: 'huge',   chance: 1,     amount: 4 }
     ];
@@ -3280,7 +3281,7 @@
             news: [{
                 id: 'n0', t: now, kind: 'open', sentiment: 'good', deltas: {}, ai: true,
                 title: '학급 주식시장 개장!',
-                body: '태훈전자, 땍이네 땍배, 도후식품, 23제약 네 회사의 주식을 사고팔 수 있어요. 4시간마다 네 회사의 경제 뉴스가 하나씩 나오고, 뉴스에 따라 주가가 오르내립니다. 좋은 흐름이 이어지면 한동안 계속 오르기도 해요.'
+                body: '태훈전자, 땍이네 땍배, 도후식품, 23제약 네 회사의 주식을 사고팔 수 있어요. 1시간마다 네 회사의 경제 뉴스가 하나씩 나오고, 뉴스에 따라 주가가 오르내립니다. 좋은 흐름이 이어지면 한동안 계속 오르기도 해요.'
             }]
         };
     }
@@ -3864,7 +3865,7 @@
         document.getElementById('stockSummary').innerHTML = `
             <div class="stock-summary">
                 <div class="stat"><span class="muted">내 주식</span><b class="stat-value">${shares}주</b><span class="muted">투자 원금 ${cost}π</span></div>
-                <div class="stat"><span class="muted">다음 뉴스까지</span><b class="stat-value" id="stockCountdown">${nextNewsText()}</b><span class="muted">4시간마다 회사별 뉴스</span></div>
+                <div class="stat"><span class="muted">다음 뉴스까지</span><b class="stat-value" id="stockCountdown">${nextNewsText()}</b><span class="muted">1시간마다 회사별 뉴스</span></div>
                 <div class="stat"><span class="muted">거래 반영까지</span><b class="stat-value stock-flow-countdown">${nextFlowSettleText()}</b><span class="muted">매주 월요일 0시</span></div>
             </div>`;
         document.getElementById('stockFlow').innerHTML = lastFlowHtml();
@@ -3978,7 +3979,7 @@
                     <tbody>${rows}</tbody>
                 </table>
             </div>
-            <h4 style="margin: 16px 0 6px;">🕒 4시간 간격 가격 (π)</h4>
+            <h4 style="margin: 16px 0 6px;">🕒 1시간 간격 가격 (π)</h4>
             <div class="table-container" style="max-height: 320px;">
                 <table>
                     <thead><tr><th>시각</th>${COMPANIES.map(c => `<th>${c.name}</th>`).join('')}</tr></thead>

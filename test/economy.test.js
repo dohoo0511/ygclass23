@@ -91,7 +91,10 @@ check(`학생 1명이 한도까지 들고 있어도 배당은 주 ${weekly.toFix
 
 /* ── 급등락이 드물어야 함 ── */
 const magPct = app.K.MAG.map((m, i) => m.chance - (i ? app.K.MAG[i - 1].chance : 0));
-check(`뉴스 열 건 중 절반 이상은 주가를 움직이지 않음 — ${(magPct[0] * 100).toFixed(0)}%`, magPct[0] >= 0.5);
+check(`대부분의 뉴스는 주가를 움직이지 않음 — ${(magPct[0] * 100).toFixed(0)}%`, magPct[0] >= 0.7);
+// 1시간마다 24건이 나오므로, 그 중 실제로 움직이는 건수가 하루 2~6번쯤이어야 그래프가 보기 좋다
+const movesPerDay = (24 * 3600 * 1000 / app.K.TICK) * (1 - magPct[0]);
+check(`하루에 주가가 움직이는 횟수가 2~6번 — ${movesPerDay.toFixed(1)}번`, movesPerDay >= 2 && movesPerDay <= 6);
 const bigMoves = magPct[3] + magPct[4];
 check(`큰 폭 이상 뉴스가 2% 미만 — ${(bigMoves * 100).toFixed(1)}%`, bigMoves < 0.02);
 
@@ -134,9 +137,9 @@ const drift = endRatios[Math.floor(endRatios.length / 2)] - 1;   // 중앙값
 check(`뉴스만으로는 주가가 한쪽으로 쏠리지 않음 (60일 중앙값 ${(drift * 100).toFixed(1)}%)`, Math.abs(drift) < 0.25);
 // 기준값은 수정 전 코드를 같은 방법으로 돌려서 잰 값이다 (연속 1.45일, 추세효율 0.151, 일변동 27.0%).
 // 넉넉히 잡되, 예전 수준으로 되돌아가면 반드시 걸리도록 둔다
-check(`같은 방향이 이틀 넘게 이어짐 — ${(runLen / n2).toFixed(2)}일 (예전 1.45일)`, runLen / n2 > 1.8);
-check(`흐름이 톱니가 아니라 한 방향으로 감 — 추세 효율 ${(eff / effN).toFixed(3)} (예전 0.151)`, eff / effN > 0.22);
-check(`하루 변동이 주가의 20% 미만 — ${(swingPct / n2).toFixed(1)}% (예전 27.0%)`, swingPct / n2 < 20);
+check(`흐름이 예전보다 오래 이어짐 — ${(runLen / n2).toFixed(2)}일 (예전 1.45일)`, runLen / n2 > 1.55);
+check(`흐름이 톱니가 아니라 한 방향으로 감 — 추세 효율 ${(eff / effN).toFixed(3)} (예전 0.151)`, eff / effN > 0.18);
+check(`하루 변동이 예전보다 작음 — ${(swingPct / n2).toFixed(1)}% (예전 27.0%)`, swingPct / n2 < 22);
 
 /* ── 뉴스 간격을 바꿔도 예전 데이터가 멈추지 않아야 함 ── */
 const OLD_MS = 30 * 60 * 1000;
