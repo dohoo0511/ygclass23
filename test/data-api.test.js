@@ -340,6 +340,9 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('되돌린 뒤 판번호가 더 커짐', storage.rev > 500);
     check('어디서 왔는지 남음', String(storage.restoredFrom).includes(backupDate));
 
+    r = await call('GET', '?backup=' + backupDate);
+    check('KV 백업도 날짜별로 내려받을 수 있음', r.status === 200 && r.body.record.note === '첫 저장');
+
     r = await call('POST', '', { restoreBackup: '2020-01-01', password: '2323' });
     check('없는 날짜는 404', r.status === 404);
     r = await call('POST', '', { restoreBackup: '엉터리', password: '2323' });
@@ -355,6 +358,8 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('백업이 꺼져 있으면 설정 방법을 안내', r.body.backups.available === false && /D1/.test(r.body.backups.hint));
     r = await call('POST', '', { restoreBackup: '2026-09-17', password: '2323' });
     check('백업이 꺼져 있으면 되돌리기도 막음', r.status === 400);
+    r = await call('GET', '?backup=2026-09-17');
+    check('백업이 꺼져 있으면 내려받기도 막음', r.status === 400);
     KV = savedKV;
 
     /* ── 그 밖 ── */
@@ -441,6 +446,21 @@ const check = (name, cond) => results.push([name, !!cond]);
 
     r = await call('GET', '?backups=1', null, D1ENV);
     check('D1: 백업 목록을 D1 에서 읽음', r.body.available === true && r.body.where === 'D1' && r.body.dates[0] === d1Date);
+    check('D1: 날짜마다 학생 수·판번호를 함께 알려줌',
+        Array.isArray(r.body.entries) && r.body.entries[0].date === d1Date && r.body.entries[0].users === 2);
+
+    // 되돌리기 전에 내용을 확인하거나 파일로 받아 두는 길 (아무것도 바꾸지 않아야 함)
+    const beforeView = JSON.stringify(D1.state);
+    r = await call('GET', '?backup=' + d1Date, null, D1ENV);
+    check('D1: 날짜별 백업 내용을 그대로 돌려줌', r.status === 200 && r.body.record.users['1'].pi === 10 && r.body.date === d1Date);
+    check('D1: 내용 보기는 지금 데이터를 건드리지 않음', JSON.stringify(D1.state) === beforeView);
+
+    r = await call('GET', '?backup=2020-01-01', null, D1ENV);
+    check('D1: 없는 날짜를 내려받으려 하면 404', r.status === 404);
+    r = await call('GET', '?backup=엉터리', null, D1ENV);
+    check('D1: 날짜 형식이 아니면 400', r.status === 400);
+    r = await call('GET', '?backups=1', null, D1ENV);
+    check('D1: ?backups 와 ?backup 이 서로 헷갈리지 않음', r.body.available === true && r.body.record === undefined);
 
     r = await call('POST', '', { restoreBackup: d1Date, password: '틀린비번' }, D1ENV);
     check('D1: 백업 되돌리기도 비밀번호 확인', r.status === 403 && D1.record().users['1'].pi === 20);

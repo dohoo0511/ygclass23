@@ -412,6 +412,8 @@ async function backupSummary(env) {
       count: index.length,
       keepDays: BACKUP_KEEP_DAYS,
       dates: index.map((e) => e.date),
+      // 날짜마다 학생 수·판번호를 함께 보내, 되돌리기 전에 어느 시점인지 눈으로 고를 수 있게 함
+      entries: index,
       newest: index[0] || null,
       hint: index.length
         ? `자동 백업 ${index.length}개가 있어요. restore.html 에서 날짜를 고르면 그 시점으로 되돌아갑니다.`
@@ -537,6 +539,15 @@ export async function onRequest({ request, env }) {
       // 복구 도구용: 자동 백업 목록
       if (url.searchParams.has("backups")) {
         return json(await backupSummary(env));
+      }
+      // 복구 도구용: 특정 날짜 백업의 내용 (되돌리기 전에 확인하거나 파일로 보관할 때)
+      const wantBackup = url.searchParams.get("backup");
+      if (wantBackup !== null) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(wantBackup)) return json({ error: "날짜 형식이 올바르지 않아요." }, 400);
+        if (!hasD1(env) && !(env && env.BACKUPS)) return json({ error: "자동 백업이 꺼져 있어요." }, 400);
+        const saved = await backupGet(env, wantBackup);
+        if (!saved) return json({ error: `${wantBackup} 백업이 없어요.` }, 404);
+        return json({ record: saved, rev: revOf(saved), date: wantBackup });
       }
       // 복구 도구용: 예전 버전 목록 (예전 저장소가 남아 있을 때만)
       if (url.searchParams.has("versions")) {

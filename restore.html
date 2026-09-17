@@ -44,12 +44,18 @@
 
     <div class="card">
         <h3 style="margin-top:0;">자동 백업에서 되돌리기</h3>
-        <div class="sub">서버가 하루 한 번 알아서 남겨 둔 사본입니다. <b>미리 해둘 일이 없습니다.</b></div>
+        <div class="sub">서버가 하루 한 번 알아서 남겨 둔 사본입니다. <b>미리 해둘 일이 없습니다.</b><br>
+            <b>내용 보기</b> 와 <b>내려받기</b> 는 아무것도 바꾸지 않습니다. 되돌리기 전에 먼저 확인해보세요.</div>
         <div class="actions">
             <button id="autoBtn">자동 백업 목록 보기</button>
             <span id="autoInfo" class="muted"></span>
         </div>
         <div id="autoList" style="margin-top:10px;"></div>
+        <div id="autoDetail" style="margin-top:12px; display:none;">
+            <h4 id="autoDetailTitle" style="margin:0 0 6px;"></h4>
+            <div id="autoDetailSummary" class="muted"></div>
+            <pre id="autoDetailJson"></pre>
+        </div>
     </div>
 
     <div class="card">
@@ -139,15 +145,24 @@
             if (!info.available || !info.dates || info.dates.length === 0) {
                 $('autoList').innerHTML = '';
             } else {
+                // 서버가 날짜마다 학생 수·판번호를 함께 보내 준다 (예전 서버면 가장 최근 것만 있음)
+                const byDate = {};
+                (info.entries || []).forEach(e => { if (e && e.date) byDate[e.date] = e; });
+                if (info.newest && info.newest.date) byDate[info.newest.date] = info.newest;
+
                 $('autoList').innerHTML = `
                     <table><thead><tr><th>날짜</th><th class="num">학생 수</th><th class="num">판번호</th><th></th></tr></thead><tbody>
-                    ${info.dates.map(d => {
-                        const meta = info.newest && info.newest.date === d ? info.newest : null;
+                    ${info.dates.map((d, i) => {
+                        const meta = byDate[d];
                         return `<tr>
-                            <td><b>${d}</b>${meta ? ' <span class="muted">(가장 최근)</span>' : ''}</td>
+                            <td><b>${d}</b>${i === 0 ? ' <span class="muted">(가장 최근)</span>' : ''}</td>
                             <td class="num">${meta ? meta.users + '명' : '<span class="muted">-</span>'}</td>
                             <td class="num">${meta ? meta.rev : '<span class="muted">-</span>'}</td>
-                            <td><button class="danger" onclick="restoreBackup('${d}')">이 날짜로 되돌리기</button></td>
+                            <td>
+                                <button class="ghost" onclick="viewBackup('${d}')">내용 보기</button>
+                                <button class="ghost" onclick="downloadBackup('${d}')">내려받기</button>
+                                <button class="danger" onclick="restoreBackup('${d}')">이 날짜로 되돌리기</button>
+                            </td>
                         </tr>`;
                     }).join('')}
                     </tbody></table>`;
@@ -158,6 +173,54 @@
             alert('자동 백업 목록을 불러오지 못했습니다.\n' + e.message);
         } finally {
             $('autoBtn').disabled = false;
+        }
+    };
+
+    const fetchBackup = date => api('?backup=' + encodeURIComponent(date));
+
+    // 파일로 저장. 내려받기 버튼들이 같이 쓴다
+    function saveAsFile(record, name) {
+        const blob = new Blob([JSON.stringify(record, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+
+    // 되돌리기 전에 그 날짜에 무엇이 들어 있는지 눈으로 확인. 아무것도 바꾸지 않는다
+    window.viewBackup = async function (date) {
+        $('autoInfo').textContent = `${date} 불러오는 중…`;
+        try {
+            const data = await fetchBackup(date);
+            const record = data.record;
+            const s = summarize(record);
+            const ls = record.lastSave;
+            $('autoDetailTitle').textContent = `${date} 자동 백업`;
+            $('autoDetailSummary').innerHTML =
+                `학생 <b>${Object.keys(record.users || {}).length}명</b> · 파이 합계 <b>${s.pi}π</b> · 기록 <b>${s.logs}건</b> · 판번호 ${record.rev ?? '?'}`
+                + (ls ? `<br>그 시점의 마지막 저장: ${ls.by || '?'} · ${kst(ls.at)}` : '')
+                + '<br><b>이 화면은 보기만 하는 것이라, 지금 데이터는 그대로입니다.</b>';
+            $('autoDetailJson').textContent = JSON.stringify(record, null, 2);
+            $('autoDetail').style.display = '';
+            $('autoDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            $('autoInfo').textContent = '';
+        } catch (e) {
+            $('autoInfo').textContent = '';
+            alert('백업 내용을 불러오지 못했습니다.\n' + e.message);
+        }
+    };
+
+    window.downloadBackup = async function (date) {
+        $('autoInfo').textContent = `${date} 불러오는 중…`;
+        try {
+            const data = await fetchBackup(date);
+            const s = summarize(data.record);
+            saveAsFile(data.record, `ygclass23-자동백업-${date}.json`);
+            $('autoInfo').textContent = `${date} 내려받음 — 학생 ${Object.keys(data.record.users || {}).length}명 · 파이 합계 ${s.pi}π · 판번호 ${data.record.rev ?? '?'}`;
+        } catch (e) {
+            $('autoInfo').textContent = '';
+            alert('백업을 내려받지 못했습니다.\n' + e.message);
         }
     };
 
@@ -219,12 +282,7 @@
             const record = data.record;
             const s = summarize(record);
             const stamp = new Date().toLocaleString('sv').replace(/[: ]/g, '-').slice(0, 16);
-            const blob = new Blob([JSON.stringify(record, null, 2)], { type: 'application/json' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `ygclass23-백업-${stamp}.json`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+            saveAsFile(record, `ygclass23-백업-${stamp}.json`);
             $('backupInfo').textContent = `학생 ${Object.keys(record.users || {}).length}명 · 파이 합계 ${s.pi}π · 판번호 ${record.rev ?? '?'}`;
             setStatus('');
         } catch (e) {
