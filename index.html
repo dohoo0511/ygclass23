@@ -419,8 +419,8 @@
             <h3>🎲 학급 로또 (장당 <span id="lottoPriceLabel">4</span> π)</h3>
             <div id="lottoRewardInfo" style="margin: 15px 0;"></div>
             <div id="myLottoResult" style="margin: 15px 0;"></div>
-            <p style="font-size: 14px; color: #555;">1~20 사이의 숫자 5개를 쉼표(,)로 구분하여 입력 (주 최대 15장) · 로또를 사면 경험치 +4</p>
-            <input type="text" id="lottoNumbersInput" placeholder="예: 3, 7, 12, 16, 19" style="width: 250px;">
+            <p style="font-size: 14px; color: #555;">1~<span id="lottoMaxHint"></span> 사이의 숫자 5개를 쉼표(,)로 구분하여 입력 (주 최대 15장) · 로또를 사면 경험치 +4</p>
+            <input type="text" id="lottoNumbersInput" placeholder="예: 3, 11, 18, 24, 29" style="width: 250px;">
             <button onclick="buyLotto()">구매하기</button>
             <div id="myLottoList" style="margin-top: 15px; background: #FFF8F0; padding: 15px; border-radius: 16px; font-size: 14px; box-shadow: inset 0 2px 6px rgba(230,81,0,0.06);"></div>
         </div>
@@ -631,7 +631,7 @@
             <span style="font-size: 13px; color: #888;">(이월금 <span id="adminRollover">0</span> π 포함)</span></p>
             <p class="muted">기본 당첨금: 1등 <span id="adminBasePrize1"></span>π · 2등 <span id="adminBasePrize2"></span>π (상금 Pot 분배와 별도로 지급)</p>
             당첨 번호 입력:
-            <input type="text" id="winningNumbersInput" placeholder="1~20 숫자 5개 (예: 1, 5, 10, 15, 20)" style="width: 250px;">
+            <input type="text" id="winningNumbersInput" placeholder="당첨 번호 5개 (쉼표로 구분)" style="width: 250px;">
             <button class="admin-btn" style="background-color: #ff5722;" onclick="drawLotto()">추첨 실행</button>
             <div id="lottoResultArea" style="margin-top: 20px; padding: 15px; background-color: #fff3e0; border-radius: 16px; box-shadow: 0 4px 12px rgba(230,81,0,0.1); display: none;"></div>
         </div>
@@ -731,6 +731,10 @@
     const BASE_PRIZE_2ND = 13;
     const LOTTO_TICKET_PRICE = 4;
     const LOTTO_WEEKLY_LIMIT = 15;
+    // 번호 범위가 좁으면 2~3개 맞히기가 너무 쉬워서, 3·4등 쿠폰이 쏟아져 상점에서 쿠폰을 살 이유가 없어짐
+    // 20까지였을 때: 4등(2개 일치) 29.4%, 3등(3개 일치) 6.8%
+    // 30까지로 넓히면: 4등 16.1%, 3등 2.1%
+    const LOTTO_NUMBER_MAX = 30;
 
     /* ===================== 설정: 쿠폰 ===================== */
     // price = 상점 기본가 (등급 할인 전). 관리자 환불도 이 가격 기준으로 계산
@@ -779,6 +783,7 @@
     const SAVINGS_MIN_AMOUNT = 20;
     const SAVINGS_TERM_WEEKS = [2, 4, 6, 8];   // 2주 단위, 최대 2달
     const SAVINGS_CANCEL_PENALTY_PCT = 20;
+    const SAVINGS_WEEKLY_RATE_PCT = 2;     // 1주마다 원금의 2% (8주 만기 +16%)
     // JSONBin 무료 플랜은 저장 크기 100KB 제한이 있어서 기록 개수를 제한함
     const MAX_BANK_LOGS = 80;
     const MAX_CLOSED_RECORDS = 60;
@@ -827,8 +832,15 @@
     const HOUR_MS = 60 * 60 * 1000;
     const STOCK_TICK_MS = 30 * 60 * 1000; // 30분마다 회사별 뉴스 1개씩
     const STOCK_MIN_PRICE = 5;   // 주가가 너무 싸지면 한 번에 수십 주를 사서 크게 벌 수 있어 최저가를 둠
+    // 최저가에서는 더 떨어질 수가 없어서, 사두기만 하면 손해를 볼 수 없는 공짜 수익이 된다.
+    // (실제로 돌려보면 최저가에 사서 2주 뒤 평균 +117%, 400번 중 내려간 적 0번)
+    // 그래서 최저가일 때는 사는 것만 막는다. 팔거나 그대로 두는 건 그대로 할 수 있음
+    const STOCK_BUY_LOCK_PRICE = STOCK_MIN_PRICE;
     const STOCK_MAX_PRICE = 200;
-    const STOCK_MAX_ORDER = 50;
+    const STOCK_MAX_ORDER = 10;              // 한 번에 주문할 수 있는 수량
+    // 보유 한도가 없으면 배당(보유량에 비례해 새로 생기는 파이)이 끝없이 늘어나서 물가가 오름
+    const STOCK_MAX_HOLD_PER_COMPANY = 10;   // 한 회사에 가질 수 있는 최대 주식 수
+    const STOCK_MAX_HOLD_TOTAL = 10;         // 네 회사를 합쳐서 가질 수 있는 최대 주식 수
     // 학생 거래는 지금 가격 그대로 체결되고, 일주일치 거래를 모아 매주 월요일 0시(한국 시간)에 주가에 반영
     const STOCK_FLOW_PCT_PER_SHARE = 1;   // 산 주식이 판 주식보다 1주 많을 때마다 +1% (적으면 -1%)
     const STOCK_FLOW_MAX_PCT = 20;        // 한 주에 거래로 움직이는 최대 비율 (많이 사서 한 주 만에 두 배가 되는 일을 막음)
@@ -855,7 +867,8 @@
     const STOCK_ANCHOR_FOLLOW = 0.01;     // 기준가가 실제 가격을 따라가는 속도 (뉴스 1건마다)
     const STOCK_ANCHOR_HOME = 0.03;       // 기준가가 시작 주가로 돌아오는 속도 → 몇 달이 지나도 주가가 1π까지 흘러내리지 않음
     const DIVIDEND_PERIOD_DAYS = 14;
-    const DIVIDEND_RATE_PCT = 3;          // 2주 보유마다 (현재 주가 × 3%) × 보유 수량
+    // 배당은 주가가 떨어져도 계속 나오는 '손실 없는 수입'이라, 높으면 그것만으로 물가가 오름
+    const DIVIDEND_RATE_PCT = 1;          // 2주 보유마다 (현재 주가 × 1%) × 보유 수량
     const STOCK_SEED = 20260915;          // 모든 기기에서 같은 뉴스가 나오도록 고정한 난수 시드
     // Netlify 주소에서 열면 Netlify 함수, GitHub Pages는 서버 함수를 실행할 수 없어 AI 기사 없이 기본 뉴스 문장 사용(null),
     // 그 밖(Cloudflare Pages)에서는 Cloudflare 함수를 사용
@@ -1020,8 +1033,10 @@
         return db.bank.savings.filter(s => s.status === 'active' && s.studentId === userId);
     }
 
+    // 주간 이율. 예전에는 5 * (weeks / 2) 여서 이율 자체가 기간에 비례해 커지고,
+    // savingsPayout 에서 다시 주수를 곱해 제곱으로 늘어났음 (8주 적금이 원금의 2.6배)
     function savingsRatePct(weeks) {
-        return 5 * (weeks / 2);
+        return SAVINGS_WEEKLY_RATE_PCT;
     }
     function savingsPayout(s) {
         return Math.round(s.principal * (100 + s.weeklyRatePct * s.weeks) / 100);
@@ -1562,6 +1577,12 @@
         });
     }
 
+    // 로또 번호 범위 안내를 화면에 채움 (상수를 바꾸면 안내도 같이 바뀜)
+    function fillLottoHint() {
+        const el = document.getElementById('lottoMaxHint');
+        if (el) el.textContent = String(LOTTO_NUMBER_MAX);
+    }
+
     function renderNotice() {
         const content = document.getElementById('noticeContent');
         if (content) content.innerText = (db.notice && db.notice.trim()) ? db.notice : '등록된 공지사항이 없습니다.';
@@ -1822,7 +1843,7 @@
         } else if (reward.type === 'lotto') {
             const numbers = [];
             while (numbers.length < 5) {
-                const n = Math.floor(Math.random() * 20) + 1;
+                const n = Math.floor(Math.random() * LOTTO_NUMBER_MAX) + 1;
                 if (!numbers.includes(n)) numbers.push(n);
             }
             numbers.sort((a, b) => a - b);
@@ -1888,9 +1909,9 @@
     async function buyLotto() {
         const inputStr = document.getElementById('lottoNumbersInput').value;
         let numbers = inputStr.split(',').map(n => parseInt(n.trim()));
-        numbers = [...new Set(numbers.filter(n => !isNaN(n) && n >= 1 && n <= 20))];
+        numbers = [...new Set(numbers.filter(n => !isNaN(n) && n >= 1 && n <= LOTTO_NUMBER_MAX))];
         if (numbers.length !== 5) {
-            alert("1부터 20 사이의 중복되지 않는 숫자 5개를 쉼표로 구분하여 입력해주세요.");
+            alert(`1부터 ${LOTTO_NUMBER_MAX} 사이의 중복되지 않는 숫자 5개를 쉼표로 구분하여 입력해주세요.`);
             return;
         }
 
@@ -2564,7 +2585,7 @@
     async function drawLotto() {
         const inputStr = document.getElementById('winningNumbersInput').value;
         let winNums = inputStr.split(',').map(n => parseInt(n.trim()));
-        winNums = [...new Set(winNums.filter(n => !isNaN(n) && n >= 1 && n <= 20))];
+        winNums = [...new Set(winNums.filter(n => !isNaN(n) && n >= 1 && n <= LOTTO_NUMBER_MAX))];
         if (winNums.length !== 5) {
             alert("당첨 번호 5개를 정확히 입력하세요.");
             return;
@@ -3529,6 +3550,18 @@
     }
 
     /* ===================== 주식: 학생 매매 ===================== */
+    // 네 회사를 합쳐서 가진 주식 수
+    function totalHeldQty(user) {
+        return COMPANIES.reduce((sum, c) => sum + holdingOf(user, c.id).qty, 0);
+    }
+
+    // 지금 이 회사를 몇 주까지 더 살 수 있는지 (회사별 한도와 전체 한도 중 더 빡빡한 쪽)
+    function buyableQty(user, companyId) {
+        const byCompany = STOCK_MAX_HOLD_PER_COMPANY - holdingOf(user, companyId).qty;
+        const byTotal = STOCK_MAX_HOLD_TOTAL - totalHeldQty(user);
+        return Math.max(0, Math.min(byCompany, byTotal));
+    }
+
     function readOrderQty(companyId) {
         const qty = parsePositiveInt(document.getElementById('qty-' + companyId).value);
         if (!qty || qty > STOCK_MAX_ORDER) {
@@ -3548,6 +3581,21 @@
         if (!await loadData()) return;
         const user = db.users[currentUser];
         const price = db.stocks.companies[companyId].price;
+
+        // 최저가에서는 더 떨어질 수가 없어서, 사두기만 하면 손해를 볼 수 없는 공짜 수익이 된다
+        if (price <= STOCK_BUY_LOCK_PRICE) {
+            alert(`${company.name} 주가가 최저가(${STOCK_BUY_LOCK_PRICE}π)라서 지금은 살 수 없어요.\n주가가 오르면 다시 살 수 있어요. (팔거나 그대로 두는 건 괜찮아요)`);
+            renderStudentSection();
+            return;
+        }
+        const canBuy = buyableQty(user, companyId);
+        if (qty > canBuy) {
+            alert(canBuy === 0
+                ? `주식은 한 회사에 ${STOCK_MAX_HOLD_PER_COMPANY}주까지, 모두 합쳐 ${STOCK_MAX_HOLD_TOTAL}주까지 가질 수 있어요.\n더 사려면 먼저 팔아야 해요.`
+                : `지금은 ${canBuy}주까지만 더 살 수 있어요.\n(한 회사 ${STOCK_MAX_HOLD_PER_COMPANY}주, 모두 합쳐 ${STOCK_MAX_HOLD_TOTAL}주까지)`);
+            renderStudentSection();
+            return;
+        }
         const total = price * qty;
         if (price > previewPrice) {
             alert(`그 사이 주가가 바뀌었어요. 지금 사면 ${total}π예요. 다시 확인해주세요.`);
@@ -3619,7 +3667,15 @@
             return;
         }
         const price = db.stocks.companies[companyId].price;
-        el.textContent = `${qty}주 = ${price * qty}π`;
+        const user = db.users[currentUser];
+        const parts = [`${qty}주 = ${price * qty}π`];
+        if (price <= STOCK_BUY_LOCK_PRICE) {
+            parts.push(`최저가라 살 수 없어요 (팔기만 가능)`);
+        } else if (user) {
+            const canBuy = buyableQty(user, companyId);
+            if (qty > canBuy) parts.push(canBuy === 0 ? '더 살 수 없어요 (보유 한도)' : `${canBuy}주까지만 더 살 수 있어요`);
+        }
+        el.textContent = parts.join(' · ');
     }
 
     function timeUntilText(ms) {
@@ -3720,7 +3776,8 @@
                 <button onclick="buyStock('${companyId}')">사기</button>
                 <button class="sell-btn" onclick="sellStock('${companyId}')">팔기</button>
             </div>
-            <div class="muted trade-quote" id="quote-${companyId}"></div>`;
+            <div class="muted trade-quote" id="quote-${companyId}"></div>
+            <div class="muted" style="font-size:.85em;">한 회사 ${STOCK_MAX_HOLD_PER_COMPANY}주 · 모두 합쳐 ${STOCK_MAX_HOLD_TOTAL}주까지 가질 수 있어요</div>`;
     }
 
     function holdingHtml(userId, companyId) {
@@ -4370,6 +4427,8 @@
     });
     // 뒤로가기 등으로 브라우저가 예전 화면을 그대로 되살린 경우
     window.addEventListener('pageshow', e => { if (e.persisted) resyncAfterResume(true); });
+
+    fillLottoHint();
 
     // 로그인 전에도 공지사항을 볼 수 있도록 페이지 로드 시 미리 데이터를 불러옴
     loadData().then(renderNotice);
