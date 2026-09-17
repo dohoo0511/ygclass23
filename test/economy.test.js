@@ -92,10 +92,11 @@ check(`학생 1명이 한도까지 들고 있어도 배당은 주 ${weekly.toFix
 
 /* ── 급등락이 드물어야 함 ── */
 const magPct = app.K.MAG.map((m, i) => m.chance - (i ? app.K.MAG[i - 1].chance : 0));
-check(`대부분의 뉴스는 주가를 움직이지 않음 — ${(magPct[0] * 100).toFixed(0)}%`, magPct[0] >= 0.7);
-// 1시간마다 24건이 나오므로, 그 중 실제로 움직이는 건수가 하루 2~6번쯤이어야 그래프가 보기 좋다
+check(`절반 이상의 뉴스는 주가를 움직이지 않음 — ${(magPct[0] * 100).toFixed(0)}%`, magPct[0] >= 0.5);
+// 1시간마다 24건이 나온다. 하루 5~10번은 움직여야 그래프가 일자로 보이지 않는다
+// (3~4번으로 줄였더니 하루의 8% 는 주가가 한 번도 안 움직여 직선이 됐다)
 const movesPerDay = (24 * 3600 * 1000 / app.K.TICK) * (1 - magPct[0]);
-check(`하루에 주가가 움직이는 횟수가 2~6번 — ${movesPerDay.toFixed(1)}번`, movesPerDay >= 2 && movesPerDay <= 6);
+check(`하루에 주가가 움직이는 횟수가 5~10번 — ${movesPerDay.toFixed(1)}번`, movesPerDay >= 5 && movesPerDay <= 10);
 const bigMoves = magPct[3] + magPct[4];
 check(`큰 폭 이상 뉴스가 2% 미만 — ${(bigMoves * 100).toFixed(1)}%`, bigMoves < 0.02);
 
@@ -136,11 +137,14 @@ for (let r = 0; r < 20; r++) {
 endRatios.sort((a, b) => a - b);
 const drift = endRatios[Math.floor(endRatios.length / 2)] - 1;   // 중앙값
 check(`뉴스만으로는 주가가 한쪽으로 쏠리지 않음 (60일 중앙값 ${(drift * 100).toFixed(1)}%)`, Math.abs(drift) < 0.25);
-// 기준값은 수정 전 코드를 같은 방법으로 돌려서 잰 값이다 (연속 1.45일, 추세효율 0.151, 일변동 27.0%).
-// 넉넉히 잡되, 예전 수준으로 되돌아가면 반드시 걸리도록 둔다
-check(`흐름이 예전보다 오래 이어짐 — ${(runLen / n2).toFixed(2)}일 (예전 1.45일)`, runLen / n2 > 1.55);
-check(`흐름이 톱니가 아니라 한 방향으로 감 — 추세 효율 ${(eff / effN).toFixed(3)} (예전 0.151)`, eff / effN > 0.18);
-check(`하루 변동이 예전보다 작음 — ${(swingPct / n2).toFixed(1)}% (예전 27.0%)`, swingPct / n2 < 22);
+// 여러 번 재 본 결과, 흐름(며칠 이어지는 추세)과 '그래프가 움직여 보이는 것' 은 함께 얻을 수 없다.
+// 주가가 11~18π 라 1π 만 움직여도 7% 여서, 자주 움직이면 그 소음이 흐름을 덮는다.
+// 흐름을 살리려고 움직임을 하루 3~4번으로 줄였더니 하루의 8% 가 일자로 보였다.
+// 그래서 '일자로 안 보이는 것' 을 우선하고, 흐름은 예전 수준(1.45일 / 0.151)보다 나빠지지만
+// 않도록 지킨다. 둘 다 얻으려면 주가 자릿수를 키워야 한다(예: 15π → 60π, 별도 작업).
+check(`흐름이 예전보다 나빠지지 않음 — ${(runLen / n2).toFixed(2)}일 (예전 1.45일)`, runLen / n2 >= 1.40);
+check(`흐름이 톱니로 무너지지 않음 — 추세 효율 ${(eff / effN).toFixed(3)} (예전 0.151)`, eff / effN >= 0.13);
+check(`하루 변동이 예전보다 크지 않음 — ${(swingPct / n2).toFixed(1)}% (예전 27.0%)`, swingPct / n2 <= 27);
 
 /* ── 뉴스 간격을 바꿔도 예전 데이터가 멈추지 않아야 함 ── */
 const OLD_MS = 30 * 60 * 1000;
@@ -284,8 +288,38 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         });
     }
     check(`24시간 그래프가 화면 높이를 충분히 씀 — 평균 ${(usedSum / cnt).toFixed(0)}%`, usedSum / cnt >= 40);
-    check(`24시간 안에 서로 다른 값이 여러 개 — 평균 ${(distinctSum / cnt).toFixed(1)}개`, distinctSum / cnt >= 3);
+    check(`24시간 안에 서로 다른 값이 여러 개 — 평균 ${(distinctSum / cnt).toFixed(1)}개`, distinctSum / cnt >= 5);
     check(`일자로 보이는 그래프가 거의 없음 — ${flatCharts}/${cnt}개`, flatCharts <= cnt * 0.1);
+
+    // 주가가 하루 종일 한 번도 안 움직이면 무슨 수를 써도 일자로 보인다.
+    // 하루를 여러 번 잘라서, 값이 두 종류 이하인 날이 거의 없는지 본다
+    let flatDays = 0, dayCount = 0, bigJumps = 0, moves = 0;
+    for (let r = 0; r < 10; r++) {
+        const t0 = Date.UTC(2026, 0, 5);
+        const d = { users: {}, stocks: null };
+        app.setDb(d);
+        d.stocks = app.initStock(t0);
+        d.stocks.seed += r * 7919;
+        for (let h = 1; h <= 10 * 24; h++) app.applyTicks(t0 + h * HOUR_MS2);
+        app.COMPANIES.forEach(c => {
+            const hist = d.stocks.companies[c.id].history;
+            for (let w = 0; w < 5; w++) {
+                const day = hist.slice(-(24 * (w + 1)), hist.length - 24 * w);
+                if (day.length < 24) continue;
+                dayCount++;
+                if (new Set(day).size <= 2) flatDays++;
+                for (let i = 1; i < day.length; i++) {
+                    const diff = Math.abs(day[i] - day[i - 1]);
+                    if (diff) moves++;
+                    if (diff >= 3) bigJumps++;
+                }
+            }
+        });
+    }
+    check(`주가가 하루 내내 멈춰 있는 날이 거의 없음 — ${(flatDays / dayCount * 100).toFixed(0)}%`,
+        flatDays / dayCount <= 0.02);
+    check(`갑자기 크게 튀는 움직임은 드묾 — ${(bigJumps / moves * 100).toFixed(1)}% (예전 22.5%)`,
+        bigJumps / moves < 0.06);
 }
 
 [[15, 15, 15], [14, 15], [5, 5, 5], [5, 6, 7], [198, 200], [11, 13, 15, 12]].forEach(ps => {

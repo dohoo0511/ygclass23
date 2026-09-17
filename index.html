@@ -857,12 +857,14 @@
     const AI_RETRY_COOLDOWN_MS = 3 * 60 * 1000;
     const STOCK_SPILLOVER_PCT = 50;       // 계약 상대 회사가 함께 움직이는 비율 (소수점 버림 → 1π짜리 뉴스는 옮겨가지 않음)
     // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
-    // chance 는 누적 확률. 1시간마다 나오므로 하루 24건인데, 그 중 3~4건만 주가를 움직인다.
-    // 주가가 11~18π 라 1π 만 움직여도 6~9% 여서, 자주 움직이면 그래프가 곧바로 요동친다
+    // chance 는 누적 확률. 1시간마다 나오므로 하루 24건이고, 그 중 7건쯤이 주가를 움직인다.
+    // 움직임은 거의 다 1π 씩이라 계단처럼 완만하다. 3π 이상 크게 튀는 건 움직임 중 2.8% 뿐
+    // (예전에는 22.5% 였다. 그때는 하루에도 몇 번씩 주가가 뒤집혔다)
+    // 여기서 더 낮추면(85%) 하루의 8% 는 주가가 한 번도 안 움직여 그래프가 일자로 보인다
     const NEWS_MAGNITUDES = [
-        { level: 'none',   chance: 0.85,  amount: 0 },
-        { level: 'small',  chance: 0.97,  amount: 1 },
-        { level: 'medium', chance: 0.996, amount: 2 },
+        { level: 'none',   chance: 0.70,  amount: 0 },
+        { level: 'small',  chance: 0.94,  amount: 1 },
+        { level: 'medium', chance: 0.992, amount: 2 },
         { level: 'large',  chance: 0.999, amount: 3 },
         { level: 'huge',   chance: 1,     amount: 4 }
     ];
@@ -1181,7 +1183,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-chart2';
+    const APP_VERSION = '2026-09-17-chart3';
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -4089,6 +4091,15 @@
             svg.append(note);
         }
         svg.append(svgEl('circle', { cx: x(last.t), cy: y(last.p), r: 4, fill: company.color, stroke: '#ffffff', 'stroke-width': 2 }));
+
+        // 기록이 아직 짧으면(뉴스 간격을 바꾼 직후 등) 그 사실을 알려 준다.
+        // 안 그러면 1~2시간치 직선을 '24시간 내내 그대로였다' 로 오해하게 된다
+        const coveredHours = (t1 - t0) / HOUR_MS;
+        if (coveredHours < stockRange * 0.6) {
+            const note = svgEl('text', { x: pad.left + plotW / 2, y: pad.top + 12, 'text-anchor': 'middle', class: 'chart-empty' });
+            note.textContent = `기록을 새로 쌓는 중 (${Math.max(1, Math.round(coveredHours))}시간치)`;
+            svg.append(note);
+        }
 
         const cross = svgEl('line', { y1: pad.top, y2: pad.top + plotH, stroke: '#898781', 'stroke-width': 1, visibility: 'hidden' });
         const focusDot = svgEl('circle', { r: 4, fill: company.color, stroke: '#ffffff', 'stroke-width': 2, visibility: 'hidden' });
