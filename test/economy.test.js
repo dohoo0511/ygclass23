@@ -186,34 +186,37 @@ function makeMarket(prevMs, histLen, now) {
     return st;
 }
 const REAL_NOW = Date.now();
-[['30분 데이터 336칸(7일)', 30 * 60 * 1000, 336, 7],
- ['4시간 데이터 42칸(7일)', 4 * HOUR, 42, 7],
- ['4시간 데이터 180칸(30일)', 4 * HOUR, 180, 30],
- ['이미 1시간 240칸(10일)', 1 * HOUR, 240, 10]].forEach(([name, prevMs, len, realDays]) => {
+[['30분 데이터 336칸', 30 * 60 * 1000, 336],
+ ['4시간 데이터 42칸', 4 * HOUR, 42],
+ ['4시간 데이터 180칸', 4 * HOUR, 180],
+ ['간격을 여러 번 바꾼 뒤', 2 * HOUR, 90]].forEach(([name, prevMs, len]) => {
     const st = makeMarket(prevMs, len, REAL_NOW);
+    const priceBefore = st.companies[app.COMPANIES[0].id].price;
     app.setDb({ users: {}, stocks: st });
-    app.migSize(st);
+    check(`${name} → 옮김이 일어남`, app.migSize(st) === true);
     const h = st.companies[app.COMPANIES[0].id].history;
-    const shownDays = h.length * app.K.TICK / DAY_MS;
-    const expected = Math.min(realDays, app.K.HIST * app.K.TICK / DAY_MS);
-    check(`${name} → 그래프가 덮는 기간 ${shownDays.toFixed(1)}일 (실제 ${expected}일)`, Math.abs(shownDays - expected) < 0.6);
-    // 넓은 간격에서 좁은 간격으로 올 때는 '그 칸 안 어디였는지' 를 알 수 없어 최대 옛 간격만큼 어긋난다.
-    // 다음 회차에 곧바로 따라잡히므로 그 범위까지는 정상
-    const endMs = (st.historyStartTick + h.length - 1) * app.K.TICK;
-    const nowMs = Math.floor(REAL_NOW / app.K.TICK) * app.K.TICK;
-    check(`${name} → 시간축 끝이 현재와 맞음`, Math.abs(endMs - nowMs) <= Math.max(prevMs, app.K.TICK));
-    check(`${name} → 보관 한도 이내`, h.length <= app.K.HIST);
+    // 간격이 바뀌면 예전 값이 어느 시각의 것인지 알 수 없다. 뒤섞인 값을 남기느니 새로 시작한다
+    check(`${name} → 그래프 기록을 지금 가격으로 새로 시작`, h.length === 1 && h[0] === priceBefore);
+    check(`${name} → 시간축이 현재 회차와 맞음`, st.historyStartTick === st.lastTick);
+    check(`${name} → 주가는 그대로`, st.companies[app.COMPANIES[0].id].price === priceBefore);
 });
 
-// 실제 그래프 함수로 24시간 보기를 만들어 확인
+// 간격이 그대로면 기록을 건드리지 않아야 함
+const keepSt = makeMarket(app.K.TICK, 100, REAL_NOW);
+app.setDb({ users: {}, stocks: keepSt });
+check('간격이 그대로면 기록을 건드리지 않음',
+    app.migSize(keepSt) === false && keepSt.companies[app.COMPANIES[0].id].history.length === 100);
+
+// 새로 시작한 뒤 하루 돌리면 24시간 그래프가 다시 채워지는지
 const chartSt = makeMarket(30 * 60 * 1000, 336, REAL_NOW);
 app.setDb({ users: {}, stocks: chartSt });
 app.migSize(chartSt);
+for (let h2 = 1; h2 <= 26; h2++) app.applyTicks(REAL_NOW + h2 * HOUR);
 const pts = app.series(app.COMPANIES[0].id, 24);
-const spanHours = (pts[pts.length - 2].t - pts[0].t) / HOUR;
-check(`24시간 보기의 점이 20개 이상 — ${pts.length}개 (각져 보이지 않을 만큼)`, pts.length >= 20);
-check(`24시간 보기가 실제로 24시간을 덮음 — ${spanHours.toFixed(1)}시간`, spanHours > 20 && spanHours < 30);
+check(`새로 시작한 뒤 하루 만에 점 20개 이상 — ${pts.length}개`, pts.length >= 20);
 check('그래프 마지막 점이 지금 가격', pts[pts.length - 1].live === true);
+check('시간축이 계속 맞음',
+    chartSt.historyStartTick + chartSt.companies[app.COMPANIES[0].id].history.length - 1 === chartSt.lastTick);
 
 /* ── 세로축 ──
    주가가 11~18π 라 1π 만 움직여도 큰 변화인데, 세로축 높이를 무조건 10π 이상 잡으면

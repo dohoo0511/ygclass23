@@ -91,6 +91,46 @@ async function versionSummary(env) {
   };
 }
 
+// 그래프가 이상할 때 원인을 찾기 위한 요약. 학생 정보는 담지 않는다
+function stockDiagnosis(record) {
+  const st = record && record.stocks;
+  if (!st || !st.companies) return { available: false, reason: "주식 데이터가 없어요" };
+  const HOUR = 60 * 60 * 1000;
+  const tickMs = typeof st.tickMs === "number" ? st.tickMs : null;
+  const perCompany = {};
+  Object.keys(st.companies).forEach((id) => {
+    const c = st.companies[id];
+    const h = Array.isArray(c.history) ? c.history : [];
+    perCompany[id] = {
+      price: c.price,
+      anchor: typeof c.anchor === "number" ? Math.round(c.anchor * 10) / 10 : null,
+      trend: typeof c.trend === "number" ? Math.round(c.trend * 100) / 100 : null,
+      historyLength: h.length,
+      min: h.length ? Math.min(...h) : null,
+      max: h.length ? Math.max(...h) : null,
+      last26: h.slice(-26),
+    };
+  });
+  const len = perCompany[Object.keys(perCompany)[0]].historyLength;
+  const now = Date.now();
+  const lastTick = typeof st.lastTick === "number" ? st.lastTick : null;
+  // 그래프는 (historyStartTick + i) * tickMs 로 시각을 만든다. 그게 실제 시각과 맞는지 본다
+  const lastPointMs = lastTick !== null && tickMs ? (st.historyStartTick + len - 1) * tickMs : null;
+  return {
+    available: true,
+    tickMs,
+    tickLabel: tickMs ? `${tickMs / HOUR}시간` : "기록 없음(예전 30분으로 간주)",
+    lastTick,
+    historyStartTick: st.historyStartTick,
+    // 아래 두 값이 크게 다르면 그래프 시간축이 어긋난 것
+    회차번호가_가리키는_마지막시각: lastPointMs ? new Date(lastPointMs).toISOString() : null,
+    지금: new Date(now).toISOString(),
+    몇시간_뒤처졌나: lastPointMs ? Math.round((now - lastPointMs) / HOUR * 10) / 10 : null,
+    기록이_덮는_기간_시간: tickMs ? Math.round(len * tickMs / HOUR) : null,
+    회사: perCompany,
+  };
+}
+
 // 관리자 비밀번호 확인 (되돌리기처럼 위험한 작업에만 사용)
 function isAdminPassword(current, password) {
   const admin = current && current.users && current.users.admin;
@@ -155,6 +195,7 @@ export async function onRequest({ request, env }) {
         restoredFrom: record.restoredFrom !== undefined ? record.restoredFrom : null,
         restoredAt: record.restoredAt || null,
         versions: await versionSummary(env),
+        ...(url.searchParams.has("stocks") ? { stocks: stockDiagnosis(record) } : {}),
       });
     } catch (error) {
       return json({
