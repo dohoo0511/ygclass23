@@ -34,6 +34,19 @@ let netUp = true;        // false 면 모든 요청 실패
 let failGets = 0;        // 앞으로 N번의 읽기만 실패 (재시도 확인용)
 let alerts = [];
 let currentUser = null;   // index.html 의 로그인 상태 (저장 기록용)
+let serverFnUp = true;    // /api/data (Cloudflare 함수) 사용 가능 여부
+let putBodies = [];       // 저장 요청으로 실제 나간 내용
+
+// 브라우저 전역 흉내
+const location = { protocol: 'https:', hostname: 'example.pages.dev' };
+const store = {};
+const localStorage = {
+    getItem: k => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: k => { delete store[k]; }
+};
+const document = { getElementById: () => null, createElement: () => ({ style: {}, remove() {} }), body: { appendChild() {} } };
+const esc = v => String(v);
 
 const alert = m => alerts.push(m);
 const confirm = () => true;
@@ -42,14 +55,39 @@ function migrateData() { if (typeof db.rev !== 'number') { db.rev = 0; return tr
 function applyTimeBasedUpdates() { return false; }
 function scheduleAiNews() { }
 
+function revOfRecord(r) { return r && typeof r.rev === 'number' ? r.rev : 0; }
+const res = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+
 async function fetch(url, opts = {}) {
     if (!netUp) throw new Error('network down');
-    if ((opts.method || 'GET') === 'GET') {
+    const method = opts.method || 'GET';
+    const viaServerFn = String(url).startsWith('/api/data');
+
+    if (viaServerFn && !serverFnUp) return res(503, { error: '환경 변수 없음' });
+
+    if (method === 'GET') {
         if (failGets > 0) { failGets--; throw new Error('transient'); }
-        return { ok: true, json: async () => ({ record: JSON.parse(JSON.stringify(server)) }) };
+        const copy = JSON.parse(JSON.stringify(server));
+        return res(200, viaServerFn ? { record: copy, rev: revOfRecord(copy) } : { record: copy });
     }
+
+    if (viaServerFn && method === 'PUT') {
+        // 서버 함수: 판번호가 맞을 때만 저장 (구조적 방어)
+        const { baseRev, record } = JSON.parse(opts.body);
+        if (!record || !record.users || Object.keys(record.users).length === 0) {
+            return res(400, { error: '학생 정보 없음' });
+        }
+        if (revOfRecord(server) !== baseRev) {
+            return res(409, { error: 'conflict', rev: revOfRecord(server), record: server });
+        }
+        server = { ...record, rev: baseRev + 1 };
+        putBodies.push(server);
+        return res(200, { ok: true, rev: server.rev });
+    }
+
     server = JSON.parse(opts.body);
-    return { ok: true };
+    putBodies.push(server);
+    return res(200, { ok: true });
 }
 
 const sut = {};
@@ -57,6 +95,7 @@ eval(dataLayer + `
     sut.loadData = loadData;
     sut.saveData = saveData;
     sut.rollbackMessage = rollbackMessage;
+    sut.usingEndpoint = () => useEndpoint;
     sut.getDb = () => db;
     sut.rewindClock = ms => { dataLoadedAt = Math.max(0, dataLoadedAt - ms); };
 `);
@@ -136,6 +175,36 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
     check('정상적으로 올라갈 때는 오탐 없음', sut.rollbackMessage(53, { rev: 54 }) === null);
     check('복구 도구로 되살린 경우도 오탐 없음', sut.rollbackMessage(53, { rev: 60 }) === null);
     check('처음 접속(기록 없음)은 오탐 없음', sut.rollbackMessage(0, { rev: 5 }) === null);
+
+    /* ── 서버 함수(/api/data) 경유: 구조적 방어 ── */
+    check('기본적으로 서버 함수를 거쳐서 통신함', sut.usingEndpoint() === true);
+
+    server = { rev: 100, users: { admin: {}, '1': { pi: 1 } }, note: '최신' };
+    check('서버 함수로 로드 성공', await sut.loadData() === true);
+
+    // 화면은 rev 100 을 들고 있는데, 그 사이 다른 기기가 저장해 서버는 101 이 됨
+    server = { rev: 101, users: { admin: {}, '1': { pi: 2 } }, note: '다른 기기가 저장' };
+    let keep = JSON.stringify(server);
+    alerts = [];
+    check('서버가 판번호 불일치를 거부(409) → 저장 실패', await sut.saveData() === false);
+    check('서버 내용이 덮어쓰이지 않음', JSON.stringify(server) === keep);
+    check('충돌 안내 표시', alerts.some(a => a.includes('다른 기기')));
+
+    // 시간 검사를 건너뛰는 짧은 간격에서도 서버가 막아 주는지 (직접 접속 방식의 빈틈이 메워짐)
+    check('다시 로드', await sut.loadData() === true);
+    server = { ...server, rev: 202, note: '또 다른 기기가 저장' };
+    keep = JSON.stringify(server);
+    check('10초 이내 저장이어도 서버가 막음', await sut.saveData() === false);
+    check('그래도 서버 내용 그대로', JSON.stringify(server) === keep);
+
+    /* ── 서버 함수가 아직 배포/설정되지 않았을 때는 예전 방식으로 내려감 ── */
+    serverFnUp = false;
+    server = { rev: 300, users: { admin: {}, '1': { pi: 3 } } };
+    check('함수가 없으면(503) 직접 접속으로 내려가 로드 성공', await sut.loadData() === true);
+    check('직접 접속 방식으로 전환됨', sut.usingEndpoint() === false);
+    sut.getDb().users['1'].pi = 4;
+    check('직접 접속으로도 저장 동작', await sut.saveData() === true && server.users['1'].pi === 4);
+    serverFnUp = true;
 
     /* ── 진짜 빈 저장소만 초기화 ── */
     server = {};

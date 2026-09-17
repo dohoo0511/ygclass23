@@ -1153,6 +1153,17 @@
     const NET_RETRY_BASE_MS = 500;
     const SAVE_FRESHNESS_MS = 10 * 1000;  // 읽어온 지 이만큼 지나서 저장할 때는, 그 사이 다른 기기가 저장했는지 먼저 확인
 
+    // 저장소 열쇠를 화면에 두지 않기 위해, 서버 함수(/api/data)를 거쳐서 읽고 쓴다.
+    // 서버가 "내가 읽은 판번호가 아직 최신일 때만" 저장해 주므로, 오래된 화면이 덮어쓰는 일이 구조적으로 막힌다.
+    // 아직 환경 변수를 설정하지 않았으면 서버가 503을 주고, 예전처럼 저장소에 직접 접속한다.
+    const DATA_ENDPOINT = (location.protocol === 'file:' || location.hostname.endsWith('github.io')) ? null : '/api/data';
+    let useEndpoint = !!DATA_ENDPOINT;
+
+    function endpointUnavailable(status) {
+        // 함수가 배포되지 않았거나(404) 환경 변수가 없음(503) → 예전 방식으로 내려감
+        return status === 404 || status === 405 || status === 501 || status === 503;
+    }
+
     const netDelay = ms => new Promise(resolve => setTimeout(resolve, ms));
     function revOf(record) {
         return record && typeof record.rev === 'number' ? record.rev : 0;
@@ -1163,6 +1174,18 @@
        그 기기가 들고 있던 옛날 판번호가 그대로 올라가서 번호가 뒤로 간다.
        (restore.html 로 정상 복구할 때는 번호를 현재보다 크게 올리므로 여기 걸리지 않는다) */
     const HIGH_REV_KEY = 'ygclass23_highest_rev';
+    const LAST_GOOD_KEY = 'ygclass23_last_good';   // 이 기기가 마지막으로 본 정상 상태 (되돌림 당했을 때 되살리기용)
+
+    // 정상 상태를 이 기기에 보관해 둠. 서버가 되돌아가도 되살릴 거리가 남는다
+    function rememberGoodState(record) {
+        try {
+            localStorage.setItem(HIGH_REV_KEY, String(revOf(record)));
+            localStorage.setItem(LAST_GOOD_KEY, JSON.stringify({ at: Date.now(), record }));
+        } catch (e) { /* 저장 공간이 없으면 그냥 넘어감 */ }
+    }
+    function readGoodState() {
+        try { return JSON.parse(localStorage.getItem(LAST_GOOD_KEY) || 'null'); } catch (e) { return null; }
+    }
 
     // 되돌아갔으면 안내 문구, 아니면 null
     function rollbackMessage(prevHighRev, record) {
@@ -1178,7 +1201,7 @@
         try { prevHigh = Number(localStorage.getItem(HIGH_REV_KEY)) || 0; } catch (e) { return; }
         const message = rollbackMessage(prevHigh, record);
         if (message) { showRollbackBanner(message); return; }
-        try { localStorage.setItem(HIGH_REV_KEY, String(revOf(record))); } catch (e) { /* 무시 */ }
+        rememberGoodState(record);
     }
 
     function showRollbackBanner(message) {
@@ -1190,8 +1213,51 @@
                 'padding:10px 14px;font-size:14px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.35);';
             document.body.appendChild(el);
         }
-        el.innerHTML = `⚠️ <b>${esc(message)}</b><br>예전 화면을 띄워 둔 기기가 덮어쓴 것 같습니다. 선생님께 알려주세요. ` +
-            `<button onclick="this.parentNode.remove()" style="margin-left:8px;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;">닫기</button>`;
+        const good = readGoodState();
+        const btn = 'margin:6px 6px 0 0;border:0;border-radius:4px;padding:5px 12px;cursor:pointer;font:inherit;';
+        el.innerHTML = `⚠️ <b>${esc(message)}</b><br>예전 화면을 띄워 둔 기기가 덮어쓴 것 같습니다. 선생님께 알려주세요.<br>` +
+            (good ? `<button onclick="recoverGoodState()" style="${btn}background:#fff;color:#c62828;font-weight:700;">이 기기에 남은 ${esc(new Date(good.at).toLocaleString('ko-KR'))} 상태로 되살리기</button>` : '') +
+            `<button onclick="acknowledgeRollback()" style="${btn}background:#8d1c1c;color:#fff;">이 상태가 맞음</button>`;
+    }
+
+    // 지금 서버 상태를 정상으로 인정 (이 뒤로는 경고를 띄우지 않음)
+    function acknowledgeRollback() {
+        rememberGoodState(db);
+        const el = document.getElementById('rollbackBanner');
+        if (el) el.remove();
+    }
+
+    // 이 기기에 남아 있던 정상 상태를 서버에 다시 올림 (관리자 비밀번호 필요)
+    async function recoverGoodState() {
+        const good = readGoodState();
+        if (!good || !good.record || !good.record.users) return alert('이 기기에 되살릴 자료가 없습니다.\nrestore.html 을 사용해주세요.');
+        const when = new Date(good.at).toLocaleString('ko-KR');
+        const pw = prompt(`${when} 시점 자료로 되돌립니다.\n그 뒤의 변화는 사라집니다.\n\n관리자 비밀번호를 입력하세요.`);
+        if (!pw) return;
+        if (!await loadData({ silent: true })) return alert('서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.');
+        const admin = db.users && db.users.admin;
+        if (!admin || admin.password !== pw) return alert('관리자 비밀번호가 맞지 않습니다.');
+
+        // 되돌린 뒤에도 판번호가 계속 커지도록 (되돌림 감지가 오작동하지 않게)
+        const baseRev = loadedRev || 0;
+        let prevHigh = 0;
+        try { prevHigh = Number(localStorage.getItem(HIGH_REV_KEY)) || 0; } catch (e) { /* 무시 */ }
+        const restored = { ...good.record, rev: Math.max(baseRev, prevHigh) };
+        try {
+            const result = await putRecord(baseRev, restored);
+            if (result.conflict) return alert('그 사이 다른 기기가 저장했습니다. 새로고침한 뒤 다시 해주세요.');
+            db = restored;
+            db.rev = result.rev;
+            loadedRev = result.rev;
+            dataLoadedAt = Date.now();
+            rememberGoodState(db);
+            const el = document.getElementById('rollbackBanner');
+            if (el) el.remove();
+            alert(`${when} 상태로 되살렸습니다.\n화면을 새로고침해주세요.`);
+        } catch (error) {
+            console.error('되살리기 실패:', error);
+            alert('되살리기에 실패했습니다. 데이터는 그대로입니다.\n' + error.message);
+        }
     }
 
     // 서버에서 최신 기록을 읽어옴. 실패하면 예외를 던짐 (절대 빈 값이나 예전 값을 돌려주지 않음)
@@ -1199,21 +1265,68 @@
         let lastError;
         for (let attempt = 0; attempt <= NET_RETRIES; attempt++) {
             try {
-                const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
-                    headers: { 'X-Master-Key': API_KEY },
-                    cache: 'no-store'
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const result = await response.json();
-                const record = result && result.record;
-                if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('데이터 형식 오류');
-                return record;
+                return await fetchLatestOnce();
             } catch (error) {
                 lastError = error;
                 if (attempt < NET_RETRIES) await netDelay(NET_RETRY_BASE_MS * (attempt + 1));
             }
         }
         throw lastError;
+    }
+
+    async function fetchLatestOnce() {
+        if (useEndpoint) {
+            const response = await fetch(DATA_ENDPOINT, { cache: 'no-store' });
+            if (endpointUnavailable(response.status)) {
+                console.warn('서버 함수를 쓸 수 없어 저장소에 직접 접속합니다. (/api/data →', response.status, ')');
+                useEndpoint = false;
+            } else {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await response.json();
+                return validRecord(result && result.record);
+            }
+        }
+        const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
+            headers: { 'X-Master-Key': API_KEY },
+            cache: 'no-store'
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+        return validRecord(result && result.record);
+    }
+
+    function validRecord(record) {
+        if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('데이터 형식 오류');
+        return record;
+    }
+
+    // 판번호가 baseRev 그대로일 때만 저장. { ok } / { conflict } / 예외
+    async function putRecord(baseRev, record) {
+        if (useEndpoint) {
+            const response = await fetch(DATA_ENDPOINT, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ baseRev, record })
+            });
+            if (response.status === 409) return { conflict: true };
+            if (endpointUnavailable(response.status)) {
+                console.warn('서버 함수를 쓸 수 없어 저장소에 직접 접속합니다. (/api/data →', response.status, ')');
+                useEndpoint = false;
+            } else {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await response.json();
+                return { ok: true, rev: result && result.rev };
+            }
+        }
+        // 예전 방식(직접 접속)에는 서버가 없으므로, 판번호 검사는 saveData 쪽에서만 이루어진다
+        record.rev = baseRev + 1;
+        const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Master-Key': API_KEY },
+            body: JSON.stringify(record)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return { ok: true, rev: baseRev + 1 };
     }
 
     // 성공하면 true. silent면 실패해도 알림창을 띄우지 않음, background면 사용자 작업 중에는 건너뜀 (둘 다 백그라운드 작업용)
@@ -1279,8 +1392,9 @@
             alert("서버에서 최신 자료를 불러오지 못해 저장하지 않았습니다.\n새로고침한 뒤 다시 시도해주세요.");
             return false;
         }
-        if (Date.now() - dataLoadedAt > SAVE_FRESHNESS_MS) {
-            // 확인창을 오래 열어 두거나 화면을 한참 켜 둔 경우. 그 사이 다른 기기가 저장했으면 덮어쓰지 않는다
+        // 서버 함수를 쓸 때는 서버가 매번 판번호를 확인해 주므로 여기서 미리 볼 필요가 없다.
+        // 직접 접속일 때만, 화면을 한참 켜 둔 경우에 한해 미리 확인한다.
+        if (!useEndpoint && Date.now() - dataLoadedAt > SAVE_FRESHNESS_MS) {
             try {
                 if (revOf(await fetchLatestRecord()) !== loadedRev) {
                     alert("그 사이 다른 기기에서 저장한 내용이 있어, 덮어쓰지 않고 멈췄습니다.\n새로고침한 뒤 다시 해주세요.");
@@ -1293,8 +1407,7 @@
             }
         }
 
-        const nextRev = (loadedRev || 0) + 1;
-        db.rev = nextRev;
+        const baseRev = loadedRev || 0;
         db.lastSave = {
             at: new Date().toISOString(),
             by: currentUser && db.users[currentUser] ? db.users[currentUser].name : '로그인 전',
@@ -1303,19 +1416,17 @@
         let lastError;
         for (let attempt = 0; attempt <= NET_RETRIES; attempt++) {
             try {
-                const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Master-Key': API_KEY
-                    },
-                    body: JSON.stringify(db)
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await putRecord(baseRev, db);
+                if (result.conflict) {
+                    alert("그 사이 다른 기기에서 저장한 내용이 있어, 덮어쓰지 않고 멈췄습니다.\n새로고침한 뒤 다시 해주세요.");
+                    return false;
+                }
                 // 저장한 내용이 곧 서버 내용이므로, 방금 읽어온 것과 같게 취급
-                loadedRev = nextRev;
+                db.rev = result.rev;
+                loadedRev = result.rev;
                 dataLoadedAt = Date.now();
                 userEditUntil = 0;
+                rememberGoodState(db);
                 return true;
             } catch (error) {
                 lastError = error;

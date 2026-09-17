@@ -86,7 +86,13 @@
     let cache = {};         // version -> record
     let selected = null;    // { version, record }
 
-    async function api(path, opts = {}) {
+    // 저장소 열쇠를 화면에 두지 않기 위해 서버 함수(/api/data)를 먼저 쓰고,
+    // 아직 설정되지 않았으면 예전처럼 저장소에 직접 접속한다
+    const DATA_ENDPOINT = (location.protocol === 'file:' || location.hostname.endsWith('github.io')) ? null : '/api/data';
+    let useEndpoint = !!DATA_ENDPOINT;
+    const endpointUnavailable = s => s === 404 || s === 405 || s === 501 || s === 503;
+
+    async function direct(path, opts = {}) {
         const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}${path}`, {
             ...opts,
             headers: { ...HEADERS, ...(opts.headers || {}) },
@@ -95,6 +101,20 @@
         if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text().catch(() => '')}`);
         return res.json();
     }
+
+    // 서버 함수로 먼저 시도. 쓸 수 없으면 null 을 돌려주고 직접 접속으로 내려감
+    async function viaEndpoint(path, opts = {}) {
+        if (!useEndpoint) return null;
+        const res = await fetch(DATA_ENDPOINT + path, { ...opts, cache: 'no-store' });
+        if (endpointUnavailable(res.status)) { useEndpoint = false; return null; }
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((body && body.error) || `HTTP ${res.status}`);
+        return body;
+    }
+
+    const fetchVersions = async () => (await viaEndpoint('?versions=1')) || direct('/versions');
+    const fetchVersion = async v => (await viaEndpoint('?version=' + v)) || direct('/' + v);
+    const fetchLatest = async () => (await viaEndpoint('')) || direct('/latest');
 
     // 저장소마다 응답 모양이 조금씩 달라서, 배열이 들어 있을 만한 곳을 모두 확인
     function pickVersionList(json) {
@@ -128,7 +148,7 @@
         $('loadBtn').disabled = true;
         setStatus('불러오는 중…');
         try {
-            const list = pickVersionList(await api('/versions'));
+            const list = pickVersionList(await fetchVersions());
             if (!list) throw new Error('버전 목록을 찾을 수 없습니다');
             versions = list
                 .map(v => ({ version: versionNumber(v), createdAt: v.createdAt || v.created_at }))
@@ -179,7 +199,7 @@
     window.viewVersion = async function (version) {
         setStatus(`#${version} 불러오는 중…`);
         try {
-            if (!cache[version]) cache[version] = (await api(`/${version}`)).record;
+            if (!cache[version]) cache[version] = (await fetchVersion(version)).record;
             const record = cache[version];
             selected = { version, record };
             const s = summarize(record);
@@ -211,13 +231,14 @@
         setStatus('확인 중…');
         let current;
         try {
-            current = (await api('/latest')).record;
+            current = (await fetchLatest()).record;
         } catch (e) {
             setStatus('');
             return alert('현재 데이터를 확인하지 못해 중단했습니다.\n' + e.message);
         }
+        // 서버 함수를 쓸 때는 서버가 비밀번호를 확인하므로, 여기서는 미리 걸러 주기만 함
         const admin = current && current.users && current.users.admin;
-        if (!admin || admin.password !== pw) {
+        if (admin && admin.password !== pw) {
             setStatus('');
             return alert('관리자 비밀번호가 맞지 않습니다.');
         }
@@ -229,17 +250,29 @@
         }
         if (!confirm('정말 되돌릴까요? 마지막 확인입니다.')) { setStatus('');  return; }
 
-        // 되돌린 뒤에도 index.html 의 덮어쓰기 방지(rev)가 계속 맞도록 판번호는 현재보다 크게 올려 둔다
-        const currentRev = typeof current.rev === 'number' ? current.rev : 0;
-        const restored = { ...JSON.parse(JSON.stringify(selected.record)), rev: currentRev + 1 };
-
         setStatus('되돌리는 중…');
         try {
-            await api('', {
-                method: 'PUT',
+            const viaServer = await viaEndpoint('', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(restored)
+                body: JSON.stringify({ restoreVersion: selected.version, password: pw })
             });
+            if (!viaServer) {
+                // 직접 접속: 되돌린 뒤에도 판번호가 계속 커지도록 현재보다 크게 올려 둔다
+                const currentRev = typeof current.rev === 'number' ? current.rev : 0;
+                const targetRev = typeof selected.record.rev === 'number' ? selected.record.rev : 0;
+                const restored = {
+                    ...JSON.parse(JSON.stringify(selected.record)),
+                    rev: Math.max(currentRev, targetRev) + 1,
+                    restoredFrom: selected.version,
+                    restoredAt: new Date().toISOString()
+                };
+                await direct('', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(restored)
+                });
+            }
             setStatus('');
             alert(`버전 #${selected.version} 시점으로 되돌렸습니다.\n사이트를 새로고침해서 확인해주세요.`);
         } catch (e) {
