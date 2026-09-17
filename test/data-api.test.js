@@ -28,6 +28,77 @@ function makeKV() {
         async delete(k) { store.delete(k); }
     };
 }
+// Cloudflare D1 을 흉내 낸 데이터베이스.
+// 이 파일이 실제로 보내는 문장만 알아듣습니다 (진짜 SQL 엔진이 아님).
+function makeD1() {
+    const self = {
+        state: undefined,            // { rev, record, updated_at }
+        backups: new Map(),          // date -> { record, rev, users, at }
+        record() { return JSON.parse(self.state.record); },
+        setRaw(rev, obj) { self.state = { rev, record: JSON.stringify(obj), updated_at: 'x' }; },
+        // 다음 번 '읽기' 직후에 딱 한 번 끼어들어 저장을 바꿔치기 (동시 저장 흉내)
+        raceOnce(fn) { pending = fn; },
+        get tablesMade() { return tablesMade; },
+        // '몇 줄이 바뀌었는지' 를 아예 안 알려주는 데이터베이스 흉내
+        hideChanges() { silent = true; }
+    };
+    let pending = null;
+    let tablesMade = 0;
+    let silent = false;
+    const run = async (sql, args) => {
+        if (/^CREATE TABLE/.test(sql)) { tablesMade++; return { meta: { changes: 0 } }; }
+        if (tablesMade < 2) throw new Error('표를 만들기 전에 접근했어요');
+
+        if (/^SELECT rev, record FROM state/.test(sql)) {
+            const row = self.state ? { rev: self.state.rev, record: self.state.record } : null;
+            if (pending) { const f = pending; pending = null; f(); }
+            return { first: row };
+        }
+        if (/^INSERT INTO state/.test(sql)) {
+            const [rev, record, at] = args;
+            const cas = /WHERE state\.rev = \?4/.test(sql);
+            if (self.state && cas && self.state.rev !== args[3]) return { meta: silent ? {} : { changes: 0 } };
+            self.state = { rev, record, updated_at: at };
+            return { meta: silent ? {} : { changes: 1 } };
+        }
+        if (/^INSERT OR IGNORE INTO backups/.test(sql)) {
+            const [date, record, rev, users, at] = args;
+            if (self.backups.has(date)) return { meta: { changes: 0 } };
+            self.backups.set(date, { record, rev, users, at });
+            return { meta: { changes: 1 } };
+        }
+        if (/^DELETE FROM backups/.test(sql)) {
+            const keep = [...self.backups.keys()].sort().reverse().slice(0, args[0]);
+            for (const d of [...self.backups.keys()]) if (!keep.includes(d)) self.backups.delete(d);
+            return { meta: { changes: 1 } };
+        }
+        if (/^SELECT date, at, rev, users FROM backups/.test(sql)) {
+            const rows = [...self.backups.entries()]
+                .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+                .map(([date, b]) => ({ date, at: b.at, rev: b.rev, users: b.users }));
+            return { all: rows };
+        }
+        if (/^SELECT record FROM backups WHERE date/.test(sql)) {
+            const b = self.backups.get(args[0]);
+            return { first: b ? { record: b.record } : null };
+        }
+        throw new Error('가짜 D1 이 모르는 문장: ' + sql);
+    };
+    self.db = {
+        prepare(sql) {
+            let args = [];
+            const stmt = {
+                bind(...a) { args = a; return stmt; },
+                async run() { return run(sql, args); },
+                async first() { return (await run(sql, args)).first; },
+                async all() { return { results: (await run(sql, args)).all || [] }; }
+            };
+            return stmt;
+        }
+    };
+    return self;
+}
+
 let KV = makeKV();
 const ENV = { JSONBIN_BIN_ID: 'bin123', JSONBIN_KEY: 'secret-key', get BACKUPS() { return KV; } };
 
@@ -281,7 +352,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     r = await call('PUT', '', { baseRev: 900, record: { users: { admin: {} }, note: 'KV 없음', lastSave: { build: 7 } } });
     check('백업이 꺼져 있어도 저장은 정상', r.status === 200 && storage.note === 'KV 없음');
     r = await call('GET', '?check=1');
-    check('백업이 꺼져 있으면 설정 방법을 안내', r.body.backups.available === false && /KV/.test(r.body.backups.hint));
+    check('백업이 꺼져 있으면 설정 방법을 안내', r.body.backups.available === false && /D1/.test(r.body.backups.hint));
     r = await call('POST', '', { restoreBackup: '2026-09-17', password: '2323' });
     check('백업이 꺼져 있으면 되돌리기도 막음', r.status === 400);
     KV = savedKV;
@@ -296,6 +367,151 @@ const check = (name, cond) => results.push([name, !!cond]);
     storageUp = true;
 
     check('열쇠는 서버에서만 쓰임', sentKeys.length > 0 && sentKeys.every(k => k === ENV.JSONBIN_KEY));
+
+    /* ── 데이터베이스가 '몇 줄 바뀌었는지' 를 안 알려줘도 안전해야 함 ──
+       이때 '저장됐다' 고 믿어 버리면, 학생은 저장된 줄 알지만 실제로는 사라집니다.
+       그래서 모를 때는 반드시 다시 읽어서 확인합니다. */
+    const QUIET = makeD1();
+    const QUIETENV = { get DB() { return QUIET.db; } };
+    QUIET.hideChanges();
+    const qrec = (pi) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build: 7 } });
+
+    r = await call('PUT', '', { baseRev: 0, record: qrec(1) }, QUIETENV);
+    check('D1(조용): 진짜 저장됐으면 성공으로 답함', r.status === 200 && QUIET.record().users['1'].pi === 1);
+
+    QUIET.raceOnce(() => { QUIET.setRaw(9, { users: { admin: {}, '1': { pi: 555 } }, rev: 9 }); });
+    r = await call('PUT', '', { baseRev: 1, record: qrec(2) }, QUIETENV);
+    check('D1(조용): 안 들어갔으면 성공이라고 하지 않음', r.status === 409);
+    check('D1(조용): 끼어든 쪽 내용이 그대로', QUIET.record().users['1'].pi === 555);
+
+    /* ══════════════════ Cloudflare D1 저장소 ══════════════════
+       D1 은 '판번호가 그대로일 때만 저장' 을 데이터베이스가 직접 보장합니다.
+       아래 가짜 D1 은 이 파일이 실제로 보내는 문장만 흉내 냅니다 (진짜 SQLite 가 아님).
+       그래서 확인하는 것은 'SQL 이 맞는가' 가 아니라 '우리 코드가 판번호를 제대로 다루는가' 입니다. */
+    const D1 = makeD1();
+    const D1ENV = { get DB() { return D1.db; }, RECOVERY_PASSWORD: undefined };
+
+    // 처음 열었을 때: 저장소가 비어 있으면 화면이 처음 자료를 만들 수 있도록 {} 를 준다
+    r = await call('GET', '', null, D1ENV);
+    check('D1: 비어 있으면 빈 내용을 돌려줌', r.status === 200 && Object.keys(r.body.record).length === 0 && r.body.rev === 0);
+    check('D1: 표를 알아서 만듦', D1.tablesMade === 2);
+
+    const rec = (pi, build = 7) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build } });
+
+    r = await call('PUT', '', { baseRev: 0, record: rec(10) }, D1ENV);
+    check('D1: 첫 저장이 들어감', r.status === 200 && r.body.rev === 1 && D1.record().users['1'].pi === 10);
+    check('D1: 저장하면 사본이 남음', D1.backups.size === 1);
+
+    r = await call('GET', '', null, D1ENV);
+    check('D1: 저장한 내용을 그대로 읽음', r.body.rev === 1 && r.body.record.users['1'].pi === 10);
+
+    r = await call('PUT', '', { baseRev: 1, record: rec(11) }, D1ENV);
+    check('D1: 판번호가 맞으면 저장', r.status === 200 && r.body.rev === 2 && D1.record().users['1'].pi === 11);
+
+    // 오래된 화면이 통째로 덮어쓰려는 경우 — 읽을 때 이미 판번호가 달라 막힌다
+    r = await call('PUT', '', { baseRev: 1, record: rec(99) }, D1ENV);
+    check('D1: 오래된 판번호는 409 로 거부', r.status === 409 && r.body.rev === 2);
+    check('D1: 거부된 저장은 저장소를 건드리지 않음', D1.record().users['1'].pi === 11);
+    check('D1: 409 는 최신 내용을 함께 돌려줌', r.body.record.users['1'].pi === 11);
+
+    // 핵심: '읽은 순간' 과 '쓰는 순간' 사이에 누가 끼어든 경우.
+    // jsonbin 에서는 이 틈으로 덮어쓰기가 일어났고, D1 에서는 데이터베이스가 막는다
+    D1.raceOnce(() => { D1.setRaw(5, { users: { admin: {}, '1': { pi: 777 } }, rev: 5 }); });
+    r = await call('PUT', '', { baseRev: 2, record: rec(12) }, D1ENV);
+    check('D1: 읽기와 쓰기 사이에 끼어든 저장도 막음', r.status === 409);
+    check('D1: 끼어든 쪽 내용이 그대로 남음', D1.record().users['1'].pi === 777 && D1.state.rev === 5);
+    check('D1: 그때도 최신 판번호를 알려줌', r.body.rev === 5);
+
+    // 예전 화면 차단은 D1 에서도 그대로
+    const beforeBuild = JSON.stringify(D1.state);
+    r = await call('PUT', '', { baseRev: 5, record: rec(1, 6) }, D1ENV);
+    check('D1: 예전 빌드는 426 으로 거부', r.status === 426 && r.body.needBuild === 7);
+    check('D1: 그때도 저장소 그대로', JSON.stringify(D1.state) === beforeBuild);
+
+    r = await call('PUT', '', { baseRev: 5, record: { note: '학생 정보 없음', lastSave: { build: 7 } } }, D1ENV);
+    check('D1: 학생 정보 없는 저장은 거부', r.status === 400 && JSON.stringify(D1.state) === beforeBuild);
+
+    /* ── D1 자동 백업 ── */
+    r = await call('PUT', '', { baseRev: 5, record: rec(20) }, D1ENV);
+    check('D1: 판번호가 맞으면 계속 저장됨', r.status === 200 && r.body.rev === 6);
+    const d1Date = [...D1.backups.keys()][0];
+    check('D1: 사본 이름이 날짜', /^\d{4}-\d{2}-\d{2}$/.test(d1Date));
+    check('D1: 같은 날 여러 번 저장해도 사본은 하나 (그날 처음 저장한 내용)',
+        D1.backups.size === 1 && JSON.parse(D1.backups.get(d1Date).record).users['1'].pi === 10);
+
+    r = await call('GET', '?backups=1', null, D1ENV);
+    check('D1: 백업 목록을 D1 에서 읽음', r.body.available === true && r.body.where === 'D1' && r.body.dates[0] === d1Date);
+
+    r = await call('POST', '', { restoreBackup: d1Date, password: '틀린비번' }, D1ENV);
+    check('D1: 백업 되돌리기도 비밀번호 확인', r.status === 403 && D1.record().users['1'].pi === 20);
+
+    r = await call('POST', '', { restoreBackup: d1Date, password: 'pw!' }, D1ENV);
+    check('D1: 관리자 비밀번호로 백업에서 되돌림', r.status === 200 && D1.record().users['1'].pi === 10);
+    check('D1: 되돌린 뒤 판번호가 더 커짐', D1.state.rev === 7 && D1.record().rev === 7);
+    check('D1: 어디서 왔는지 남음', String(D1.record().restoredFrom).includes(d1Date));
+
+    r = await call('POST', '', { restoreBackup: '2020-01-01', password: '2323' }, D1ENV);
+    check('D1: 없는 날짜는 404', r.status === 404);
+
+    // 오래된 사본은 스스로 지워져야 함 (보관 기간 14일).
+    // 정리는 '그날의 첫 사본을 남길 때' 한 번만 하므로, 오늘 사본이 아직 없는 저장소로 확인한다
+    const OLD = makeD1();
+    const OLDENV = { get DB() { return OLD.db; } };
+    for (let i = 0; i < 20; i++) OLD.backups.set(`2026-08-${String(i + 1).padStart(2, '0')}`, { record: '{}', rev: i });
+    r = await call('PUT', '', { baseRev: 0, record: rec(22) }, OLDENV);
+    const oldToday = [...OLD.backups.keys()].sort().pop();
+    check('D1: 보관 기간을 넘긴 사본은 지워짐', r.status === 200 && OLD.backups.size === 14);
+    check('D1: 오늘 사본은 남고 가장 오래된 것부터 지워짐',
+        OLD.backups.has(oldToday) && !OLD.backups.has('2026-08-01') && OLD.backups.has('2026-08-20'));
+
+    /* ── 점검 주소가 어느 저장소를 쓰는지 알려줘야 함 ── */
+    r = await call('GET', '?check=1', null, D1ENV);
+    check('D1: 점검 주소 정상', r.status === 200 && r.body.ok === true);
+    check('D1: 어느 저장소인지 알려줌', r.body.storage.backend === 'D1' && r.body.storage.d1 === true);
+    check('D1: 점검 주소가 학생 정보를 흘리지 않음', !JSON.stringify(r.body).includes('pw!'));
+    check('D1: 버전 대신 자동 백업을 안내', r.body.versions.available === false && /자동 백업/.test(r.body.versions.hint));
+
+    r = await call('GET', '?versions=1', null, D1ENV);
+    check('D1: 예전 버전 목록은 400 과 함께 안내', r.status === 400 && /자동 백업/.test(r.body.error));
+    r = await call('POST', '', { restoreVersion: 3, password: 'pw!' }, D1ENV);
+    check('D1: 버전으로 되돌리기도 막고 안내', r.status === 400);
+
+    // jsonbin 을 계속 쓰는 배포는 예전 그대로 동작해야 함
+    r = await call('GET', '?check=1');
+    check('jsonbin 배포는 그대로 동작', r.status === 200 && r.body.storage.backend === 'jsonbin');
+
+    /* ── 옮겨오기: D1 이 비어 있으면 예전 저장소 내용을 한 번 가져온다 ── */
+    const MOVE = makeD1();
+    const MOVEENV = { JSONBIN_BIN_ID: 'bin123', JSONBIN_KEY: 'secret-key', get DB() { return MOVE.db; } };
+    storage = { rev: 42, users: { admin: { password: 'pw!' }, '1': { pi: 123 }, '2': { pi: 5 } }, note: '예전 저장소 내용' };
+
+    r = await call('GET', '', null, MOVEENV);
+    check('옮겨오기: 예전 내용을 그대로 읽어옴', r.body.rev === 42 && r.body.record.note === '예전 저장소 내용');
+    check('옮겨오기: D1 에 들어감', MOVE.state && MOVE.state.rev === 42 && MOVE.record().users['2'].pi === 5);
+
+    // 옮긴 뒤로는 D1 만 진짜. 예전 저장소가 바뀌어도 따라가지 않는다
+    storage = { rev: 999, users: { admin: {}, '1': { pi: 0 } }, note: '예전 저장소가 나중에 바뀜' };
+    r = await call('GET', '', null, MOVEENV);
+    check('옮겨오기: 한 번만 하고 그 뒤엔 D1 만 씀', r.body.record.note === '예전 저장소 내용' && r.body.rev === 42);
+
+    r = await call('PUT', '', { baseRev: 42, record: rec(50) }, MOVEENV);
+    check('옮겨오기: 이어서 저장됨', r.status === 200 && r.body.rev === 43 && MOVE.record().users['1'].pi === 50);
+    check('옮겨오기: 예전 저장소에는 더 쓰지 않음', storage.note === '예전 저장소가 나중에 바뀜');
+
+    r = await call('GET', '?check=1', null, MOVEENV);
+    check('옮겨오기: 점검 주소가 옮긴 사실을 알려줌', r.body.storage.d1 === true && r.body.storage.jsonbin === true && !!r.body.storage.note);
+
+    // 학생 정보가 없는 예전 내용은 옮겨오지 않는다 (망가진 내용을 그대로 굳히면 안 됨)
+    const BAD = makeD1();
+    storage = { note: '학생 정보가 없는 내용' };
+    r = await call('GET', '', null, { JSONBIN_BIN_ID: 'bin123', JSONBIN_KEY: 'secret-key', get DB() { return BAD.db; } });
+    check('옮겨오기: 학생 정보 없는 내용은 옮기지 않음', Object.keys(r.body.record).length === 0 && BAD.state === undefined);
+
+    /* ── 저장소가 아무것도 없으면 503 ── */
+    r = await call('GET', '?check=1', null, {});
+    check('저장소가 하나도 없으면 503', r.status === 503 && r.body.d1 === false);
+    check('D1 설정 방법을 안내', /D1/.test(r.body.hint) && /DB/.test(r.body.hint));
+
 
     console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
     const failed = results.filter(x => !x[1]).length;

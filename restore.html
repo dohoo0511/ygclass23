@@ -300,9 +300,12 @@
         } catch (e) {
             console.error(e);
             setStatus('');
-            alert('예전 버전을 쓸 수 없습니다.\n' + e.message +
-                '\n\n이 저장소 요금제는 버전 보관을 지원하지 않습니다.\n' +
-                '대신 위 1번으로 백업을 내려받아 보관하시고, 되돌릴 때는 2번을 쓰세요.');
+            // Cloudflare D1 로 옮긴 뒤로는 '저장소 예전 버전' 자체가 없다. 그때는 안내만 그대로 보여준다
+            alert(/D1/.test(e.message)
+                ? e.message
+                : '예전 버전을 쓸 수 없습니다.\n' + e.message +
+                  '\n\n이 저장소 요금제는 버전 보관을 지원하지 않습니다.\n' +
+                  '대신 위 1번으로 백업을 내려받아 보관하시고, 되돌릴 때는 2번을 쓰세요.');
         } finally {
             $('loadBtn').disabled = false;
         }

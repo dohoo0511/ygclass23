@@ -1240,7 +1240,7 @@
             text = '서버 기능(/api/data)이 배포되지 않았습니다.\nCloudflare 배포가 끝났는지 확인해주세요.';
         } else if (response.status === 503) {
             const body = await response.json().catch(() => null);
-            text = (body && body.error) || '서버에 저장소 설정이 없습니다.\nCloudflare에서 JSONBIN_KEY / JSONBIN_BIN_ID 를 등록하고 재배포해주세요.';
+            text = (body && body.error) || '서버에 저장소 설정이 없습니다.\nCloudflare에서 D1 바인딩(DB)을 등록하고 재배포해주세요.';
         } else {
             return new Error(`HTTP ${response.status}`);
         }
