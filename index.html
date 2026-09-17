@@ -715,8 +715,8 @@
 
 <script>
     // ⚙️ 설정값
-    const BIN_ID = "6a6dfa71da38895dfeaca6df";
-    const API_KEY = "$2a$10$1vUEwfxTb/KEjjRvdB2EneV8kJHW9N3YPTUZXbG5tH.bNookiSSJq"; // 본인의 Master Key 입력
+    // 저장소 열쇠는 이 파일에 두지 않는다. 서버(Cloudflare 환경 변수 JSONBIN_KEY / JSONBIN_BIN_ID)에만 있고,
+    // 화면은 /api/data 를 거쳐서만 읽고 쓴다. 자세한 설정 방법은 SETUP.md 참고
 
     const STUDENT_COUNT = 30;
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1151,17 +1151,27 @@
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
     const NET_RETRIES = 2;                // 휴대폰 잠자기·약한 와이파이 때문에 한 번 실패하는 경우가 많아 몇 번 더 시도
     const NET_RETRY_BASE_MS = 500;
-    const SAVE_FRESHNESS_MS = 10 * 1000;  // 읽어온 지 이만큼 지나서 저장할 때는, 그 사이 다른 기기가 저장했는지 먼저 확인
 
-    // 저장소 열쇠를 화면에 두지 않기 위해, 서버 함수(/api/data)를 거쳐서 읽고 쓴다.
-    // 서버가 "내가 읽은 판번호가 아직 최신일 때만" 저장해 주므로, 오래된 화면이 덮어쓰는 일이 구조적으로 막힌다.
-    // 아직 환경 변수를 설정하지 않았으면 서버가 503을 주고, 예전처럼 저장소에 직접 접속한다.
-    const DATA_ENDPOINT = (location.protocol === 'file:' || location.hostname.endsWith('github.io')) ? null : '/api/data';
-    let useEndpoint = !!DATA_ENDPOINT;
+    // 읽기·쓰기는 모두 서버 함수(/api/data)를 거친다.
+    // 서버가 "내가 읽은 판번호가 아직 최신일 때만" 저장해 주므로,
+    // 오래된 화면이 덮어쓰는 일이 구조적으로 불가능하다.
+    const DATA_ENDPOINT = '/api/data';
 
-    function endpointUnavailable(status) {
-        // 함수가 배포되지 않았거나(404) 환경 변수가 없음(503) → 예전 방식으로 내려감
-        return status === 404 || status === 405 || status === 501 || status === 503;
+    // 서버 설정이 아직 안 됐을 때, 무엇을 해야 하는지 바로 알 수 있는 문구를 만든다.
+    // 이런 오류는 몇 번 다시 시도해도 똑같으므로 재시도하지 않는다
+    async function endpointError(response) {
+        let text;
+        if (response.status === 404) {
+            text = '서버 기능(/api/data)이 배포되지 않았습니다.\nCloudflare 배포가 끝났는지 확인해주세요.';
+        } else if (response.status === 503) {
+            const body = await response.json().catch(() => null);
+            text = (body && body.error) || '서버에 저장소 설정이 없습니다.\nCloudflare에서 JSONBIN_KEY / JSONBIN_BIN_ID 를 등록하고 재배포해주세요.';
+        } else {
+            return new Error(`HTTP ${response.status}`);
+        }
+        const error = new Error(text);
+        error.permanent = true;   // 다시 시도해도 소용없음
+        return error;
     }
 
     const netDelay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -1265,34 +1275,17 @@
         let lastError;
         for (let attempt = 0; attempt <= NET_RETRIES; attempt++) {
             try {
-                return await fetchLatestOnce();
+                const response = await fetch(DATA_ENDPOINT, { cache: 'no-store' });
+                if (!response.ok) throw await endpointError(response);
+                const result = await response.json();
+                return validRecord(result && result.record);
             } catch (error) {
                 lastError = error;
+                if (error.permanent) break;
                 if (attempt < NET_RETRIES) await netDelay(NET_RETRY_BASE_MS * (attempt + 1));
             }
         }
         throw lastError;
-    }
-
-    async function fetchLatestOnce() {
-        if (useEndpoint) {
-            const response = await fetch(DATA_ENDPOINT, { cache: 'no-store' });
-            if (endpointUnavailable(response.status)) {
-                console.warn('서버 함수를 쓸 수 없어 저장소에 직접 접속합니다. (/api/data →', response.status, ')');
-                useEndpoint = false;
-            } else {
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const result = await response.json();
-                return validRecord(result && result.record);
-            }
-        }
-        const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
-            headers: { 'X-Master-Key': API_KEY },
-            cache: 'no-store'
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const result = await response.json();
-        return validRecord(result && result.record);
     }
 
     function validRecord(record) {
@@ -1302,31 +1295,15 @@
 
     // 판번호가 baseRev 그대로일 때만 저장. { ok } / { conflict } / 예외
     async function putRecord(baseRev, record) {
-        if (useEndpoint) {
-            const response = await fetch(DATA_ENDPOINT, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ baseRev, record })
-            });
-            if (response.status === 409) return { conflict: true };
-            if (endpointUnavailable(response.status)) {
-                console.warn('서버 함수를 쓸 수 없어 저장소에 직접 접속합니다. (/api/data →', response.status, ')');
-                useEndpoint = false;
-            } else {
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const result = await response.json();
-                return { ok: true, rev: result && result.rev };
-            }
-        }
-        // 예전 방식(직접 접속)에는 서버가 없으므로, 판번호 검사는 saveData 쪽에서만 이루어진다
-        record.rev = baseRev + 1;
-        const response = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+        const response = await fetch(DATA_ENDPOINT, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'X-Master-Key': API_KEY },
-            body: JSON.stringify(record)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ baseRev, record })
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return { ok: true, rev: baseRev + 1 };
+        if (response.status === 409) return { conflict: true };
+        if (!response.ok) throw await endpointError(response);
+        const result = await response.json();
+        return { ok: true, rev: result && result.rev };
     }
 
     // 성공하면 true. silent면 실패해도 알림창을 띄우지 않음, background면 사용자 작업 중에는 건너뜀 (둘 다 백그라운드 작업용)
@@ -1341,7 +1318,11 @@
             dataLoadedAt = 0;
             loadedRev = null;
             console.error("데이터 로드 실패:", error);
-            if (!silent) alert("서버 연결에 실패했습니다.\n인터넷 상태를 확인하고 잠시 후 다시 시도해주세요.\n(연결되지 않은 상태에서는 저장되지 않습니다)");
+            if (!silent) {
+                alert(error && error.permanent
+                    ? `⚠️ ${error.message}`
+                    : "서버 연결에 실패했습니다.\n인터넷 상태를 확인하고 잠시 후 다시 시도해주세요.\n(연결되지 않은 상태에서는 저장되지 않습니다)");
+            }
             return false;
         }
         if (background && Date.now() < userEditUntil) return false;
@@ -1392,21 +1373,7 @@
             alert("서버에서 최신 자료를 불러오지 못해 저장하지 않았습니다.\n새로고침한 뒤 다시 시도해주세요.");
             return false;
         }
-        // 서버 함수를 쓸 때는 서버가 매번 판번호를 확인해 주므로 여기서 미리 볼 필요가 없다.
-        // 직접 접속일 때만, 화면을 한참 켜 둔 경우에 한해 미리 확인한다.
-        if (!useEndpoint && Date.now() - dataLoadedAt > SAVE_FRESHNESS_MS) {
-            try {
-                if (revOf(await fetchLatestRecord()) !== loadedRev) {
-                    alert("그 사이 다른 기기에서 저장한 내용이 있어, 덮어쓰지 않고 멈췄습니다.\n새로고침한 뒤 다시 해주세요.");
-                    return false;
-                }
-            } catch (error) {
-                console.error("저장 전 확인 실패:", error);
-                alert("서버 연결이 불안정해 저장하지 않았습니다.\n잠시 후 다시 시도해주세요.");
-                return false;
-            }
-        }
-
+        // 판번호 확인은 서버가 저장할 때마다 해 주므로, 화면에서 미리 볼 필요가 없다
         const baseRev = loadedRev || 0;
         db.lastSave = {
             at: new Date().toISOString(),

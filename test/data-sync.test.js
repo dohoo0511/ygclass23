@@ -63,7 +63,8 @@ async function fetch(url, opts = {}) {
     const method = opts.method || 'GET';
     const viaServerFn = String(url).startsWith('/api/data');
 
-    if (viaServerFn && !serverFnUp) return res(503, { error: '환경 변수 없음' });
+    if (!viaServerFn) throw new Error('저장소에 직접 접속하면 안 됩니다: ' + url);
+    if (!serverFnUp) return res(503, { error: 'JSONBIN_KEY 환경 변수가 설정되지 않았어요.' });
 
     if (method === 'GET') {
         if (failGets > 0) { failGets--; throw new Error('transient'); }
@@ -85,9 +86,7 @@ async function fetch(url, opts = {}) {
         return res(200, { ok: true, rev: server.rev });
     }
 
-    server = JSON.parse(opts.body);
-    putBodies.push(server);
-    return res(200, { ok: true });
+    return res(405, { error: '허용되지 않는 요청' });
 }
 
 const sut = {};
@@ -95,7 +94,7 @@ eval(dataLayer + `
     sut.loadData = loadData;
     sut.saveData = saveData;
     sut.rollbackMessage = rollbackMessage;
-    sut.usingEndpoint = () => useEndpoint;
+    sut.endpoint = () => DATA_ENDPOINT;
     sut.getDb = () => db;
     sut.rewindClock = ms => { dataLoadedAt = Math.max(0, dataLoadedAt - ms); };
 `);
@@ -177,7 +176,7 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
     check('처음 접속(기록 없음)은 오탐 없음', sut.rollbackMessage(0, { rev: 5 }) === null);
 
     /* ── 서버 함수(/api/data) 경유: 구조적 방어 ── */
-    check('기본적으로 서버 함수를 거쳐서 통신함', sut.usingEndpoint() === true);
+    check('저장소가 아니라 서버 함수를 거쳐서 통신함', sut.endpoint() === '/api/data');
 
     server = { rev: 100, users: { admin: {}, '1': { pi: 1 } }, note: '최신' };
     check('서버 함수로 로드 성공', await sut.loadData() === true);
@@ -197,14 +196,18 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
     check('10초 이내 저장이어도 서버가 막음', await sut.saveData() === false);
     check('그래도 서버 내용 그대로', JSON.stringify(server) === keep);
 
-    /* ── 서버 함수가 아직 배포/설정되지 않았을 때는 예전 방식으로 내려감 ── */
+    /* ── 서버 설정이 아직 안 됐을 때: 조용히 실패하지 말고 무엇을 할지 알려줘야 함 ── */
     serverFnUp = false;
-    server = { rev: 300, users: { admin: {}, '1': { pi: 3 } } };
-    check('함수가 없으면(503) 직접 접속으로 내려가 로드 성공', await sut.loadData() === true);
-    check('직접 접속 방식으로 전환됨', sut.usingEndpoint() === false);
-    sut.getDb().users['1'].pi = 4;
-    check('직접 접속으로도 저장 동작', await sut.saveData() === true && server.users['1'].pi === 4);
+    alerts = [];
+    check('서버 설정이 없으면 로드 실패', await sut.loadData() === false);
+    check('무엇을 해야 하는지 알려줌', alerts.some(a => a.includes('JSONBIN_KEY') || a.includes('Cloudflare')));
+    check('설정이 없으면 저장도 하지 않음', await sut.saveData() === false);
     serverFnUp = true;
+
+    /* ── 화면 코드에 저장소 열쇠가 남아 있지 않아야 함 ── */
+    check('index.html 에 Master Key 없음', !/\$2a\$10\$/.test(html));
+    check('index.html 이 저장소에 직접 접속하지 않음', !/api\.jsonbin\.io/.test(html));
+    check('index.html 에 X-Master-Key 헤더 없음', !/X-Master-Key/.test(html));
 
     /* ── 진짜 빈 저장소만 초기화 ── */
     server = {};

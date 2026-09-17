@@ -72,10 +72,7 @@
 </div>
 
 <script>
-    // index.html 과 같은 저장소를 씁니다
-    const BIN_ID = "6a6dfa71da38895dfeaca6df";
-    const API_KEY = "$2a$10$1vUEwfxTb/KEjjRvdB2EneV8kJHW9N3YPTUZXbG5tH.bNookiSSJq";
-    const HEADERS = { 'X-Master-Key': API_KEY };
+    // 저장소 열쇠는 이 파일에 두지 않습니다. 서버 함수(/api/data)를 거쳐서만 읽고 씁니다
     const PAGE = 50;
 
     const $ = id => document.getElementById(id);
@@ -86,35 +83,19 @@
     let cache = {};         // version -> record
     let selected = null;    // { version, record }
 
-    // 저장소 열쇠를 화면에 두지 않기 위해 서버 함수(/api/data)를 먼저 쓰고,
-    // 아직 설정되지 않았으면 예전처럼 저장소에 직접 접속한다
-    const DATA_ENDPOINT = (location.protocol === 'file:' || location.hostname.endsWith('github.io')) ? null : '/api/data';
-    let useEndpoint = !!DATA_ENDPOINT;
-    const endpointUnavailable = s => s === 404 || s === 405 || s === 501 || s === 503;
+    const DATA_ENDPOINT = '/api/data';
 
-    async function direct(path, opts = {}) {
-        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}${path}`, {
-            ...opts,
-            headers: { ...HEADERS, ...(opts.headers || {}) },
-            cache: 'no-store'
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text().catch(() => '')}`);
-        return res.json();
-    }
-
-    // 서버 함수로 먼저 시도. 쓸 수 없으면 null 을 돌려주고 직접 접속으로 내려감
-    async function viaEndpoint(path, opts = {}) {
-        if (!useEndpoint) return null;
+    async function api(path, opts = {}) {
         const res = await fetch(DATA_ENDPOINT + path, { ...opts, cache: 'no-store' });
-        if (endpointUnavailable(res.status)) { useEndpoint = false; return null; }
         const body = await res.json().catch(() => null);
+        if (res.status === 404) throw new Error('서버 기능(/api/data)이 배포되지 않았습니다. Cloudflare 배포를 확인해주세요.');
         if (!res.ok) throw new Error((body && body.error) || `HTTP ${res.status}`);
         return body;
     }
 
-    const fetchVersions = async () => (await viaEndpoint('?versions=1')) || direct('/versions');
-    const fetchVersion = async v => (await viaEndpoint('?version=' + v)) || direct('/' + v);
-    const fetchLatest = async () => (await viaEndpoint('')) || direct('/latest');
+    const fetchVersions = () => api('?versions=1');
+    const fetchVersion = v => api('?version=' + v);
+    const fetchLatest = () => api('');
 
     // 저장소마다 응답 모양이 조금씩 달라서, 배열이 들어 있을 만한 곳을 모두 확인
     function pickVersionList(json) {
@@ -252,27 +233,11 @@
 
         setStatus('되돌리는 중…');
         try {
-            const viaServer = await viaEndpoint('', {
+            await api('', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ restoreVersion: selected.version, password: pw })
             });
-            if (!viaServer) {
-                // 직접 접속: 되돌린 뒤에도 판번호가 계속 커지도록 현재보다 크게 올려 둔다
-                const currentRev = typeof current.rev === 'number' ? current.rev : 0;
-                const targetRev = typeof selected.record.rev === 'number' ? selected.record.rev : 0;
-                const restored = {
-                    ...JSON.parse(JSON.stringify(selected.record)),
-                    rev: Math.max(currentRev, targetRev) + 1,
-                    restoredFrom: selected.version,
-                    restoredAt: new Date().toISOString()
-                };
-                await direct('', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(restored)
-                });
-            }
             setStatus('');
             alert(`버전 #${selected.version} 시점으로 되돌렸습니다.\n사이트를 새로고침해서 확인해주세요.`);
         } catch (e) {

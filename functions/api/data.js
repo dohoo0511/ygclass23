@@ -64,11 +64,45 @@ function isAdminPassword(current, password) {
 }
 
 export async function onRequest({ request, env }) {
+  const url = new URL(request.url);
+  const isCheck = url.searchParams.has("check");
+
   if (!env || !env.JSONBIN_BIN_ID || !env.JSONBIN_KEY) {
     // 환경 변수가 아직 설정되지 않음 → 화면은 예전 방식(직접 접속)으로 내려감
-    return json({ error: "JSONBIN_BIN_ID / JSONBIN_KEY 환경 변수가 설정되지 않았어요." }, 503);
+    const missing = [
+      !env || !env.JSONBIN_BIN_ID ? "JSONBIN_BIN_ID" : null,
+      !env || !env.JSONBIN_KEY ? "JSONBIN_KEY" : null,
+    ].filter(Boolean);
+    return json({
+      ok: false,
+      step: "환경 변수",
+      missing,
+      error: `${missing.join(", ")} 환경 변수가 설정되지 않았어요. Cloudflare 설정 후 재배포가 필요합니다.`,
+    }, 503);
   }
-  const url = new URL(request.url);
+
+  // 설정이 제대로 됐는지 확인하는 용도. 학생 정보는 하나도 돌려주지 않는다
+  // 사용법: 사이트주소/api/data?check=1
+  if (isCheck) {
+    try {
+      const record = await readLatest(env);
+      return json({
+        ok: true,
+        step: "완료",
+        message: "서버 함수가 저장소에 정상 연결되었습니다.",
+        rev: revOf(record),
+        users: Object.keys(record.users || {}).length,
+        lastSave: record.lastSave || null,
+        restoredFrom: typeof record.restoredFrom === "number" ? record.restoredFrom : null,
+      });
+    } catch (error) {
+      return json({
+        ok: false,
+        step: "저장소 연결",
+        error: `${error.message} — 새 Master Key 와 Bin ID 가 맞는지 확인해주세요.`,
+      }, 502);
+    }
+  }
 
   /* ---------- 읽기 ---------- */
   if (request.method === "GET") {
