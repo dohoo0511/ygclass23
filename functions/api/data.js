@@ -138,10 +138,24 @@ function stockDiagnosis(record) {
   };
 }
 
+// 데이터가 예전으로 돌아갔을 때 쓰는 복구 비밀번호.
+// 관리자 비밀번호가 기억나지 않거나 학생이 알아냈을 때를 대비한 예비 열쇠입니다.
+// 이 값은 서버에만 있고 화면(index.html)에는 나가지 않습니다.
+// 바꾸려면 Cloudflare 환경 변수 RECOVERY_PASSWORD 를 등록하세요 (그 값이 우선합니다).
+const DEFAULT_RECOVERY_PASSWORD = "2323";
+
 // 관리자 비밀번호 확인 (되돌리기처럼 위험한 작업에만 사용)
 function isAdminPassword(current, password) {
   const admin = current && current.users && current.users.admin;
   return !!admin && typeof password === "string" && password.length > 0 && admin.password === password;
+}
+
+// 되돌리기를 해도 되는가. 관리자 비밀번호 또는 복구 비밀번호면 통과
+function canRestore(current, password, env) {
+  if (typeof password !== "string" || password.length === 0) return false;
+  const recovery = (env && env.RECOVERY_PASSWORD) || DEFAULT_RECOVERY_PASSWORD;
+  if (password === recovery) return true;
+  return isAdminPassword(current, password);
 }
 
 // 어떤 환경 변수가 왜 안 보이는지 알려줌.
@@ -301,7 +315,9 @@ export async function onRequest({ request, env }) {
     } catch (error) {
       return json({ error: error.message }, 502);
     }
-    if (!isAdminPassword(current, payload.password)) return json({ error: "관리자 비밀번호가 맞지 않아요." }, 403);
+    if (!canRestore(current, payload.password, env)) {
+      return json({ error: "비밀번호가 맞지 않아요. 관리자 비밀번호나 복구 비밀번호를 입력해주세요." }, 403);
+    }
 
     let target;
     let source;

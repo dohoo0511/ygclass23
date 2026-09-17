@@ -145,6 +145,36 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('비밀번호 틀리면 403', r.status === 403);
     check('403 이면 저장소 그대로', storage.rev === 50);
 
+    /* ── 데이터가 예전으로 돌아갔을 때 쓰는 복구 비밀번호 ── */
+    r = await call('POST', '', { restoreVersion: 7, password: '2323' });
+    check('복구 비밀번호로도 되돌릴 수 있음', r.status === 200 && storage.users['1'].pi === 99);
+
+    storage = { rev: 60, users: { admin: { password: 'pw!' }, '1': { pi: 1 } } };
+    r = await call('POST', '', { restoreVersion: 7, password: '' });
+    check('빈 비밀번호는 거부', r.status === 403 && storage.rev === 60);
+    r = await call('POST', '', { restoreVersion: 7 });
+    check('비밀번호가 없으면 거부', r.status === 403 && storage.rev === 60);
+    r = await call('POST', '', { restoreVersion: 7, password: 232 });
+    check('숫자로 보내도 거부 (문자열만)', r.status === 403 && storage.rev === 60);
+
+    // 환경 변수로 복구 비밀번호를 바꿀 수 있어야 함
+    const ENV2 = { ...ENV, RECOVERY_PASSWORD: '9999' };
+    r = await call('POST', '', { restoreVersion: 7, password: '9999' }, ENV2);
+    check('환경 변수로 정한 복구 비밀번호가 통함', r.status === 200);
+
+    storage = { rev: 70, users: { admin: { password: 'pw!' }, '1': { pi: 1 } } };
+    r = await call('POST', '', { restoreVersion: 7, password: '2323' }, ENV2);
+    check('환경 변수를 정하면 기본 복구 비밀번호는 막힘', r.status === 403 && storage.rev === 70);
+    r = await call('POST', '', { restoreVersion: 7, password: 'pw!' }, ENV2);
+    check('그때도 관리자 비밀번호는 통함', r.status === 200);
+
+    // 복구 비밀번호는 저장(PUT)에는 쓸 수 없어야 함
+    storage = { rev: 80, users: { admin: { password: 'pw!' }, '1': { pi: 1 } } };
+    r = await call('PUT', '', { baseRev: 80, record: { users: { admin: {} }, password: '2323' } });
+    check('복구 비밀번호가 일반 저장을 열어 주지는 않음', r.status === 426 && storage.rev === 80);
+
+    storage = { rev: 50, users: { admin: { password: 'pw!' }, '1': { pi: 1 } } };
+
     r = await call('POST', '', { restoreVersion: 7, password: 'pw!' });
     check('비밀번호 맞으면 되돌아감', r.status === 200 && storage.users['1'].pi === 99);
     check('판번호는 이전 최고값 위로 올라감', storage.rev === 51);

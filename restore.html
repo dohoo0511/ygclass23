@@ -57,7 +57,7 @@
         <div class="sub">내려받아 둔 파일을 골라 그 시점으로 되돌립니다. 관리자 비밀번호가 필요합니다.</div>
         <div class="actions">
             <input type="file" id="backupFile" accept="application/json,.json">
-            <input type="password" id="filePw" placeholder="관리자 비밀번호" autocomplete="off">
+            <input type="password" id="filePw" placeholder="관리자 또는 복구 비밀번호" autocomplete="off">
             <button id="fileRestoreBtn" class="danger">이 파일로 되돌리기</button>
         </div>
         <div id="fileInfo" class="muted" style="margin-top:8px;"></div>
@@ -87,7 +87,7 @@
         <h3 id="detailTitle" style="margin-top:0;"></h3>
         <div id="detailSummary"></div>
         <div class="actions" style="margin:12px 0;">
-            <input type="password" id="adminPw" placeholder="관리자 비밀번호" autocomplete="off">
+            <input type="password" id="adminPw" placeholder="관리자 또는 복구 비밀번호" autocomplete="off">
             <button id="restoreBtn" class="danger">이 시점으로 되돌리기</button>
         </div>
         <pre id="detailJson"></pre>
@@ -312,12 +312,7 @@
             setStatus('');
             return alert('현재 데이터를 확인하지 못해 중단했습니다.\n' + e.message);
         }
-        // 서버 함수를 쓸 때는 서버가 비밀번호를 확인하므로, 여기서는 미리 걸러 주기만 함
-        const admin = current && current.users && current.users.admin;
-        if (admin && admin.password !== pw) {
-            setStatus('');
-            return alert('관리자 비밀번호가 맞지 않습니다.');
-        }
+        // 비밀번호 확인은 서버가 한다. 복구 비밀번호는 서버에만 있어서 여기서는 알 수 없다
 
         const meta = versions.find(v => v.version === selected.version) || {};
         if (!confirm(`버전 #${selected.version} (${kst(meta.createdAt)}) 시점으로 되돌립니다.\n\n그 시점 이후의 모든 변화가 사라집니다.\n계속할까요?`)) {

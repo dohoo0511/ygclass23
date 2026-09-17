@@ -1216,7 +1216,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-shop';
+    const APP_VERSION = '2026-09-17-restore';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
@@ -1315,31 +1315,20 @@
         const good = readGoodState();
         if (!good || !good.record || !good.record.users) return alert('이 기기에 되살릴 자료가 없습니다.\nrestore.html 을 사용해주세요.');
         const when = new Date(good.at).toLocaleString('ko-KR');
-        const pw = prompt(`${when} 시점 자료로 되돌립니다.\n그 뒤의 변화는 사라집니다.\n\n관리자 비밀번호를 입력하세요.`);
+        const pw = prompt(`${when} 시점 자료로 되돌립니다.\n그 뒤의 변화는 사라집니다.\n\n관리자 비밀번호 또는 복구 비밀번호를 입력하세요.`);
         if (!pw) return;
-        if (!await loadData({ silent: true })) return alert('서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.');
-        const admin = db.users && db.users.admin;
-        if (!admin || admin.password !== pw) return alert('관리자 비밀번호가 맞지 않습니다.');
 
-        // 되돌린 뒤에도 판번호가 계속 커지도록 (되돌림 감지가 오작동하지 않게)
-        const baseRev = loadedRev || 0;
-        let prevHigh = 0;
-        try { prevHigh = Number(localStorage.getItem(HIGH_REV_KEY)) || 0; } catch (e) { /* 무시 */ }
+        // 판번호는 서버가 '지금보다 큰 값' 으로 알아서 매긴다
         const restored = {
             ...good.record,
-            rev: Math.max(baseRev, prevHigh),
-            restoredFrom: '기기에 남은 기록',
-            restoredAt: new Date().toISOString(),
-            lastSave: { at: new Date().toISOString(), by: '관리자(되살리기)', v: APP_VERSION }
+            lastSave: { at: new Date().toISOString(), by: '관리자(되살리기)', v: APP_VERSION, build: APP_BUILD }
         };
+        delete restored.rev;
         try {
-            const result = await putRecord(baseRev, restored);
-            if (result.conflict) return alert('그 사이 다른 기기가 저장했습니다. 새로고침한 뒤 다시 해주세요.');
-            db = restored;
-            db.rev = result.rev;
-            loadedRev = result.rev;
-            dataLoadedAt = Date.now();
-            rememberGoodState(db);
+            const result = await restoreRecord(restored, pw);
+            if (result.wrongPassword) return alert(result.message);
+            // 되살린 내용을 다시 읽어 와서 화면·기록을 맞춤
+            if (await loadData({ silent: true })) rememberGoodState(db);
             const el = document.getElementById('rollbackBanner');
             if (el) el.remove();
             alert(`${when} 상태로 되살렸습니다.\n화면을 새로고침해주세요.`);
@@ -1370,6 +1359,20 @@
     function validRecord(record) {
         if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('데이터 형식 오류');
         return record;
+    }
+
+    // 되돌리기는 서버가 비밀번호를 확인한 뒤 실행한다.
+    // 화면에서만 확인하면 개발자도구로 그냥 건너뛸 수 있어서, 반드시 서버를 거친다
+    async function restoreRecord(record, password) {
+        const response = await fetch(DATA_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ record, password })
+        });
+        const body = await response.json().catch(() => null);
+        if (response.status === 403) return { wrongPassword: true, message: (body && body.error) || '비밀번호가 맞지 않아요.' };
+        if (!response.ok) throw new Error((body && body.error) || `HTTP ${response.status}`);
+        return { ok: true, rev: body && body.rev };
     }
 
     // 판번호가 baseRev 그대로일 때만 저장. { ok } / { conflict } / 예외
