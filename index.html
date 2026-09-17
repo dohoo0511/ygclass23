@@ -1177,7 +1177,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-16-sync-fix';
+    const APP_VERSION = '2026-09-17-chart';
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1596,6 +1596,15 @@
     }
 
     // 로또 번호 범위 안내를 화면에 채움 (상수를 바꾸면 안내도 같이 바뀜)
+    // 기기마다 다른 버전이 돌고 있는지 바로 알 수 있게 화면 구석에 버전을 적어 둔다.
+    // (브라우저가 index.html 을 캐시해 두면 배포해도 예전 코드가 계속 돈다)
+    function showBuildVersion() {
+        const el = document.createElement('div');
+        el.textContent = `v${APP_VERSION}`;
+        el.style.cssText = 'position:fixed;right:6px;bottom:4px;z-index:5;font-size:10px;color:#b0aaa2;pointer-events:none;';
+        document.body.appendChild(el);
+    }
+
     function fillLottoHint() {
         const el = document.getElementById('lottoMaxHint');
         if (el) el.textContent = String(LOTTO_NUMBER_MAX);
@@ -4512,6 +4521,7 @@
     window.addEventListener('pageshow', e => { if (e.persisted) resyncAfterResume(true); });
 
     fillLottoHint();
+    showBuildVersion();
 
     // 로그인 전에도 공지사항을 볼 수 있도록 페이지 로드 시 미리 데이터를 불러옴
     loadData().then(renderNotice);

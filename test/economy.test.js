@@ -228,6 +228,31 @@ check(`2π 움직임이 화면 높이의 30% 이상 — ${heightUsed([13, 14, 15
 check(`4π 움직임이 화면 높이의 40% 이상 — ${heightUsed([11, 13, 15, 12]).toFixed(0)}%`, heightUsed([11, 13, 15, 12]) >= 40);
 check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFixed(0)}%`, heightUsed([10, 18, 12, 22]) <= 85);
 
+/* ── 실제 엔진이 만든 값으로 그래프를 그려 본다 (설명이 아니라 결과로 확인) ── */
+{
+    const HOUR_MS2 = 3600 * 1000;
+    let usedSum = 0, distinctSum = 0, cnt = 0, flatCharts = 0;
+    for (let r = 0; r < 8; r++) {
+        const t0 = Date.UTC(2026, 0, 5);
+        const d = { users: {}, stocks: null };
+        app.setDb(d);
+        d.stocks = app.initStock(t0);
+        d.stocks.seed += r * 7919;
+        for (let h = 1; h <= 7 * 24; h++) app.applyTicks(t0 + h * HOUR_MS2);
+        app.COMPANIES.forEach(c => {
+            const last24 = d.stocks.companies[c.id].history.slice(-24);
+            const { lo, hi } = app.scale(last24);
+            const used = (Math.max(...last24) - Math.min(...last24)) / (hi - lo) * 100;
+            const distinct = new Set(last24).size;
+            usedSum += used; distinctSum += distinct; cnt++;
+            if (used < 20) flatCharts++;
+        });
+    }
+    check(`24시간 그래프가 화면 높이를 충분히 씀 — 평균 ${(usedSum / cnt).toFixed(0)}%`, usedSum / cnt >= 40);
+    check(`24시간 안에 서로 다른 값이 여러 개 — 평균 ${(distinctSum / cnt).toFixed(1)}개`, distinctSum / cnt >= 3);
+    check(`일자로 보이는 그래프가 거의 없음 — ${flatCharts}/${cnt}개`, flatCharts <= cnt * 0.1);
+}
+
 [[15, 15, 15], [14, 15], [5, 5, 5], [5, 6, 7], [198, 200], [11, 13, 15, 12]].forEach(ps => {
     const { lo, hi } = app.scale(ps);
     check(`세로축이 늘 올바름 [${ps.join(',')}] → ${lo}~${hi}π`,

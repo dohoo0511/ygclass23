@@ -1,0 +1,18 @@
+# Cloudflare Pages 응답 헤더 설정
+#
+# index.html 을 브라우저가 캐시해 두면, 새로 배포해도 학생 기기에서는 예전 코드가 계속 돕니다.
+# 그러면 기기마다 다른 버전이 돌면서 주가 기록을 서로 다른 간격으로 바꿔 놓아 그래프가 뭉개지고,
+# 예전에 데이터가 통째로 사라지던 문제도 같은 뿌리였습니다.
+# 아래 설정은 "쓰기 전에 서버에 물어보라"는 뜻이라, 배포가 곧바로 반영됩니다.
+
+/
+  Cache-Control: no-cache, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/restore.html
+  Cache-Control: no-cache, must-revalidate
+
+/api/*
+  Cache-Control: no-store
