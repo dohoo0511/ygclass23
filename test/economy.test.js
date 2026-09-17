@@ -237,6 +237,29 @@ const REAL_NOW = Date.now();
     check(`비운 뒤 선이 화면 높이를 씀 — ${used.toFixed(0)}%`, used >= 30);
 }
 
+/* ── 기록을 비운 뒤 실제로 다시 쌓이는지 ──
+   비운 직후에는 점이 하나뿐이라 직선으로 보이는 게 정상이다.
+   중요한 건 시간이 지나면 점이 늘고, 하루 안에 움직임이 나타나는 것 */
+{
+    const t0 = Date.UTC(2026, 0, 5);
+    const d = { users: {}, stocks: null };
+    app.setDb(d);
+    d.stocks = app.initStock(t0);
+    const cid = app.COMPANIES[0].id;
+    d.stocks.companies[cid].history = [d.stocks.companies[cid].price];
+    d.stocks.historyStartTick = d.stocks.lastTick;
+
+    app.applyTicks(t0 + 1 * HOUR);
+    check('1시간 뒤 점이 2개', d.stocks.companies[cid].history.length === 2);
+    app.applyTicks(t0 + 6 * HOUR);
+    check('6시간 뒤 점이 7개', d.stocks.companies[cid].history.length === 7);
+    app.applyTicks(t0 + 24 * HOUR);
+    const h24 = d.stocks.companies[cid].history;
+    check(`하루 뒤 점이 25개 — ${h24.length}개`, h24.length === 25);
+    check(`하루 뒤에는 주가가 움직여 있음 — 서로 다른 값 ${new Set(h24).size}개`, new Set(h24).size >= 3);
+    check('시간축이 계속 맞음', d.stocks.historyStartTick + h24.length - 1 === d.stocks.lastTick);
+}
+
 // 간격이 그대로면 기록을 건드리지 않아야 함
 const keepSt = makeMarket(app.K.TICK, 100, REAL_NOW);
 app.setDb({ users: {}, stocks: keepSt });

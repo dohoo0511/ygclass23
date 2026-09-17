@@ -1183,7 +1183,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-chart4';
+    const APP_VERSION = '2026-09-17-chart5';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
@@ -4104,11 +4104,18 @@
 
         // 기록이 아직 짧으면(뉴스 간격을 바꾼 직후 등) 그 사실을 알려 준다.
         // 안 그러면 1~2시간치 직선을 '24시간 내내 그대로였다' 로 오해하게 된다
-        const coveredHours = (t1 - t0) / HOUR_MS;
-        if (coveredHours < stockRange * 0.6) {
-            const note = svgEl('text', { x: pad.left + plotW / 2, y: pad.top + 12, 'text-anchor': 'middle', class: 'chart-empty' });
-            note.textContent = `기록을 새로 쌓는 중 (${Math.max(1, Math.round(coveredHours))}시간치)`;
-            svg.append(note);
+        // 기록이 아직 짧으면(뉴스 간격을 바꾼 직후 등) 왜 직선인지 알려 준다.
+        // 점은 정각마다 하나씩 생기므로, 점이 하나뿐이면 직선일 수밖에 없다
+        const points = series.length - 1;   // 마지막 하나는 '지금' 가격이라 기록이 아닌 값
+        if (points < stockRange * 0.6) {
+            const lines = points <= 1
+                ? ['기록을 새로 쌓는 중', '정각마다 점이 하나씩 생겨요']
+                : [`기록을 새로 쌓는 중 · 점 ${points}개`, '정각마다 하나씩 늘어나요'];
+            lines.forEach((text, i) => {
+                const note = svgEl('text', { x: pad.left + plotW / 2, y: pad.top + 12 + i * 14, 'text-anchor': 'middle', class: 'chart-empty' });
+                note.textContent = text;
+                svg.append(note);
+            });
         }
 
         const cross = svgEl('line', { y1: pad.top, y2: pad.top + plotH, stroke: '#898781', 'stroke-width': 1, visibility: 'hidden' });
