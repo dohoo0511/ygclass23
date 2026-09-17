@@ -60,10 +60,27 @@ const check = (name, cond) => results.push([name, !!cond]);
         return { status: res.status, body: await res.json() };
     };
 
-    /* ── 환경 변수가 없을 때 ── */
+    /* ── 환경 변수가 없을 때: 왜 안 보이는지 짚어 줘야 함 ── */
     let r = await call('GET', '?check=1', null, {});
     check('환경 변수 없으면 503', r.status === 503);
     check('무엇이 빠졌는지 알려줌', Array.isArray(r.body.missing) && r.body.missing.length === 2);
+    check('하나도 없으면 그렇게 안내', /하나도 없어요/.test(r.body.hint));
+
+    // 이름을 잘못 적은 경우 → 그 이름을 그대로 보여줘야 함
+    r = await call('GET', '?check=1', null, { JSONBIN_BIN_ID: 'bin123', JSONBIN_API_KEY: 'x' });
+    check('철자 틀린 이름을 찾아냄', r.body.similarNames.includes('JSONBIN_API_KEY'));
+    check('철자 확인을 안내', /철자/.test(r.body.hint));
+    check('빠진 것은 KEY 하나로 보고', r.body.missing.length === 1 && r.body.missing[0] === 'JSONBIN_KEY');
+
+    // 이름은 맞는데 값이 비어 있는 경우
+    r = await call('GET', '?check=1', null, { JSONBIN_BIN_ID: 'bin123', JSONBIN_KEY: '' });
+    check('값이 비었음을 구분해서 알려줌', r.body.emptyValue.includes('JSONBIN_KEY') && /값이 비어/.test(r.body.hint));
+
+    // 값도 이름도 정상인데 KEY 만 아예 없는 경우 → 재배포 안내
+    r = await call('GET', '?check=1', null, { JSONBIN_BIN_ID: 'bin123', GEMINI_API_KEY: 'g' });
+    check('그 밖에는 재배포를 안내', /재배포/.test(r.body.hint));
+    check('관계없는 비밀 이름은 보여주지 않음', !r.body.similarNames.includes('GEMINI_API_KEY'));
+    check('환경 변수 값은 어떤 경우에도 돌려주지 않음', !JSON.stringify(r.body).includes('bin123'));
 
     /* ── 점검 주소 ── */
     storage = { rev: 10, users: { admin: { password: '비밀번호', name: '관리자' }, '1': { pi: 5, password: '1' } }, lastSave: { by: '관리자' } };

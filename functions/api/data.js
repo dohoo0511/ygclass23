@@ -63,22 +63,47 @@ function isAdminPassword(current, password) {
   return !!admin && typeof password === "string" && password.length > 0 && admin.password === password;
 }
 
+// 어떤 환경 변수가 왜 안 보이는지 알려줌.
+// 값은 절대 돌려주지 않고, 이름만 (그것도 저장소와 관련 있어 보이는 것만) 보여준다
+const REQUIRED = ["JSONBIN_BIN_ID", "JSONBIN_KEY"];
+
+function envDiagnosis(env) {
+  const vars = env || {};
+  const names = Object.keys(vars);
+  const missing = REQUIRED.filter((name) => !vars[name]);
+  // 이름은 있는데 값이 비어 있는 경우 (붙여넣기가 안 된 경우)
+  const emptyValue = missing.filter((name) => name in vars);
+  // 철자가 틀렸는지 알 수 있도록, 저장소와 관련 있어 보이는 이름만 보여줌
+  const similarNames = names.filter((name) => /json|bin/i.test(name));
+  const unexpected = similarNames.filter((name) => !REQUIRED.includes(name));
+
+  let hint;
+  if (emptyValue.length > 0) {
+    hint = `${emptyValue.join(", ")} 은(는) 이름만 있고 값이 비어 있어요. 값을 다시 붙여넣고 재배포해주세요.`;
+  } else if (unexpected.length > 0) {
+    hint = `비슷한 이름이 있어요: ${unexpected.join(", ")}. 철자가 ${REQUIRED.join(", ")} 와 정확히 같은지 확인해주세요.`;
+  } else if (names.length === 0) {
+    hint = "이 배포에는 환경 변수가 하나도 없어요. 프로덕션(미리 보기 아님)에 등록하고 재배포해주세요.";
+  } else {
+    hint = `${missing.join(", ")} 을(를) 프로덕션 환경 변수로 등록한 뒤, 배포 탭에서 재배포(Retry deployment)해주세요.`;
+  }
+
+  return {
+    missing,
+    emptyValue,
+    similarNames,
+    varCount: names.length,
+    hint,
+    error: `${missing.join(", ")} 환경 변수가 설정되지 않았어요.`,
+  };
+}
+
 export async function onRequest({ request, env }) {
   const url = new URL(request.url);
   const isCheck = url.searchParams.has("check");
 
   if (!env || !env.JSONBIN_BIN_ID || !env.JSONBIN_KEY) {
-    // 환경 변수가 아직 설정되지 않음 → 화면은 예전 방식(직접 접속)으로 내려감
-    const missing = [
-      !env || !env.JSONBIN_BIN_ID ? "JSONBIN_BIN_ID" : null,
-      !env || !env.JSONBIN_KEY ? "JSONBIN_KEY" : null,
-    ].filter(Boolean);
-    return json({
-      ok: false,
-      step: "환경 변수",
-      missing,
-      error: `${missing.join(", ")} 환경 변수가 설정되지 않았어요. Cloudflare 설정 후 재배포가 필요합니다.`,
-    }, 503);
+    return json({ ok: false, step: "환경 변수", ...envDiagnosis(env) }, 503);
   }
 
   // 설정이 제대로 됐는지 확인하는 용도. 학생 정보는 하나도 돌려주지 않는다
