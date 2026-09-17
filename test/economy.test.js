@@ -34,6 +34,7 @@ eval(script + `
   app.COUPONS = COUPONS; app.basePrice = couponBasePrice; app.priceFor = couponPriceFor;
   app.clamp = clampStockTick; app.push = pushStockHistory; app.nextNews = minutesToNextNews;
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
+  app.LOAN_PCT = LOAN_WEEKLY_INTEREST_PCT; app.SAVE_PCT = SAVINGS_WEEKLY_RATE_PCT;
   app.getDbCouponPrices = () => db.couponPrices;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
@@ -48,10 +49,24 @@ const C = (n, k) => { let r = 1; for (let i = 0; i < k; i++) r = r * (n - i) / (
 
 /* ── 적금: 기간이 길어져도 수익률이 폭주하지 않아야 함 ── */
 const yields = app.K.TERMS.map(w => app.savingsPayout({ principal: 100, weeks: w, weeklyRatePct: app.savingsRatePct(w) }) / 100 - 1);
-check('8주 적금 수익률이 30% 미만 (예전 160%)', yields[yields.length - 1] < 0.30);
+// 예전에는 이율 자체가 기간에 비례해 커지고 만기 계산에서 주수를 또 곱해서
+// 8주 적금이 +160% 였다. 그게 물가가 오르던 원인 중 하나였다.
+// 지금은 주 5% 고정(8주 +40%). 60% 를 넘으면 그 제곱 증가가 돌아온 것으로 본다
+check(`8주 적금 수익률 — ${(yields[yields.length - 1] * 100).toFixed(0)}% (예전 160%)`,
+    yields[yields.length - 1] < 0.60);
 check('적금 이율이 기간에 비례해 커지지 않음 (제곱 증가 없음)',
     app.savingsRatePct(2) === app.savingsRatePct(8));
 check('그래도 기간이 길수록 이득', yields[yields.length - 1] > yields[0]);
+// 적금 이자가 대출 이자보다 높으면, 빌려서 적금에 넣는 것만으로 파이가 생긴다
+check(`적금 이자(주 ${app.SAVE_PCT}%)가 대출 이자(주 ${app.LOAN_PCT}%)보다 낮음`,
+    app.SAVE_PCT < app.LOAN_PCT);
+{
+    // 실제 금액으로도 확인: 100π 를 2주 빌려 적금에 넣으면 손해여야 한다
+    const weeks = 2, principal = 100;
+    const loanCost = principal * app.LOAN_PCT * weeks / 100;
+    const saveGain = app.savingsPayout({ principal, weeks, weeklyRatePct: app.savingsRatePct(weeks) }) - principal;
+    check(`빌려서 적금에 넣으면 손해 — 이자 ${loanCost}π vs 수익 ${saveGain}π`, saveGain < loanCost);
+}
 
 /* ── 로또 ──
    drawLotto 의 실제 분배: 누적 상금(Pot)의 40% 는 1등, 30% 는 2등.

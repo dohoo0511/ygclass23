@@ -807,7 +807,9 @@
     const SAVINGS_MIN_AMOUNT = 20;
     const SAVINGS_TERM_WEEKS = [2, 4, 6, 8];   // 2주 단위, 최대 2달
     const SAVINGS_CANCEL_PENALTY_PCT = 20;
-    const SAVINGS_WEEKLY_RATE_PCT = 2;     // 1주마다 원금의 2% (8주 만기 +16%)
+    // 1주마다 원금의 5% (2주 +10% · 4주 +20% · 6주 +30% · 8주 +40%)
+    // 대출 이자(주 10%)보다 반드시 낮아야 한다. 높으면 빌려서 적금에 넣는 것만으로 파이가 생긴다
+    const SAVINGS_WEEKLY_RATE_PCT = 5;
     // JSONBin 무료 플랜은 저장 크기 100KB 제한이 있어서 기록 개수를 제한함
     const MAX_BANK_LOGS = 80;
     const MAX_CLOSED_RECORDS = 60;
@@ -1216,7 +1218,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-axisfit';
+    const APP_VERSION = '2026-09-17-savings';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
