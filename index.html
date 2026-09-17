@@ -1216,7 +1216,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-tickfix';
+    const APP_VERSION = '2026-09-17-forcepoint';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
@@ -3463,9 +3463,11 @@
     // 정시 뉴스가 영영 나오지 않고 그래프에 점도 쌓이지 않는다.
     // (관리자 '뉴스 추가' 는 회차와 무관해서 주가만 움직인다 — 딱 그 증상이 나타난다)
     // 간격을 바꾸며 회차를 환산하다 어긋난 흔적이라, 어떤 경위든 지금 회차로 끌어내려 스스로 낫게 한다
-    // 기기 시계가 몇 분 빠르면 회차가 한둘 앞설 수 있는데 그건 정상이다.
-    // 그것까지 끌어내리면 같은 회차의 기록이 두 번 쌓이므로, 여유를 두고 크게 어긋났을 때만 고친다
-    const STOCK_TICK_FUTURE_SLACK = 2;
+    // 회차가 조금 앞서는 건 정상이다 — 기기 시계가 몇 분 빠를 수 있고,
+    // 관리자가 '뉴스 추가' 를 누르면 한 칸씩 일부러 앞당겨진다.
+    // 그것까지 끌어내리면 같은 회차 기록이 두 번 쌓이므로, 하루치만큼 여유를 둔다.
+    // 간격 환산이 어긋났던 경우는 수십만 칸이 앞섰으므로 이 기준으로도 충분히 걸린다
+    const STOCK_TICK_FUTURE_SLACK = 24;
     function clampStockTick(st) {
         if (typeof st.lastTick !== 'number') return false;
         const currentTick = Math.floor(Date.now() / STOCK_TICK_MS);
@@ -4435,16 +4437,25 @@
     }
 
     async function adminForceNews() {
-        if (!confirm(`지금 바로 네 회사의 뉴스를 1건씩 발생시킬까요?\n네 회사 주가가 모두 움직입니다.${AI_NEWS_ENDPOINT ? '\nAI가 바로 기사를 써요.' : ''}`)) return;
+        if (!confirm(`지금 바로 네 회사의 뉴스를 1건씩 발생시킬까요?\n\n· 네 회사 주가가 모두 움직입니다\n· 그래프에 점이 하나 찍힙니다\n· 시장 시간이 1시간 앞당겨져, 그만큼 다음 정시 뉴스가 늦어집니다${AI_NEWS_ENDPOINT ? '\n· AI가 바로 기사를 써요' : ''}`)) return;
         if (!await loadData()) return;
         // 회사마다 1건씩. 관리자가 직접 누른 것이니 주가가 반드시 움직이게 한다
         // (평소 뉴스는 열 중 일곱이 주가를 안 움직이므로, 그대로 두면 눌러도 아무 일이 없다)
         const now = Date.now();
         const items = COMPANIES.map(c => runStockEvent(now, c.id, true, true));
-        await saveData();
+        // 그래프에도 점을 찍는다. 점은 '회차 하나에 하나' 라서 회차도 함께 한 칸 앞당긴다.
+        // (historyStartTick + 길이 - 1 === lastTick 관계가 그대로 유지된다)
+        db.stocks.lastTick += 1;
+        pushStockHistory();
+        const aheadHours = db.stocks.lastTick - Math.floor(Date.now() / STOCK_TICK_MS);
+        if (!await saveData()) return;
         renderAdminSection();
 
-        const created = `뉴스 ${items.length}건이 발생했어요.\n${items.map(n => `· ${n.title}`).join('\n')}`;
+        const points = db.stocks.companies[COMPANIES[0].id].history.length;
+        const aheadText = aheadHours > 0
+            ? `\n(시장 시간이 지금보다 ${aheadHours}시간 앞서 있어요. 그만큼 정시 뉴스는 쉽니다)`
+            : '';
+        const created = `뉴스 ${items.length}건이 발생했어요. 그래프 점 ${points}개${aheadText}\n${items.map(n => `· ${n.title}`).join('\n')}`;
         if (!AI_NEWS_ENDPOINT) {
             alert(created);
             return;

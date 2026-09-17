@@ -32,7 +32,7 @@ eval(script + `
   app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
   app.wipe = resetStockHistoryOnce; app.HVER = STOCK_HISTORY_VERSION; app.event = runStockEvent;
   app.COUPONS = COUPONS; app.basePrice = couponBasePrice; app.priceFor = couponPriceFor;
-  app.clamp = clampStockTick;
+  app.clamp = clampStockTick; app.push = pushStockHistory;
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
   app.getDbCouponPrices = () => db.couponPrices;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
@@ -306,6 +306,54 @@ const REAL_NOW = Date.now();
     }
     check(`평소 뉴스는 대부분 주가를 안 움직임 — ${(normalMoved / N * 100).toFixed(0)}%`, normalMoved / N < 0.5);
     check(`관리자가 낸 뉴스는 반드시 움직임 — ${(forcedMoved / N * 100).toFixed(0)}%`, forcedMoved === N);
+}
+
+/* ── 관리자 '뉴스 추가' 가 그래프에도 점을 찍는지 ──
+   점은 '회차 하나에 하나' 라서, 점을 찍으려면 회차도 함께 앞당겨야 한다.
+   그래야 historyStartTick + 길이 - 1 === lastTick 관계가 깨지지 않는다 */
+{
+    const now = Date.now();
+    const d = { users: {}, stocks: null };
+    app.setDb(d);
+    d.stocks = app.initStock(now);
+    const cid = app.COMPANIES[0].id;
+    const axisOk = () => d.stocks.historyStartTick + d.stocks.companies[cid].history.length - 1 === d.stocks.lastTick;
+
+    check('시작할 때 시간축이 맞음', axisOk());
+    const before = { len: d.stocks.companies[cid].history.length, tick: d.stocks.lastTick, price: d.stocks.companies[cid].price };
+
+    // adminForceNews 가 하는 일과 같은 순서
+    const pressForceNews = () => {
+        app.COMPANIES.forEach(c => app.event(Date.now(), c.id, true, true));
+        d.stocks.lastTick += 1;
+        app.push();
+    };
+
+    pressForceNews();
+    check('한 번 누르면 점이 정확히 하나 늘어남', d.stocks.companies[cid].history.length === before.len + 1);
+    check('회차도 한 칸 앞당겨짐', d.stocks.lastTick === before.tick + 1);
+    check('시간축이 그대로 맞음', axisOk());
+    check('주가가 실제로 움직임', d.stocks.companies[cid].price !== before.price);
+    check('마지막 점이 지금 주가와 같음',
+        d.stocks.companies[cid].history[d.stocks.companies[cid].history.length - 1] === d.stocks.companies[cid].price);
+
+    for (let i = 0; i < 5; i++) pressForceNews();
+    check(`여섯 번 누르면 점 ${before.len + 6}개 — ${d.stocks.companies[cid].history.length}개`,
+        d.stocks.companies[cid].history.length === before.len + 6);
+    check('여러 번 눌러도 시간축이 맞음', axisOk());
+
+    // 여러 번 눌러 회차가 앞서도, 자가회복이 되돌리지 않아야 함
+    check('몇 번 눌러 앞선 정도는 자가회복이 건드리지 않음', app.clamp(d.stocks) === false);
+
+    // 앞당긴 만큼 시간이 지나면 정시 뉴스가 다시 이어짐
+    const aheadTick = d.stocks.lastTick;
+    check('앞당긴 시간 안에는 정시 뉴스가 쉼', app.applyTicks(now) === false);
+    check('그 시간이 지나면 다시 나옴', app.applyTicks(now + (aheadTick - Math.floor(now / app.K.TICK) + 2) * HOUR) === true);
+    check('이어서 진행돼도 시간축이 맞음', axisOk());
+
+    // 모든 회사가 함께 늘어야 함 (한 회사만 늘면 그래프가 어긋난다)
+    const lengths = app.COMPANIES.map(c => d.stocks.companies[c.id].history.length);
+    check('네 회사의 점 개수가 모두 같음', lengths.every(l => l === lengths[0]));
 }
 
 /* ── 회차 번호가 미래로 가 있으면 스스로 낫는지 ──
