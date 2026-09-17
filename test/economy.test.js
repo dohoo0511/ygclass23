@@ -32,6 +32,7 @@ eval(script + `
   app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
   app.wipe = resetStockHistoryOnce; app.HVER = STOCK_HISTORY_VERSION; app.event = runStockEvent;
   app.COUPONS = COUPONS; app.basePrice = couponBasePrice; app.priceFor = couponPriceFor;
+  app.clamp = clampStockTick;
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
   app.getDbCouponPrices = () => db.couponPrices;
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
@@ -305,6 +306,51 @@ const REAL_NOW = Date.now();
     }
     check(`평소 뉴스는 대부분 주가를 안 움직임 — ${(normalMoved / N * 100).toFixed(0)}%`, normalMoved / N < 0.5);
     check(`관리자가 낸 뉴스는 반드시 움직임 — ${(forcedMoved / N * 100).toFixed(0)}%`, forcedMoved === N);
+}
+
+/* ── 회차 번호가 미래로 가 있으면 스스로 낫는지 ──
+   회차가 미래면 applyStockTicks 가 곧바로 빠져나가 정시 뉴스가 영영 안 나온다.
+   관리자 '뉴스 추가' 는 회차와 무관해서 주가만 움직이므로,
+   '주가는 바뀌는데 그래프 점은 하나뿐' 인 상태가 된다 (실제로 그렇게 됐다) */
+{
+    const now = Date.now();
+    const d = { users: {}, stocks: null };
+    app.setDb(d);
+    d.stocks = app.initStock(now);
+    const cid = app.COMPANIES[0].id;
+
+    // 간격을 환산하다 어긋난 상태를 흉내 낸다 (회차가 4배로 튀어 있음)
+    d.stocks.lastTick = Math.floor(now / app.K.TICK) * 4;
+    d.stocks.companies[cid].history = [15];
+    d.stocks.historyStartTick = d.stocks.lastTick;
+
+    check('회차가 미래면 정시 뉴스가 안 나옴 (증상 재현)', app.applyTicks(now) === false);
+    check('회차를 지금으로 끌어내림', app.clamp(d.stocks) === true);
+    check('바로잡은 회차가 현재와 맞음', d.stocks.lastTick === Math.floor(now / app.K.TICK));
+    check('시간축도 함께 맞춤',
+        d.stocks.historyStartTick + d.stocks.companies[cid].history.length - 1 === d.stocks.lastTick);
+    check('바로잡은 뒤에는 더 건드리지 않음', app.clamp(d.stocks) === false);
+
+    // 고친 뒤 실제로 점이 쌓이는지
+    app.applyTicks(now + 5 * HOUR);
+    check(`고친 뒤 5시간이면 점 6개 — ${d.stocks.companies[cid].history.length}개`,
+        d.stocks.companies[cid].history.length === 6);
+
+    // 정상 상태는 건드리지 않아야 함 (3시간 전에 시작해 지금까지 정상 진행)
+    const ok = { users: {}, stocks: null };
+    app.setDb(ok);
+    ok.stocks = app.initStock(now - 3 * HOUR);
+    check('정상 상태는 그대로 둠', app.clamp(ok.stocks) === false);
+    app.applyTicks(now);
+    const normalTick = ok.stocks.lastTick;
+    check('정상적으로 회차가 진행된 뒤에도 그대로 둠',
+        app.clamp(ok.stocks) === false && ok.stocks.lastTick === normalTick);
+
+    // 기기 시계가 조금 빠른 경우는 정상으로 봐야 한다 (끌어내리면 같은 회차 기록이 두 번 쌓임)
+    ok.stocks.lastTick = Math.floor(now / app.K.TICK) + 1;
+    check('시계가 한 시간 빠른 정도는 그대로 둠', app.clamp(ok.stocks) === false);
+    ok.stocks.lastTick = Math.floor(now / app.K.TICK) + 50;
+    check('크게 어긋나면 고침', app.clamp(ok.stocks) === true);
 }
 
 /* ── 기록을 비운 뒤 실제로 다시 쌓이는지 ──

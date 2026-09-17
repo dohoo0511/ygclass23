@@ -1216,7 +1216,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-restore';
+    const APP_VERSION = '2026-09-17-tickfix';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 7;
 
@@ -1523,6 +1523,7 @@
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
             if (resetStockHistoryOnce(db.stocks)) changed = true;
+            if (clampStockTick(db.stocks)) changed = true;
             if (!db.stocks.flow || typeof db.stocks.flow.week !== 'number') {
                 db.stocks.flow = emptyStockFlow(stockWeekOf(db.stocks.lastTick * STOCK_TICK_MS));
                 changed = true;
@@ -3456,6 +3457,25 @@
         // 거래가 없던 주는 지난 결과를 그대로 보여줌
         if (Object.keys(items).length > 0) st.lastFlow = { week: st.flow.week, t: stockWeekStart(week), items };
         st.flow = emptyStockFlow(week);
+    }
+
+    // 회차 번호가 미래로 가 있으면 applyStockTicks 가 'currentTick <= lastTick' 으로 곧바로 빠져나가,
+    // 정시 뉴스가 영영 나오지 않고 그래프에 점도 쌓이지 않는다.
+    // (관리자 '뉴스 추가' 는 회차와 무관해서 주가만 움직인다 — 딱 그 증상이 나타난다)
+    // 간격을 바꾸며 회차를 환산하다 어긋난 흔적이라, 어떤 경위든 지금 회차로 끌어내려 스스로 낫게 한다
+    // 기기 시계가 몇 분 빠르면 회차가 한둘 앞설 수 있는데 그건 정상이다.
+    // 그것까지 끌어내리면 같은 회차의 기록이 두 번 쌓이므로, 여유를 두고 크게 어긋났을 때만 고친다
+    const STOCK_TICK_FUTURE_SLACK = 2;
+    function clampStockTick(st) {
+        if (typeof st.lastTick !== 'number') return false;
+        const currentTick = Math.floor(Date.now() / STOCK_TICK_MS);
+        if (st.lastTick <= currentTick + STOCK_TICK_FUTURE_SLACK) return false;
+        st.lastTick = currentTick;
+        const first = st.companies && st.companies[COMPANIES[0].id];
+        const len = first && Array.isArray(first.history) ? first.history.length : 1;
+        st.historyStartTick = currentTick - Math.max(0, len - 1);
+        console.warn('주식 회차 번호가 미래로 가 있어 지금 회차로 맞췄습니다.');
+        return true;
     }
 
     // 예전에 뒤섞인 그래프 기록을 한 번만 털어냄. 주가·보유 주식·파이는 건드리지 않음.
