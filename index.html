@@ -894,14 +894,19 @@
     const CONTRACT_STRAIN_PCT = 50;       // '잡음' 은 해지될 때보다 주가가 덜 움직임
     const CONTRACT_MAX = 3;               // 동시에 맺을 수 있는 계약 수 (여섯 짝 중 절반)
     const CONTRACT_COOLDOWN_TICKS = 24;   // 끊긴 짝은 하루 쉬었다가 다시 맺을 수 있음
-    // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
-    // chance 는 누적 확률. 1시간마다 나오므로 하루 24건이고, 그 중 7건쯤이 주가를 움직인다.
-    // 움직임은 거의 다 1π 씩이라 계단처럼 완만하다. 3π 이상 크게 튀는 건 움직임 중 2.8% 뿐
-    // (예전에는 22.5% 였다. 그때는 하루에도 몇 번씩 주가가 뒤집혔다)
-    // 여기서 더 낮추면(85%) 하루의 8% 는 주가가 한 번도 안 움직여 그래프가 일자로 보인다
+    // 뉴스 하나의 주가 변동 폭. chance 는 누적 확률.
+    // 회사마다 1시간에 뉴스가 하나씩 나오므로, 한 회사 기준 하루 24건이다.
+    //
+    // 예전에는 'none'(변동 없음)이 70% 였다. 그러면 한 회사를 지켜볼 때 시간의 64% 가
+    // 그대로고, 길게는 13시간 연속 한 번도 안 움직였다. 기사 열 개 중 일곱 개가
+    // '거의 움직이지 않았다' 라서, 주식이 멈춘 것처럼 보였다.
+    // 50% 로 낮추면 그대로인 시간이 44%, 가장 오래 멈추는 구간이 6시간으로 줄어든다.
+    //
+    // 대신 움직임은 여전히 거의 다 1π 씩이라 계단처럼 완만하다.
+    // 3π 이상 크게 튀는 건 전체의 0.8% 뿐 (예전 22.5% 던 시절에는 하루에도 몇 번씩 뒤집혔다)
     const NEWS_MAGNITUDES = [
-        { level: 'none',   chance: 0.70,  amount: 0 },
-        { level: 'small',  chance: 0.94,  amount: 1 },
+        { level: 'none',   chance: 0.50,  amount: 0 },
+        { level: 'small',  chance: 0.90,  amount: 1 },
         { level: 'medium', chance: 0.992, amount: 2 },
         { level: 'large',  chance: 0.999, amount: 3 },
         { level: 'huge',   chance: 1,     amount: 4 }
@@ -1232,9 +1237,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-18-contracts';
+    const APP_VERSION = '2026-09-18-liveliness';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 10;
+    const APP_BUILD = 11;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
