@@ -830,26 +830,39 @@
     const RANDOM_BOX_PRICE = 3;
     // 가중치 합계 100 = 확률(%). 꽝·1파이·2파이·음악 우선 신청권 합계 70, 나머지 합계 30
     // 실질 가치(파이 금액 또는 상점 판매가)가 클수록 확률이 낮아지도록 설계
+    /* 상자 확률은 표에 적어 두지 않고, 보상의 '값어치' 에서 그때그때 계산한다 (boxOdds).
+       쿠폰의 값어치는 관리자가 상점에서 정한 '지금 가격' 이다.
+       그래서 쿠폰 값을 바꾸면 상자 확률도 저절로 따라 바뀌고, 둘이 어긋나지 않는다.
+
+       share 가 적힌 것(꽝·1파이·2파이)은 확률이 고정이다. 값이 싸서 어차피 자주 나와야 하고,
+       이 셋이 '파이가 새로 생기는 양' 을 거의 결정하기 때문에 손으로 잡아 둔다.
+       나머지는 남은 몫(20%)을 값어치에 따라 나눠 갖는다. */
     const RANDOM_BOX_REWARDS = [
-        // 꽝·1파이·2파이·음악 우선 신청권 합계 92%, 나머지 보상 합계 8%
-        { name: '꽝',              weight: 33,   tier: 'none',      type: 'none' },
-        { name: '1파이',           weight: 26,   tier: 'common',    type: 'pi',   amount: 1 },
-        { name: '2파이',           weight: 20,   tier: 'common',    type: 'pi',   amount: 2 },
-        { name: '음악 우선 신청권', weight: 13,   tier: 'common',    type: 'item' },
-        { name: '로또 1장',        weight: 1.9,  tier: 'common',    type: 'lotto' },
-        { name: '간식 교환권',      weight: 1.6,  tier: 'common',    type: 'item' },
-        { name: '6파이',           weight: 1.3,  tier: 'rare',      type: 'pi',   amount: 6 },
-        { name: '반장 간식 갈취권', weight: 1.05, tier: 'rare',      type: 'item' },
-        { name: '9파이',           weight: 0.8,  tier: 'rare',      type: 'pi',   amount: 9 },
-        { name: '청소 면제권',      weight: 0.55, tier: 'rare',      type: 'item' },
-        { name: '12파이',          weight: 0.35, tier: 'rare',      type: 'pi',   amount: 12 },
-        { name: '15파이',          weight: 0.21, tier: 'legendary', type: 'pi',   amount: 15 },
-        { name: '20파이',          weight: 0.13, tier: 'legendary', type: 'pi',   amount: 20 },
-        { name: '3일 자리 선택권',  weight: 0.05, tier: 'legendary', type: 'item' },
-        { name: '30파이',          weight: 0.03, tier: 'legendary', type: 'pi',   amount: 30 },
-        { name: '자리 지정권',      weight: 0.02, tier: 'legendary', type: 'item' },
-        { name: '짝꿍 선택권',      weight: 0.01, tier: 'legendary', type: 'item', hiddenTrigger: true }
+        { name: '꽝',              share: 0.33,  tier: 'none',      type: 'none' },
+        { name: '1파이',           share: 0.26,  tier: 'common',    type: 'pi',   amount: 1 },
+        { name: '2파이',           share: 0.21,  tier: 'common',    type: 'pi',   amount: 2 },
+        { name: '음악 우선 신청권',                tier: 'common',    type: 'item' },
+        { name: '로또 1장',                       tier: 'common',    type: 'lotto' },
+        { name: '간식 교환권',                     tier: 'common',    type: 'item' },
+        { name: '6파이',                          tier: 'rare',      type: 'pi',   amount: 6 },
+        { name: '반장 간식 갈취권',                tier: 'rare',      type: 'item' },
+        { name: '9파이',                          tier: 'rare',      type: 'pi',   amount: 9 },
+        { name: '청소 면제권',                     tier: 'rare',      type: 'item' },
+        { name: '12파이',                         tier: 'rare',      type: 'pi',   amount: 12 },
+        { name: '15파이',                         tier: 'legendary', type: 'pi',   amount: 15 },
+        { name: '20파이',                         tier: 'legendary', type: 'pi',   amount: 20 },
+        { name: '3일 자리 선택권',                 tier: 'legendary', type: 'item' },
+        { name: '30파이',                         tier: 'legendary', type: 'pi',   amount: 30 },
+        { name: '자리 지정권',                     tier: 'legendary', type: 'item' },
+        { name: '짝꿍 선택권',                     tier: 'legendary', type: 'item', hiddenTrigger: true }
     ];
+    // 값어치가 두 배면 몇 배나 귀해지는가. 지금 쿠폰 값에서 예전 확률표와 거의 같은 결과가 나오도록 맞춤
+    const BOX_RARITY_EXPONENT = 2.45;
+    // 아무리 비싸도 이보다 드물지는 않게. 3천 번에 한 번(1년에 두 번쯤)은 나와야 상품이라 할 수 있다.
+    // 이게 없으면 80π 쿠폰이 1만 6천 번에 한 번이 되어, 학생이 평생 한 번도 못 본다
+    const BOX_PRIZE_MIN_SHARE = 0.00035;
+    // 한 보상이 상품 몫을 통째로 삼키지 못하게 하는 안전장치 (쿠폰을 0π 로 만든 경우 등)
+    const BOX_PRIZE_MAX_SHARE = 0.12;
     // hiddenTrigger 보상이 뽑혔을 때 이 확률로 히든 보상으로 바뀜 (확률표에는 ???로 표시)
     const HIDDEN_REWARD_CHANCE = 0.05;
     const HIDDEN_REWARD = { name: '100파이', tier: 'hidden', type: 'pi', amount: 100 };
@@ -1250,9 +1263,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-18-freeprice';
+    const APP_VERSION = '2026-09-18-boxodds';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 12;
+    const APP_BUILD = 13;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -2020,25 +2033,66 @@
         if (table.style.display !== 'none') renderRandomBoxProbTable();
     }
 
+    // 보상 하나의 값어치(π). 쿠폰은 지금 상점 가격을 그대로 쓴다
+    function boxRewardValue(reward) {
+        if (reward.type === 'pi') return reward.amount;
+        if (reward.type === 'lotto') return LOTTO_TICKET_PRICE;
+        if (reward.type === 'item') {
+            const coupon = COUPONS.find(c => c.name === reward.name);
+            return coupon ? couponBasePrice(coupon) : 1;
+        }
+        return 0;
+    }
+
+    // 보상별 확률(합이 1). 값어치가 클수록 귀하되, 바닥과 천장을 벗어나지 않게 다듬는다
+    function boxOdds() {
+        const fixed = RANDOM_BOX_REWARDS.filter(r => typeof r.share === 'number');
+        const prizes = RANDOM_BOX_REWARDS.filter(r => typeof r.share !== 'number');
+        const prizeShare = Math.max(0, 1 - fixed.reduce((sum, r) => sum + r.share, 0));
+
+        const raw = prizes.map(r => 1 / Math.pow(Math.max(1, boxRewardValue(r)), BOX_RARITY_EXPONENT));
+        const rawSum = raw.reduce((a, b) => a + b, 0) || 1;
+        let p = raw.map(w => w / rawSum * prizeShare);
+
+        // 바닥보다 드문 것은 올리고 천장보다 흔한 것은 내린 뒤, 바뀐 만큼을 나머지에서 고르게 덜어낸다
+        const lo = Math.min(BOX_PRIZE_MIN_SHARE, prizeShare / prizes.length);
+        const hi = Math.max(BOX_PRIZE_MAX_SHARE, lo);
+        for (let i = 0; i < 50; i++) {
+            const over = p.reduce((s, v) => s + (v < lo ? lo - v : 0) + (v > hi ? v - hi : 0) * -1, 0);
+            if (Math.abs(over) < 1e-12) break;
+            const free = p.reduce((s, v) => s + (v > lo && v < hi ? v : 0), 0);
+            if (free <= 0) break;
+            p = p.map(v => (v < lo ? lo : v > hi ? hi : v - over * v / free));
+        }
+        const odds = new Map();
+        fixed.forEach(r => odds.set(r, r.share));
+        prizes.forEach((r, i) => odds.set(r, p[i]));
+        return RANDOM_BOX_REWARDS.map(r => ({ reward: r, p: odds.get(r) || 0 }));
+    }
+
     function drawRandomBoxReward() {
-        const totalWeight = RANDOM_BOX_REWARDS.reduce((sum, r) => sum + r.weight, 0);
-        let rand = Math.random() * totalWeight;
-        for (const reward of RANDOM_BOX_REWARDS) {
-            if (rand < reward.weight) {
+        const odds = boxOdds();
+        const total = odds.reduce((sum, o) => sum + o.p, 0);
+        let rand = Math.random() * total;
+        for (const { reward, p } of odds) {
+            if (rand < p) {
                 if (reward.hiddenTrigger && Math.random() < HIDDEN_REWARD_CHANCE) return HIDDEN_REWARD;
                 return reward;
             }
-            rand -= reward.weight;
+            rand -= p;
         }
         return RANDOM_BOX_REWARDS[0];
     }
 
     function renderRandomBoxProbTable() {
         const container = document.getElementById('randomBoxProbTable');
-        const totalWeight = RANDOM_BOX_REWARDS.reduce((sum, r) => sum + r.weight, 0);
+        const odds = boxOdds();
+        const total = odds.reduce((sum, o) => sum + o.p, 0) || 1;
         let html = `<table class="random-box-prob-table"><tr><th>보상</th><th>확률</th></tr>`;
-        RANDOM_BOX_REWARDS.forEach(r => {
-            const pct = parseFloat((r.weight / totalWeight * 100).toFixed(2));
+        odds.forEach(({ reward: r, p }) => {
+            const share = p / total * 100;
+            // 아주 드문 보상은 0% 로 보이지 않게 자릿수를 늘린다
+            const pct = share >= 0.1 ? parseFloat(share.toFixed(2)) : parseFloat(share.toFixed(3));
             html += `<tr><td>${esc(r.name)}</td><td>${pct}%</td></tr>`;
         });
         html += `<tr><td>🌟 히든 보상</td><td>???</td></tr></table>`;

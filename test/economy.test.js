@@ -36,6 +36,9 @@ eval(script + `
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
   app.LOAN_PCT = LOAN_WEEKLY_INTEREST_PCT; app.SAVE_PCT = SAVINGS_WEEKLY_RATE_PCT;
   app.getDbCouponPrices = () => db.couponPrices;
+  app.boxOdds = boxOdds; app.boxValue = boxRewardValue;
+  app.BOX = { PRICE: RANDOM_BOX_PRICE, MIN: BOX_PRIZE_MIN_SHARE, MAX: BOX_PRIZE_MAX_SHARE,
+              HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD };
   app.CONTRACT = { MIN_TICKS: CONTRACT_MIN_TICKS, MAX: CONTRACT_MAX,
                    COOLDOWN: CONTRACT_COOLDOWN_TICKS, END_CHANCE: CONTRACT_END_CHANCE };
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
@@ -582,6 +585,70 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
+
+/* ── 랜덤상자 확률이 쿠폰 가격과 어긋나지 않아야 함 ──
+   확률을 표에 적어 두면, 관리자가 상점에서 쿠폰 값을 바꾼 순간 둘이 어긋난다.
+   (80π 쿠폰이 5π 쿠폰보다 흔해지는 일도 생길 수 있다)
+   그래서 확률을 '지금 쿠폰 가격' 에서 그때그때 계산한다. 그게 실제로 되는지 확인한다. */
+{
+    const boxStats = (prices) => {
+        app.setDb({ users: {}, couponPrices: prices || {} });
+        const odds = app.boxOdds();
+        let ev = 0, cash = 0;
+        odds.forEach(({ reward: r, p }) => {
+            const v = app.boxValue(r);
+            if (r.hiddenTrigger) {
+                ev += p * (v * (1 - app.BOX.HID_CH) + app.BOX.HID.amount * app.BOX.HID_CH);
+                cash += p * app.BOX.HID_CH * app.BOX.HID.amount;
+            } else ev += p * v;
+            if (r.type === 'pi') cash += p * r.amount;
+        });
+        const at = name => odds.find(o => o.reward.name === name).p;
+        return { odds, ev, cash, at, total: odds.reduce((s, o) => s + o.p, 0) };
+    };
+
+    const base = boxStats();
+    check(`상자 확률 합계가 100% — ${(base.total * 100).toFixed(3)}%`, Math.abs(base.total - 1) < 1e-9);
+    check(`상자가 파이를 늘리지 않음 — ${app.BOX.PRICE}π 내고 ${base.cash.toFixed(2)}π 생김`,
+        base.cash < app.BOX.PRICE);
+    // 예전 손으로 만든 표와 같은 수준이어야 물가가 흔들리지 않는다 (기대값 1.63π · 현금 0.92π 였다)
+    check(`기대값이 예전 수준 — ${base.ev.toFixed(2)}π (예전 1.63π)`, Math.abs(base.ev - 1.63) < 0.15);
+    check(`현금 창출이 예전 수준 — ${base.cash.toFixed(2)}π (예전 0.92π)`, Math.abs(base.cash - 0.92) < 0.08);
+
+    // 비싼 쿠폰이 싼 쿠폰보다 흔하면 안 된다
+    const couponNames = app.COUPONS.map(c => c.name).filter(n => base.odds.some(o => o.reward.name === n));
+    let ordered = true;
+    for (const a of couponNames) for (const b of couponNames) {
+        if (app.basePrice(app.COUPONS.find(c => c.name === a)) < app.basePrice(app.COUPONS.find(c => c.name === b))
+            && base.at(a) < base.at(b) - 1e-12) ordered = false;
+    }
+    check('싼 쿠폰이 비싼 쿠폰보다 흔함 (거꾸로 된 곳 없음)', ordered);
+
+    // 학생이 평생 한 번도 못 보는 상품이 없어야 한다
+    const rarest = Math.min(...base.odds.filter(o => o.reward.type !== 'none').map(o => o.p));
+    check(`가장 드문 상품도 ${Math.round(1 / rarest)}번에 한 번 (바닥 ${Math.round(1 / app.BOX.MIN)}번)`,
+        rarest >= app.BOX.MIN - 1e-12);
+
+    // 관리자가 쿠폰 값을 바꾸면 확률이 따라와야 한다
+    const dearer = boxStats({ '청소 면제권': 40 });
+    check(`쿠폰을 비싸게 하면 더 귀해짐 — 10π 때 ${(base.at('청소 면제권') * 100).toFixed(3)}% → 40π 때 ${(dearer.at('청소 면제권') * 100).toFixed(3)}%`,
+        dearer.at('청소 면제권') < base.at('청소 면제권'));
+    const cheaper = boxStats({ '짝꿍 선택권': 6 });
+    check(`쿠폰을 싸게 하면 더 흔해짐 — 80π 때 ${(base.at('짝꿍 선택권') * 100).toFixed(3)}% → 6π 때 ${(cheaper.at('짝꿍 선택권') * 100).toFixed(3)}%`,
+        cheaper.at('짝꿍 선택권') > base.at('짝꿍 선택권'));
+
+    // 쿠폰을 공짜로 만들어도 상자가 그것만 주면 안 된다
+    const free = boxStats({ '청소 면제권': 0 });
+    check(`공짜 쿠폰이 상자를 삼키지 않음 — ${(free.at('청소 면제권') * 100).toFixed(1)}% (천장 ${app.BOX.MAX * 100}%)`,
+        free.at('청소 면제권') <= app.BOX.MAX + 1e-9);
+    check('그때도 확률 합계는 100%', Math.abs(free.total - 1) < 1e-9);
+
+    // 터무니없는 값이 저장돼 있어도 버텨야 함
+    [-5, 1.5, '20', null, NaN].forEach(bad => {
+        const r = boxStats({ '청소 면제권': bad });
+        check(`이상한 쿠폰 값(${String(bad)})에도 확률이 멀쩡함`, Math.abs(r.total - 1) < 1e-9 && r.ev > 0);
+    });
+}
 
 /* ── 주가가 제 갈 길을 가되, 바닥에 눌러앉거나 끝없이 오르지 않아야 함 ──
    예전에는 기준가를 늘 '시작 주가' 로 끌어당겨서, 어떤 회사든 결국 제자리로 돌아왔다.
