@@ -900,18 +900,20 @@
     // 예전에는 'none'(변동 없음)이 70% 였다. 그러면 한 회사를 지켜볼 때 시간의 64% 가
     // 그대로고, 길게는 13시간 연속 한 번도 안 움직였다. 기사 열 개 중 일곱 개가
     // '거의 움직이지 않았다' 라서, 주식이 멈춘 것처럼 보였다.
-    // 50% 로 낮추면 그대로인 시간이 44%, 가장 오래 멈추는 구간이 6시간으로 줄어든다.
+    // 70% → 50% → 35% 로 두 번 낮췄다. 지금은 그대로인 시간이 32%, 가장 오래 6시간이다.
     //
     // 대신 움직임은 여전히 거의 다 1π 씩이라 계단처럼 완만하다.
     // 3π 이상 크게 튀는 건 전체의 0.8% 뿐 (예전 22.5% 던 시절에는 하루에도 몇 번씩 뒤집혔다)
     const NEWS_MAGNITUDES = [
-        { level: 'none',   chance: 0.50,  amount: 0 },
-        { level: 'small',  chance: 0.90,  amount: 1 },
+        { level: 'none',   chance: 0.35,  amount: 0 },
+        { level: 'small',  chance: 0.87,  amount: 1 },
         { level: 'medium', chance: 0.992, amount: 2 },
         { level: 'large',  chance: 0.999, amount: 3 },
         { level: 'huge',   chance: 1,     amount: 4 }
     ];
     const STOCK_MOOD_STRENGTH = 0.2;      // 시장·회사 분위기가 호재 확률에 주는 영향
+    // '기준가' 는 시작 주가가 아니라, 그 회사가 최근에 머물던 가격이다 (아래 ANCHOR 설명 참고).
+    // 그래서 이 힘은 '원점으로 돌아가는 힘' 이 아니라 '하루 안에서 너무 튀지 않게 하는 힘' 이다
     const STOCK_REVERSION_STRENGTH = 0.8; // 기준가에서 멀어질수록 반대 방향 뉴스가 나올 확률을 높임
     // 지금까지 나온 뉴스의 흐름(추세). 오르던 회사는 계속 오르고, 내리던 회사는 계속 내리게 함.
     // 추세가 없으면 호재·악재가 매번 동전 던지기라 주가가 오르락내리락만 하고 흐름이 안 보인다.
@@ -921,9 +923,20 @@
     const STOCK_TREND_DECAY = 0.97;       // 추세가 남아 있는 정도. 높을수록 흐름이 오래 감 (뉴스 1건마다 갱신)
     const STOCK_TREND_STEP = 0.5;         // 뉴스 1건이 추세를 바꾸는 정도
     const STOCK_ANCHOR_FOLLOW = 0.01;     // 기준가가 실제 가격을 따라가는 속도 (뉴스 1건마다)
-    // 최저가(5π) 아래로는 못 내려가니 위로만 열려 있어, 귀환력이 약하면 주가가 슬금슬금 오르기만 한다.
-    // 0.12 면 90일 드리프트가 거의 0 이면서 추세도 살아 있다 (실측으로 고름)
-    const STOCK_ANCHOR_HOME = 0.12;       // 기준가가 시작 주가로 돌아오는 속도
+
+    /* 예전에는 기준가를 늘 '시작 주가' 로 끌어당겼다(STOCK_ANCHOR_HOME). 그래서 어떤 회사든
+       결국 처음 가격 근처로 돌아왔고, 회사마다 자리를 잡는 맛이 없었다. 그 힘을 없앴다.
+       대신 양 끝에서만 붙잡는다: 바닥 가까우면 호재가, 천장 가까우면 악재가 잘 나온다.
+       가운데(10~40π)에서는 아무 힘도 걸리지 않아, 회사가 오래 오르기도 오래 내리기도 한다.
+       천장이 필요한 이유: 최저가는 5π 로 막혀 있어 위로만 열려 있다. 누르지 않으면 주가가
+       슬금슬금 오르기만 하고, 10주만 들고 있어도 학생 재산이 수백 π 가 되어 물가가 무너진다. */
+    const STOCK_SUPPORT_PRICE = 14;       // 이 아래로 내려가면 호재 쪽으로 받쳐 줌
+    const STOCK_SUPPORT_STRENGTH = 0.7;   // 바닥에 닿을수록 호재 확률을 이만큼까지 올림
+    // 받침이 약하면(10π·0.45) 주가가 시간의 7.5% 를 최저가에 눌러앉아 있었다.
+    // 14π·0.7 로 올리니 0.8% 로 줄었다. '아래로만 간다' 는 느낌이 여기서 왔다
+    const STOCK_CEILING_PRICE = 30;       // 이 위로 올라가면 악재 쪽으로 눌러 줌
+    const STOCK_CEILING_STRENGTH = 0.6;
+    const STOCK_EDGE_RAMP = 12;           // 천장에서 이만큼 더 오르면 누르는 힘이 최대가 됨
     // 흐름이 이어지는 동안 기준가 자체를 조금씩 밀어준다.
     // 주가는 되돌림이 세서 기준가에 바짝 붙어 다니므로, 하루 안에서는 잔잔하면서
     // 날짜가 지나면 상승세·하락세가 눈에 보이게 된다
@@ -1237,9 +1250,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-18-liveliness';
+    const APP_VERSION = '2026-09-18-freeprice';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 11;
+    const APP_BUILD = 12;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -3663,11 +3676,25 @@
             const s = st.companies[id];
             return clamp((s.price - s.anchor) / Math.max(s.anchor, 10) * 2, -1, 1);
         };
+        // 바닥 근처면 호재 쪽으로(+), 천장 근처면 악재 쪽으로(-). 가운데에서는 0 이라 아무 힘도 없다
+        const edge = id => {
+            const p = st.companies[id].price;
+            if (p < STOCK_SUPPORT_PRICE) {
+                const depth = (STOCK_SUPPORT_PRICE - p) / Math.max(1, STOCK_SUPPORT_PRICE - STOCK_MIN_PRICE);
+                return STOCK_SUPPORT_STRENGTH * Math.min(1, depth);
+            }
+            if (p > STOCK_CEILING_PRICE) {
+                const height = (p - STOCK_CEILING_PRICE) / STOCK_EDGE_RAMP;
+                return -STOCK_CEILING_STRENGTH * Math.min(1, height);
+            }
+            return 0;
+        };
         const goodChance = id => clamp(
             0.5
             + STOCK_MOOD_STRENGTH * clamp((st.marketMood + st.companies[id].mood) / 2, -1, 1)
             + STOCK_TREND_STRENGTH * st.companies[id].trend    // 오르던 흐름이면 호재가 더 잘 나옴
-            - STOCK_REVERSION_STRENGTH * pull(id),
+            - STOCK_REVERSION_STRENGTH * pull(id)              // 제 기준가에서 너무 벗어나지 않게 (시작가가 아님)
+            + edge(id),                                        // 바닥은 받치고 천장은 누름
             0.1, 0.9);
 
         const item = { id: 'n' + st.eventCount, t: time, ai: false };
@@ -3762,7 +3789,6 @@
             const s = st.companies[c.id];
             const next = s.anchor
                 + (s.price - s.anchor) * STOCK_ANCHOR_FOLLOW
-                + (c.startPrice - s.anchor) * STOCK_ANCHOR_HOME
                 + s.trend * STOCK_ANCHOR_DRIFT;
             s.anchor = Math.round(clamp(next, STOCK_MIN_PRICE, STOCK_MAX_PRICE) * 1000) / 1000;
         });

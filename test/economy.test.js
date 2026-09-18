@@ -159,8 +159,9 @@ check(`학생 1명이 한도까지 들고 있어도 배당은 주 ${weekly.toFix
 const magPct = app.K.MAG.map((m, i) => m.chance - (i ? app.K.MAG[i - 1].chance : 0));
 // 움직이지 않는 뉴스가 너무 많으면 주식이 멈춘 것처럼 보인다.
 // 70% 였을 때 실제로 그랬다: 한 회사가 시간의 64% 를 그대로 있었고 길게는 13시간 연속이었다.
+// 70% → 50% → 35% 로 두 번 낮췄다 (교실에서 계속 '멈춰 보인다' 는 말이 나와서).
 // 그렇다고 0 에 가까우면 매시간 출렁여서 흐름이 안 보인다. 그 사이를 지킨다
-check(`움직이지 않는 뉴스가 40~60% — ${(magPct[0] * 100).toFixed(0)}%`, magPct[0] >= 0.4 && magPct[0] <= 0.6);
+check(`움직이지 않는 뉴스가 30~50% — ${(magPct[0] * 100).toFixed(0)}%`, magPct[0] >= 0.3 && magPct[0] <= 0.5);
 // 1시간마다 24건이 나온다. 하루 10~16번은 움직여야 '멈춘 것 같다' 는 말이 안 나온다
 // (예전 목표는 5~10번이었는데, 교실에서 써 보니 그 정도로는 멈춘 것처럼 보였다)
 const movesPerDay = (24 * 3600 * 1000 / app.K.TICK) * (1 - magPct[0]);
@@ -581,6 +582,50 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
+
+/* ── 주가가 제 갈 길을 가되, 바닥에 눌러앉거나 끝없이 오르지 않아야 함 ──
+   예전에는 기준가를 늘 '시작 주가' 로 끌어당겨서, 어떤 회사든 결국 제자리로 돌아왔다.
+   그 힘을 없애고 양 끝에서만 붙잡도록 바꿨다. 그래서 확인할 것이 세 가지다.
+     1) 정말 제자리로 안 돌아오는가 (회사마다 새 자리를 찾는가)
+     2) 그렇다고 최저가에 눌러앉지는 않는가 ('아래로만 간다' 던 문제)
+     3) 그렇다고 끝없이 오르지도 않는가 (10주 든 학생 재산이 수백 π 가 되면 물가가 무너짐) */
+(function priceBand() {
+    const HOUR = 3600 * 1000, DAYS = 60, SEEDS = 3;
+    let floorSamples = 0, samples = 0, maxPrice = 0;
+    let driftSum = 0, moveAwaySum = 0, n = 0;
+
+    for (let k = 0; k < SEEDS; k++) {
+        const start = Date.now() - DAYS * 24 * HOUR;
+        const market = app.initStock(start);
+        market.seed += k * 7919;
+        app.setDb({ users: {}, stocks: market, lotto: {}, bank: { loans: [], savings: [], logs: [] }, usageRequests: [] });
+        for (let h = 1; h <= DAYS * 24; h++) {
+            app.tickTo(start + h * HOUR);
+            app.COMPANIES.forEach(c => {
+                const p = market.companies[c.id].price;
+                samples++; if (p <= app.K.MIN + 1) floorSamples++;
+                maxPrice = Math.max(maxPrice, p);
+            });
+        }
+        const finals = app.COMPANIES.map(c => market.companies[c.id].price);
+        const starts = app.COMPANIES.map(c => c.startPrice);
+        driftSum += finals.reduce((a, b) => a + b, 0) / starts.reduce((a, b) => a + b, 0) - 1;
+        moveAwaySum += finals.reduce((sum, p, i) => sum + Math.abs(p - starts[i]) / starts[i], 0) / finals.length;
+        n++;
+    }
+    const floorPct = floorSamples / samples * 100;
+    const drift = driftSum / n * 100;
+    const moveAway = moveAwaySum / n * 100;
+
+    check(`회사가 제자리로 돌아오지 않음 — 시작가에서 평균 ${moveAway.toFixed(0)}% 떨어진 곳에 있음`,
+        moveAway >= 20);
+    check(`최저가에 눌러앉지 않음 — 바닥 부근에 머문 시간 ${floorPct.toFixed(1)}% (받침 넣기 전 7.5%)`,
+        floorPct < 3);
+    check(`${DAYS}일 지나도 전체 물가가 크게 밀리지 않음 — ${drift >= 0 ? '+' : ''}${drift.toFixed(0)}%`,
+        Math.abs(drift) <= 25);
+    check(`주가가 학생 재산을 무너뜨릴 만큼 비싸지지 않음 — 최고 ${maxPrice}π (${app.K.TOTAL}주 들면 ${maxPrice * app.K.TOTAL}π)`,
+        maxPrice <= 70);
+})();
 
 /* ── 계약이 너무 빨리 끊어지지 않아야 함 ──
    회사가 넷이라 짝은 여섯뿐인데 1시간마다 네 회사의 뉴스가 나온다. 그래서 한 짝이
