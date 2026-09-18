@@ -26,7 +26,7 @@ global.setInterval = () => 0; global.setTimeout = () => 0;
 
 const app = {};
 eval(script + `
-  app.initStock = initStockMarket; app.applyTicks = applyStockTicks; app.setDb = v => { db = v; };
+  app.initStock = initStockMarket; app.applyTicks = applyStockTicks; app.tickTo = applyStockTicks; app.setDb = v => { db = v; };
   app.COMPANIES = COMPANIES; app.holdingOf = holdingOf; app.buyableQty = buyableQty;
   app.totalHeldQty = totalHeldQty; app.savingsPayout = savingsPayout; app.savingsRatePct = savingsRatePct;
   app.migSize = migrateStockTickSize; app.series = stockSeries; app.scale = chartScale;
@@ -36,6 +36,8 @@ eval(script + `
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
   app.LOAN_PCT = LOAN_WEEKLY_INTEREST_PCT; app.SAVE_PCT = SAVINGS_WEEKLY_RATE_PCT;
   app.getDbCouponPrices = () => db.couponPrices;
+  app.CONTRACT = { MIN_TICKS: CONTRACT_MIN_TICKS, MAX: CONTRACT_MAX,
+                   COOLDOWN: CONTRACT_COOLDOWN_TICKS, END_CHANCE: CONTRACT_END_CHANCE };
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
             LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
@@ -572,6 +574,49 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
+
+/* ── 계약이 너무 빨리 끊어지지 않아야 함 ──
+   회사가 넷이라 짝은 여섯뿐인데 1시간마다 네 회사의 뉴스가 나온다. 그래서 한 짝이
+   다시 등장할 확률이 시간당 20% 나 되고, 예전에는 그때 나쁜 소식이면 바로 해지되어
+   계약이 반나절도 못 갔다 (중앙값 9시간, 89%가 하루를 못 넘김).
+   진짜 주식 엔진을 120일 돌려서 확인한다. */
+(function contractLifetimes() {
+    const HOUR = 3600 * 1000;
+    const DAYS = 120;
+    const start = Date.now() - DAYS * 24 * HOUR;
+    const market = app.initStock(start);
+    app.setDb({ users: {}, stocks: market, lotto: {}, bank: { loans: [], savings: [], logs: [] }, usageRequests: [] });
+
+    const signedAt = {}, endedAt = {}, lives = [];
+    let maxAtOnce = 0, tooSoonRejoin = 0;
+    let prev = new Set();
+    for (let h = 1; h <= DAYS * 24; h++) {
+        app.tickTo(start + h * HOUR);
+        const now = new Set(market.contracts);
+        for (const k of now) if (!prev.has(k)) {
+            signedAt[k] = h;
+            if (endedAt[k] !== undefined && h - endedAt[k] < app.CONTRACT.COOLDOWN) tooSoonRejoin++;
+        }
+        for (const k of prev) if (!now.has(k)) { lives.push(h - signedAt[k]); endedAt[k] = h; }
+        maxAtOnce = Math.max(maxAtOnce, now.size);
+        prev = now;
+    }
+    lives.sort((a, b) => a - b);
+    const median = lives[Math.floor(lives.length / 2)];
+    const shortest = lives[0];
+    const underADay = lives.filter(x => x < 24).length;
+
+    check(`계약이 여러 번 맺고 끊어질 만큼 돌아감 — ${lives.length}건`, lives.length >= 20);
+    check(`가장 짧은 계약도 최소 유지 기간을 채움 — ${shortest}시간 (기준 ${app.CONTRACT.MIN_TICKS})`,
+        shortest >= app.CONTRACT.MIN_TICKS);
+    check(`하루도 못 간 계약이 없음 — ${underADay}건 (예전 89%)`, underADay === 0);
+    check(`계약이 보통 이틀은 넘게 감 — 중앙값 ${median}시간 (${(median / 24).toFixed(1)}일, 예전 9시간)`,
+        median >= 48);
+    // 오래 간다고 여섯 짝이 모두 묶여 버리면, 모든 회사가 같이 움직여서 재미가 없어진다
+    check(`동시 계약이 상한을 넘지 않음 — 최대 ${maxAtOnce}개 (상한 ${app.CONTRACT.MAX})`,
+        maxAtOnce <= app.CONTRACT.MAX);
+    check('끊기자마자 같은 짝이 다시 맺지 않음', tooSoonRejoin === 0);
+})();
 
 console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
 const failed = results.filter(x => !x[1]).length;

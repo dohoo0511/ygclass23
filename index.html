@@ -882,6 +882,18 @@
     const AI_BATCH_SIZE = 8;              // AI에 한 번에 보내는 뉴스 수
     const AI_RETRY_COOLDOWN_MS = 3 * 60 * 1000;
     const STOCK_SPILLOVER_PCT = 50;       // 계약 상대 회사가 함께 움직이는 비율 (소수점 버림 → 1π짜리 뉴스는 옮겨가지 않음)
+
+    /* 계약이 얼마나 오래 가는가.
+       회사가 넷이라 짝은 여섯 가지뿐이고, 1시간마다 네 회사의 뉴스가 하나씩 나온다.
+       그래서 한 짝이 다시 뉴스에 등장할 확률이 시간당 20% 나 된다.
+       예전에는 그때 나쁜 소식이 나오면 바로 해지되어, 계약이 반나절도 못 갔다.
+       (밤새 쌓인 뉴스를 한꺼번에 처리할 때는 학생이 보기도 전에 맺었다 끊어졌다)
+       이제 맺은 계약은 최소 이틀은 유지되고, 그 뒤에도 한 번에 끊기지 않는다. */
+    const CONTRACT_MIN_TICKS = 48;        // 맺은 뒤 이 회차(=시간) 동안은 절대 해지되지 않음
+    const CONTRACT_END_CHANCE = 0.3;      // 그 뒤 나쁜 소식이 와도 이 확률로만 해지 (나머지는 '잡음')
+    const CONTRACT_STRAIN_PCT = 50;       // '잡음' 은 해지될 때보다 주가가 덜 움직임
+    const CONTRACT_MAX = 3;               // 동시에 맺을 수 있는 계약 수 (여섯 짝 중 절반)
+    const CONTRACT_COOLDOWN_TICKS = 24;   // 끊긴 짝은 하루 쉬었다가 다시 맺을 수 있음
     // 뉴스 하나의 주가 변동 폭: chance는 누적 확률
     // chance 는 누적 확률. 1시간마다 나오므로 하루 24건이고, 그 중 7건쯤이 주가를 움직인다.
     // 움직임은 거의 다 1π 씩이라 계단처럼 완만하다. 3π 이상 크게 튀는 건 움직임 중 2.8% 뿐
@@ -1220,9 +1232,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-17-actions';
+    const APP_VERSION = '2026-09-18-contracts';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 9;
+    const APP_BUILD = 10;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1599,6 +1611,7 @@
         if (!Array.isArray(db.bank.logs)) db.bank.logs = [];
         if (db.stocks && typeof db.stocks === 'object') {
             if (!db.stocks.contractProjects || typeof db.stocks.contractProjects !== 'object') db.stocks.contractProjects = {};
+            if (migrateContractAges(db.stocks)) changed = true;
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
             if (resetStockHistoryOnce(db.stocks)) changed = true;
@@ -3431,6 +3444,30 @@
     function companyById(id) {
         return COMPANIES.find(c => c.id === id);
     }
+    // 언제 맺었는지 모르는 예전 계약에는 '지금 맺은 것' 으로 쳐서, 최소 유지 기간을 한 번 보장해 준다
+    function migrateContractAges(st) {
+        let changed = false;
+        if (!st.contractSince || typeof st.contractSince !== 'object') { st.contractSince = {}; changed = true; }
+        if (!st.contractEndedAt || typeof st.contractEndedAt !== 'object') { st.contractEndedAt = {}; changed = true; }
+        const tick = typeof st.lastTick === 'number' ? st.lastTick : 0;
+        (Array.isArray(st.contracts) ? st.contracts : []).forEach(key => {
+            if (typeof st.contractSince[key] !== 'number') { st.contractSince[key] = tick; changed = true; }
+        });
+        return changed;
+    }
+
+    // 지금 이 짝이 새로 계약을 맺어도 되는가 (자리가 남아 있고, 막 끊긴 참이 아니어야 함)
+    function canSignContract(st, key, tick) {
+        if (st.contracts.length >= CONTRACT_MAX) return false;
+        const endedAt = st.contractEndedAt && st.contractEndedAt[key];
+        return typeof endedAt !== 'number' || tick - endedAt >= CONTRACT_COOLDOWN_TICKS;
+    }
+
+    function contractAge(st, key, tick) {
+        const since = st.contractSince && st.contractSince[key];
+        return typeof since === 'number' ? tick - since : CONTRACT_MIN_TICKS;
+    }
+
     function pairKey(a, b) {
         return [a, b].sort().join('|');
     }
@@ -3459,7 +3496,7 @@
             seed: STOCK_SEED, eventCount: 0, marketMood: 0, tickMs: STOCK_TICK_MS,
             historyVersion: STOCK_HISTORY_VERSION,
             lastTick: tick, historyStartTick: tick,
-            companies, contracts: [], contractProjects: {}, trades: [],
+            companies, contracts: [], contractProjects: {}, contractSince: {}, contractEndedAt: {}, trades: [],
             flow: emptyStockFlow(stockWeekOf(now)),
             news: [{
                 id: 'n0', t: now, kind: 'open', sentiment: 'good', deltas: {}, ai: true,
@@ -3601,6 +3638,9 @@
     // companyId를 주면 그 회사의 뉴스를 만들고, record가 false면 주가만 움직이고 뉴스는 남기지 않음
     function runStockEvent(time, companyId = null, record = true, mustMove = false) {
         const st = db.stocks;
+        // 계약 기록 자리가 없으면 여기서 만든다. 없다고 주식시장 전체가 멈추면 안 된다
+        if (!st.contractSince || typeof st.contractSince !== 'object') st.contractSince = {};
+        if (!st.contractEndedAt || typeof st.contractEndedAt !== 'object') st.contractEndedAt = {};
         st.eventCount += 1;
         const rand = mulberry32(st.seed + st.eventCount * 7919);
         const pick = list => list[Math.floor(rand() * list.length)];
@@ -3629,30 +3669,61 @@
         const planned = {};
         const main = companyId ? companyById(companyId) : pick(COMPANIES);
 
+        const tick = typeof st.lastTick === 'number' ? st.lastTick : 0;
+        let pair = null;
         if (rand() < 0.3) {
             const a = main;
             const b = pick(COMPANIES.filter(c => c.id !== a.id));
             const key = pairKey(a.id, b.id);
             const contracted = st.contracts.includes(key);
             const good = rand() < (goodChance(a.id) + goodChance(b.id)) / 2;
-            item.kind = contracted ? (good ? 'contract_expand' : 'contract_end') : (good ? 'contract_sign' : 'contract_fail');
+            let kind = null;
+            if (contracted) {
+                if (good) {
+                    kind = 'contract_expand';
+                } else if (contractAge(st, key, tick) >= CONTRACT_MIN_TICKS && rand() < CONTRACT_END_CHANCE) {
+                    kind = 'contract_end';
+                } else {
+                    // 맺자마자 끊기지 않게, 나쁜 소식이어도 당분간은 '잡음' 으로만 지나간다
+                    kind = 'contract_strain';
+                }
+            } else if (!good) {
+                kind = 'contract_fail';
+            } else if (canSignContract(st, key, tick)) {
+                kind = 'contract_sign';
+            }
+            // 맺을 수 없는 좋은 소식이면(자리가 없거나 막 끊긴 짝) 아래의 한 회사 소식으로 내려간다
+            if (kind) pair = { a, b, key, good, kind };
+        }
+
+        if (pair) {
+            const { a, b, key, good, kind } = pair;
+            item.kind = kind;
             // 계약이 살아있는 동안은 같은 프로젝트명을 계속 쓰고, 새로 맺을 때만 무작위로 다시 고름
-            if (item.kind === 'contract_sign') {
+            if (kind === 'contract_sign') {
                 st.contracts.push(key);
                 st.contractProjects[key] = pick(CONTRACT_PROJECTS[key]);
-            } else if (item.kind === 'contract_expand' && !st.contractProjects[key]) {
+                st.contractSince[key] = tick;
+            } else if ((kind === 'contract_expand' || kind === 'contract_strain') && !st.contractProjects[key]) {
                 st.contractProjects[key] = pick(CONTRACT_PROJECTS[key]);
             }
-            item.project = item.kind === 'contract_fail' ? pick(CONTRACT_PROJECTS[key]) : st.contractProjects[key];
-            if (item.kind === 'contract_end') {
+            item.project = kind === 'contract_fail' ? pick(CONTRACT_PROJECTS[key]) : st.contractProjects[key];
+            if (kind === 'contract_end') {
                 st.contracts = st.contracts.filter(k => k !== key);
                 delete st.contractProjects[key];
+                delete st.contractSince[key];
+                st.contractEndedAt[key] = tick;
             }
             const magA = rollMagnitude(rand, mustMove);
             const magB = rollMagnitude(rand, mustMove);
+            // 계약이 흔들린 것뿐이면, 깨졌을 때보다 주가가 덜 움직인다
+            const soften = amount => {
+                if (kind !== 'contract_strain' || amount === 0) return amount;
+                return Math.max(1, Math.floor(amount * CONTRACT_STRAIN_PCT / 100));
+            };
             Object.assign(item, { companyId: a.id, partnerId: b.id, sentiment: good ? 'good' : 'bad', level: magA.level });
-            planned[a.id] = (good ? 1 : -1) * magA.amount;
-            planned[b.id] = (good ? 1 : -1) * magB.amount;
+            planned[a.id] = (good ? 1 : -1) * soften(magA.amount);
+            planned[b.id] = (good ? 1 : -1) * soften(magB.amount);
         } else {
             const c = main;
             const good = rand() < goodChance(c.id);
@@ -3722,6 +3793,7 @@
             contract_sign: [`${a.name}·${b.name}, '${project}' 계약 체결`, `${both} ${project} 계약을 맺었다. 두 회사가 손을 잡았다는 소식에 두 회사 주가가 함께 ${move}.`],
             contract_expand: [`${a.name}·${b.name}, ${project} 협력 확대`, `${both} 함께 하던 ${project} 계약을 더 크게 늘리기로 했다. 협력이 커진다는 기대에 두 회사 주가가 ${move}.`],
             contract_end: [`${a.name}·${b.name}, ${project} 계약 해지`, `${both} 함께 하던 ${project} 계약을 끝내기로 했다. 협력이 깨졌다는 소식에 두 회사 주가가 함께 ${move}.`],
+            contract_strain: [`${a.name}·${b.name}, ${project} 계약 두고 진통`, `${both} 함께 하던 ${project} 계약을 두고 의견이 엇갈렸다. 계약을 깨지는 않기로 했지만, 불안해진 투자자들 때문에 두 회사 주가가 ${move}.`],
             contract_fail: [`${a.name}·${b.name}, ${project} 협상 결렬`, `${both} ${project} 계약을 논의했지만 끝내 합의하지 못했다. 실망한 투자자들이 주식을 팔면서 두 회사 주가가 ${move}.`]
         };
         const [title, body] = texts[item.kind];

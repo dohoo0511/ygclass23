@@ -19,6 +19,7 @@ const KIND_LABELS = {
   contract_sign: "두 회사의 새 계약 체결",
   contract_expand: "두 회사의 기존 계약 확대",
   contract_end: "두 회사의 계약 해지",
+  contract_strain: "두 회사의 계약에 생긴 진통 (계약은 유지됨)",
   contract_fail: "두 회사의 계약 협상 결렬",
 };
 
