@@ -1263,9 +1263,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-18-boxodds';
+    const APP_VERSION = '2026-09-18-order';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 13;
+    const APP_BUILD = 14;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1894,7 +1894,7 @@
             <table class="data-table">
                 <thead><tr><th>쿠폰</th><th>처음 가격</th><th>지금 가격</th></tr></thead>
                 <tbody>
-                    ${COUPONS.map(c => {
+                    ${couponsByPrice().map(({ coupon: c }) => {
                         const now = couponBasePrice(c);
                         const changed = now !== c.price;
                         return `<tr>
@@ -1957,7 +1957,9 @@
         document.getElementById('shopBenefitInfo').innerHTML = grade.benefit
             ? `<div class="benefit-box">${grade.icon} ${grade.name} 등급 혜택 적용 중: ${grade.benefit}</div>`
             : '';
-        document.getElementById('shopTableBody').innerHTML = COUPONS.map((coupon, idx) => `
+        // 지금 가격이 비싼 것부터 보여준다. 값을 바꿔도 목록이 뒤죽박죽이 되지 않게 함
+        // (idx 는 원래 자리를 그대로 넘겨야 buyItem 이 맞는 쿠폰을 산다)
+        document.getElementById('shopTableBody').innerHTML = couponsByPrice().map(({ coupon, idx }) => `
             <tr>
                 <td>${esc(coupon.name)}</td>
                 <td>${priceHtml(couponBasePrice(coupon), couponPriceFor(currentUser, coupon))}</td>
@@ -2067,7 +2069,12 @@
         const odds = new Map();
         fixed.forEach(r => odds.set(r, r.share));
         prizes.forEach((r, i) => odds.set(r, p[i]));
-        return RANDOM_BOX_REWARDS.map(r => ({ reward: r, p: odds.get(r) || 0 }));
+        // 값어치 순으로 늘어놓는다 (꽝이 맨 위, 그 뒤로 싼 것 → 비싼 것).
+        // 쿠폰 값을 바꾸면 목록 순서도 따라 바뀌어, 상점과 늘 같은 차례가 된다
+        return RANDOM_BOX_REWARDS
+            .map((r, i) => ({ reward: r, p: odds.get(r) || 0, i }))
+            .sort((a, b) => boxRewardValue(a.reward) - boxRewardValue(b.reward) || a.i - b.i)
+            .map(({ reward, p }) => ({ reward, p }));
     }
 
     function drawRandomBoxReward() {
@@ -3538,6 +3545,13 @@
     function contractAge(st, key, tick) {
         const since = st.contractSince && st.contractSince[key];
         return typeof since === 'number' ? tick - since : CONTRACT_MIN_TICKS;
+    }
+
+    // 쿠폰을 '지금 가격' 이 비싼 것부터 늘어놓는다. 원래 자리(idx)도 함께 넘긴다
+    function couponsByPrice() {
+        return COUPONS
+            .map((coupon, idx) => ({ coupon, idx }))
+            .sort((a, b) => couponBasePrice(b.coupon) - couponBasePrice(a.coupon) || a.idx - b.idx);
     }
 
     function pairKey(a, b) {

@@ -21,7 +21,7 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 13;
+const MIN_CLIENT_BUILD = 14;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {

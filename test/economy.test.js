@@ -36,7 +36,7 @@ eval(script + `
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
   app.LOAN_PCT = LOAN_WEEKLY_INTEREST_PCT; app.SAVE_PCT = SAVINGS_WEEKLY_RATE_PCT;
   app.getDbCouponPrices = () => db.couponPrices;
-  app.boxOdds = boxOdds; app.boxValue = boxRewardValue;
+  app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
   app.BOX = { PRICE: RANDOM_BOX_PRICE, MIN: BOX_PRIZE_MIN_SHARE, MAX: BOX_PRIZE_MAX_SHARE,
               HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD };
   app.CONTRACT = { MIN_TICKS: CONTRACT_MIN_TICKS, MAX: CONTRACT_MAX,
@@ -642,6 +642,32 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
     check(`공짜 쿠폰이 상자를 삼키지 않음 — ${(free.at('청소 면제권') * 100).toFixed(1)}% (천장 ${app.BOX.MAX * 100}%)`,
         free.at('청소 면제권') <= app.BOX.MAX + 1e-9);
     check('그때도 확률 합계는 100%', Math.abs(free.total - 1) < 1e-9);
+
+    /* ── 목록 차례가 가격과 어긋나지 않아야 함 ──
+       선생님이 쿠폰 값을 바꾸자 상점에서 청소 면제권(20π)이 반장 간식 갈취권(25π)보다
+       위에 있었다. 상자 확률표도 간식 교환권(15π)이 6파이보다 위에 있었다.
+       손으로 적어 둔 차례라서 값을 바꾸면 그대로 어긋난다. 이제 지금 가격으로 늘어놓는다. */
+    const MINE = { '짝꿍 선택권': 95, '자리 지정권': 75, '3일 자리 선택권': 30, '청소 면제권': 20,
+                   '반장 간식 갈취권': 25, '간식 교환권': 15, '음악 우선 신청권': 3 };
+    const mine = boxStats(MINE);
+    const vals = mine.odds.map(o => app.boxValue(o.reward));
+    check('상자 목록이 값어치 오름차순 (꽝이 맨 위)',
+        vals.every((v, i) => i === 0 || v >= vals[i - 1]));
+    // 값어치가 같으면 확률도 같아야 한다 (15파이와 15π 짜리 쿠폰)
+    const same = mine.odds.filter(o => app.boxValue(o.reward) === 15).map(o => o.p);
+    check(`값어치가 같으면 확률도 같음 — 15π 짜리 ${same.length}개`,
+        same.length >= 2 && Math.abs(same[0] - same[1]) < 1e-12);
+
+    app.setDb({ users: {}, couponPrices: MINE });
+    const listed = app.byPrice();
+    const prices = listed.map(x => app.basePrice(x.coupon));
+    check(`상점이 비싼 것부터 — ${listed.map(x => app.basePrice(x.coupon)).join(', ')}π`,
+        prices.every((v, i) => i === 0 || v <= prices[i - 1]));
+    // 차례를 바꿔도 '구매' 버튼이 엉뚱한 쿠폰을 사면 안 된다
+    check('차례를 바꿔도 구매 버튼이 제 쿠폰을 가리킴',
+        listed.every(x => app.COUPONS[x.idx] === x.coupon));
+    check('빠지거나 겹치는 쿠폰 없음',
+        listed.length === app.COUPONS.length && new Set(listed.map(x => x.idx)).size === app.COUPONS.length);
 
     // 터무니없는 값이 저장돼 있어도 버텨야 함
     [-5, 1.5, '20', null, NaN].forEach(bad => {
