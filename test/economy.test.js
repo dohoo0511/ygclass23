@@ -36,6 +36,8 @@ eval(script + `
   app.migrate = migrateData; app.GRADES = GRADES; app.PRICE_MAX = COUPON_PRICE_MAX;
   app.LOAN_PCT = LOAN_WEEKLY_INTEREST_PCT; app.SAVE_PCT = SAVINGS_WEEKLY_RATE_PCT;
   app.getDbCouponPrices = () => db.couponPrices;
+  app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
+  app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
   app.BOX = { PRICE: RANDOM_BOX_PRICE, MIN: BOX_PRIZE_MIN_SHARE, MAX: BOX_PRIZE_MAX_SHARE,
               HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD };
@@ -585,6 +587,77 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
+
+/* ── 경험치가 오르는 곳 ──
+   쿠폰 말고 은행·주식을 이용해도 경험치가 오르게 했다. 다만 '되돌아오는 돈' 에
+   경험치를 붙이면 주고받기·사고팔기를 되풀이해서 무한정 찍어낼 수 있으므로,
+   시간을 들여야만 생기는 대가(이자·배당)에만 붙였다. 그게 실제로 그런지 확인한다. */
+{
+    const WEEK = 7 * DAY;
+    const freshDb = () => ({
+        users: { '1': { name: '1번', role: 'student', pi: 1000, exp: 0, inventory: [], lottoTickets: [], stocks: {} } },
+        lotto: { currentPot: 0, rolloverPot: 0 }, usageRequests: [], notice: '',
+        bank: { loans: [], savings: [], logs: [] }, stocks: app.initStock(Date.now() - DAY), couponPrices: {}
+    });
+    const expOf = d => d.users['1'].exp;
+
+    /* 적금: 만기까지 채우면 이자만큼, 중도 해지하면 없음 */
+    {
+        const d = freshDb();
+        const weeks = 2, principal = 100;
+        const started = Date.now() - weeks * WEEK - 1000;
+        const sv = { id: 's1', studentId: '1', principal, weeks, weeklyRatePct: app.savingsRatePct(weeks),
+                     startAt: started, maturesAt: started + weeks * WEEK, status: 'active' };
+        d.bank.savings.push(sv);
+        app.setDb(d);
+        app.timeTick();
+        const interest = app.savingsPayoutOf(sv) - principal;
+        check(`적금 만기 → 이자만큼 경험치 +${expOf(d)} (이자 ${interest}π)`, expOf(d) === interest && interest > 0);
+        const before = expOf(d);
+        app.timeTick(); app.timeTick();
+        check('적금 만기 경험치가 두 번 들어오지 않음', expOf(d) === before);
+    }
+    {
+        // 중도 해지한 적금은 만기가 지나도 경험치를 주지 않아야 한다
+        const d = freshDb();
+        const started = Date.now() - 3 * WEEK;
+        d.bank.savings.push({ id: 's2', studentId: '1', principal: 100, weeks: 2, weeklyRatePct: app.savingsRatePct(2),
+                              startAt: started, maturesAt: started + 2 * WEEK, status: 'canceled', closedAt: started + DAY });
+        app.setDb(d); app.timeTick();
+        check('중도 해지한 적금은 경험치가 없음', expOf(d) === 0);
+    }
+
+    /* 주식 배당: 2주 넘게 들고 있어야 나오므로 사고팔기로 만들 수 없다 */
+    {
+        const d = freshDb();
+        const cid = app.COMPANIES[0].id;
+        d.users['1'].stocks[cid] = [{ q: 10, cost: 100, at: Date.now() - 15 * DAY, paid: 0 }];
+        app.setDb(d);
+        const piBefore = d.users['1'].pi;
+        app.timeTick();
+        const paid = d.users['1'].pi - piBefore;
+        check(`주식 배당 → 배당금만큼 경험치 +${expOf(d)} (배당 ${paid}π)`, paid > 0 && expOf(d) === paid);
+    }
+    {
+        // 방금 산 주식은 배당도 경험치도 없다
+        const d = freshDb();
+        const cid = app.COMPANIES[0].id;
+        d.users['1'].stocks[cid] = [{ q: 10, cost: 100, at: Date.now(), paid: 0 }];
+        app.setDb(d); app.timeTick();
+        check('방금 산 주식으로는 경험치를 만들 수 없음', expOf(d) === 0);
+    }
+
+    /* 대출 연체는 예전처럼 경험치를 깎아야 한다 */
+    {
+        const d = freshDb();
+        const started = Date.now() - 20 * DAY;
+        d.users['1'].exp = 100;
+        d.bank.loans.push({ id: 'l1', studentId: '1', principal: 10, paid: 0, startAt: started,
+                            dueAt: started + 8 * DAY, penaltiesApplied: 0, status: 'active' });
+        app.setDb(d); app.timeTick();
+        check(`대출 연체는 여전히 경험치를 깎음 — ${d.users['1'].exp} (연체 전 100)`, d.users['1'].exp < 100);
+    }
+}
 
 /* ── 랜덤상자 확률이 쿠폰 가격과 어긋나지 않아야 함 ──
    확률을 표에 적어 두면, 관리자가 상점에서 쿠폰 값을 바꾼 순간 둘이 어긋난다.

@@ -407,7 +407,8 @@
                     <tbody id="shopTableBody"></tbody>
                 </table>
             </div>
-            <p class="muted">쿠폰을 사면 기본 가격만큼 경험치가 쌓여요. (1π = 경험치 1)</p>
+            <p class="muted">쿠폰을 사면 기본 가격만큼 경험치가 쌓여요. (1π = 경험치 1)<br>
+                적금을 만기까지 채우거나 대출을 다 갚으면 <b>이자만큼</b>, 주식 배당을 받으면 <b>그 금액만큼</b> 경험치가 올라요.</p>
         </div>
 
         <!-- 로또 -->
@@ -789,7 +790,17 @@
     ];
 
     /* ===================== 설정: 회원 등급 ===================== */
-    // 쿠폰·로또를 살 때 기본 가격 1π당 경험치 1. 등급은 경험치로 결정됨
+    /* 경험치가 오르는 곳 (등급은 경험치로 결정됨)
+         쿠폰 구매    기본 가격만큼      1π = 경험치 1
+         로또 구매    표 값만큼
+         적금 만기    받은 이자만큼      끝까지 넣어 둬야 나옴 (중도 해지하면 없음)
+         대출 완납    낸 이자만큼        빌리자마자 갚으면 이자가 0 이라 경험치도 0
+         주식 배당    배당금만큼         2주 넘게 들고 있어야 나옴
+
+       랜덤상자는 넣지 않았다 (선생님 요청).
+       송금과 주식 매매에도 넣지 않았다. 둘 다 돈이 되돌아오는 활동이라,
+       주고받기·사고팔기를 되풀이하는 것만으로 경험치를 무한정 만들 수 있기 때문이다.
+       여기 있는 것은 모두 '시간을 들여야만' 생기거나 '파이가 실제로 없어지는' 대가다. */
     const GRADES = [
         { key: 'bronze',  name: '브론즈',   icon: '🥉', minExp: 0,   loanLimit: 10, benefit: '' },
         { key: 'silver',  name: '실버',     icon: '🥈', minExp: 30,  loanLimit: 20, benefit: '' },
@@ -1236,12 +1247,16 @@
             const user = db.users[s.studentId];
             if (!user) return;
             const payout = savingsPayout(s);
+            const interest = Math.max(0, payout - s.principal);
             user.pi += payout;
             s.status = 'completed';
             s.closedAt = now;
             s.paidOut = payout;
+            // 끝까지 넣어 둔 대가로 이자만큼 경험치. 중도 해지하면 이자가 없으니 경험치도 없다
+            if (interest > 0) addExp(s.studentId, interest, '적금 만기');
             notifyStudent(s.studentId, { k: 'savings', a: payout });
-            addBankLog('savings', `🎉 ${user.name} 적금 만기 → ${payout}π 지급 (원금 ${s.principal}π + 이자 ${payout - s.principal}π)`, [s.studentId]);
+            addBankLog('savings', `🎉 ${user.name} 적금 만기 → ${payout}π 지급 (원금 ${s.principal}π + 이자 ${interest}π)`
+                + (interest > 0 ? ` · 경험치 +${interest}` : ''), [s.studentId]);
             changed = true;
         });
 
@@ -1263,9 +1278,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-18-order';
+    const APP_VERSION = '2026-09-18-exp';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 14;
+    const APP_BUILD = 15;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -2332,7 +2347,11 @@
                 <div class="kv"><span>보유 파이</span><b>${user.pi}π</b></div>
             </div>
             <h4 style="margin-bottom: 4px;">🏅 회원 등급 안내</h4>
-            <p class="muted" style="margin-top: 0;">쿠폰과 로또를 살 때 기본 가격 1π당 경험치 1이 쌓여요.</p>
+            <p class="muted" style="margin-top: 0;">경험치는 이렇게 쌓여요.<br>
+                · 쿠폰·로또 구매 — 기본 가격 1π당 경험치 1<br>
+                · 적금 만기 — 받은 <b>이자</b>만큼 (중도 해지하면 없어요)<br>
+                · 대출 완납 — 낸 <b>이자</b>만큼 (빌리자마자 갚으면 이자가 없어요)<br>
+                · 주식 배당 — 받은 <b>배당금</b>만큼 (2주 넘게 들고 있어야 나와요)</p>
             <div class="table-scroll">
                 <table>
                     <thead><tr><th>등급</th><th>필요 경험치</th><th>대출 한도</th><th>혜택</th></tr></thead>
@@ -2489,8 +2508,15 @@
             if (loanRemaining(loan) <= 0) {
                 loan.status = 'repaid';
                 loan.closedAt = Date.now();
-                addBankLog('loan', `✅ ${user.name} 대출 상환 완료 (원금 ${loan.principal}π · 총 ${loan.paid}π 상환)`, [currentUser]);
-                message = '🎉 대출을 모두 갚았어요!';
+                // 실제로 낸 이자만큼 경험치. 빌리자마자 갚으면 이자가 0 이라 경험치도 0 이다
+                // (그래야 빌렸다 갚기를 되풀이해서 경험치를 만들어낼 수 없다)
+                const interest = Math.max(0, loan.paid - loan.principal);
+                const promoted = interest > 0 ? addExp(currentUser, interest, '대출 상환') : null;
+                addBankLog('loan', `✅ ${user.name} 대출 상환 완료 (원금 ${loan.principal}π · 총 ${loan.paid}π 상환)`
+                    + (interest > 0 ? ` · 경험치 +${interest}` : ''), [currentUser]);
+                message = '🎉 대출을 모두 갚았어요!'
+                    + (interest > 0 ? `\n이자 ${interest}π를 낸 만큼 경험치 +${interest}` : '')
+                    + promotionText(promoted);
             } else {
                 addBankLog('loan', `💰 ${user.name} 대출 ${amount}π 상환 (남은 금액 ${loanRemaining(loan)}π)`, [currentUser]);
                 message = `${amount}π를 갚았어요. 남은 금액: ${loanRemaining(loan)}π`;
@@ -3221,7 +3247,8 @@
         document.getElementById('adminBankContent').innerHTML = `
             <div class="card">
                 <h4>🏅 등급 기준</h4>
-                <p class="muted" style="margin-top: 0;">쿠폰·로또 구매 시 기본 가격 1π당 경험치 1 · 대출 1주 연체 시 경험치 -${LOAN_OVERDUE_EXP_PENALTY}, 2주째부터 1주마다 한 등급 하락</p>
+                <p class="muted" style="margin-top: 0;">쿠폰·로또를 살 때 기본 가격 1π당 경험치 1 · 적금 만기·대출 완납 때는 이자만큼 · 주식 배당을 받으면 그 금액만큼<br>
+                    대출 1주 연체 시 경험치 -${LOAN_OVERDUE_EXP_PENALTY}, 2주째부터 1주마다 한 등급 하락</p>
                 <div class="table-scroll">
                     <table><thead><tr><th>등급</th><th>필요 경험치</th><th>대출 한도</th><th>혜택</th></tr></thead><tbody>${guideRows}</tbody></table>
                 </div>
@@ -3936,6 +3963,8 @@
         let changed = false;
         studentIds().forEach(id => {
             const user = db.users[id];
+            // 계정이 없거나 주식 자리가 없어도 배당 계산 전체가 멈추면 안 된다
+            if (!user || !user.stocks) return;
             COMPANIES.forEach(c => {
                 const lots = user.stocks[c.id];
                 if (!lots || lots.length === 0) return;
@@ -3953,6 +3982,8 @@
                 const amount = Math.round(db.stocks.companies[c.id].price * DIVIDEND_RATE_PCT / 100 * sharePeriods);
                 if (amount > 0) {
                     user.pi += amount;
+                    // 2주 넘게 들고 있어야 나오는 돈이라, 사고팔기를 되풀이해서 만들어낼 수 없다
+                    addExp(id, amount, '주식 배당');
                     addStockTrade('div', id, c.id, sharePeriods, amount);
                     notifyStudent(id, { k: 'dividend', a: amount, c: c.id });
                 }

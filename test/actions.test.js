@@ -73,6 +73,7 @@ eval(script + `
   app.buyItem = buyItem; app.buyLotto = buyLotto; app.transfer = sendTransfer;
   app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox;
   app.COUPONS = COUPONS; app.couponPriceFor = couponPriceFor;
+  app.repay = repayLoan; app.loanInterest = loanInterest;
 `);
 
 /* ---------- 도구 ---------- */
@@ -298,6 +299,46 @@ const check = (name, cond) => results.push([name, !!cond]);
     await openScreen();
     await app.transfer();
     check('자기 자신에게는 보내지 못한다', student().pi === 500);
+
+    /* ── 대출을 갚으면 낸 이자만큼 경험치 ──
+       빌리자마자 갚으면 이자가 0 이라 경험치도 0 이어야 한다.
+       안 그러면 빌렸다 갚기를 되풀이하는 것만으로 등급을 올릴 수 있다. */
+    const WEEK = 7 * 24 * 3600 * 1000;
+    const withLoan = (startedAgoMs) => {
+        const sv = freshServer(20, 500);
+        const started = Date.now() - startedAgoMs;
+        sv.bank.loans.push({ id: 'l1', studentId: '7', principal: 50, paid: 0, startAt: started,
+                             dueAt: started + 14 * 24 * 3600 * 1000, penaltiesApplied: 0, status: 'active' });
+        sv.users['7'].exp = 0;
+        return sv;
+    };
+
+    server = withLoan(WEEK);           // 빌린 지 1주 → 이자가 붙었다
+    alerts = []; setInputs({});
+    await openScreen();
+    const owed = app.loanInterest(server.bank.loans[0]);
+    await app.repay(true);
+    check(`대출을 다 갚으면 낸 이자만큼 경험치 +${server.users['7'].exp} (이자 ${owed}π)`,
+        owed > 0 && server.users['7'].exp === owed);
+    check('다 갚았다고 표시됨', server.bank.loans[0].status === 'repaid');
+    check('학생에게도 경험치를 알려줌', alerts.some(m => /경험치 \+/.test(m)));
+
+    server = withLoan(0);              // 빌리자마자 갚음 → 이자 0
+    alerts = []; setInputs({});
+    await openScreen();
+    await app.repay(true);
+    check('빌리자마자 갚으면 경험치가 오르지 않음 (되풀이해서 찍어낼 수 없음)',
+        server.bank.loans[0].status === 'repaid' && server.users['7'].exp === 0);
+
+    // 겹쳐도 경험치와 잔액이 어긋나면 안 된다
+    server = withLoan(WEEK);
+    alerts = []; setInputs({});
+    await openScreen();
+    const owed2 = app.loanInterest(server.bank.loans[0]);
+    beforeNextSave = () => { server.rev += 1; };
+    await app.repay(true);
+    check('겹쳐도 상환과 경험치가 함께 반영됨',
+        server.bank.loans[0].status === 'repaid' && server.users['7'].exp === owed2);
 
     console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
     const failed = results.filter(x => !x[1]).length;
