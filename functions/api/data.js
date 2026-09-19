@@ -21,7 +21,7 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 15;
+const MIN_CLIENT_BUILD = 16;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -281,10 +281,27 @@ function stockDiagnosis(record) {
   const lastTick = typeof st.lastTick === "number" ? st.lastTick : null;
   // 그래프는 (historyStartTick + i) * tickMs 로 시각을 만든다. 그게 실제 시각과 맞는지 본다
   const lastPointMs = lastTick !== null && tickMs ? (st.historyStartTick + len - 1) * tickMs : null;
+  // 뉴스가 그래프를 얼마나 설명하고 있는지 (밤사이 움직였는데 기사가 없던 문제 확인용)
+  const news = Array.isArray(st.news) ? st.news.filter((n) => n && n.kind !== "open") : [];
+  const times = news.map((n) => n.t).filter((t) => typeof t === "number").sort((a, b) => a - b);
+  const 뉴스 = {
+    건수: news.length,
+    가장_최근: times.length ? new Date(times[times.length - 1]).toISOString() : null,
+    가장_오래된: times.length ? new Date(times[0]).toISOString() : null,
+    덮는_기간_시간: times.length ? Math.round((times[times.length - 1] - times[0]) / HOUR * 10) / 10 : 0,
+    최근_기사가_몇시간_전: times.length ? Math.round((now - times[times.length - 1]) / HOUR * 10) / 10 : null,
+    AI기사_없는_건수: news.filter((n) => !n.ai).length,
+    // 이 값이 크면 뉴스가 그래프를 못 따라가고 있다는 뜻
+    기사가_비어있는_시간: times.length
+      ? Math.max(0, Math.round(((now - times[times.length - 1]) / HOUR - 1) * 10) / 10)
+      : null,
+  };
+
   return {
     available: true,
     tickMs,
     tickLabel: tickMs ? `${tickMs / HOUR}시간` : "기록 없음(예전 30분으로 간주)",
+    뉴스,
     lastTick,
     historyStartTick: st.historyStartTick,
     // 아래 두 값이 크게 다르면 그래프 시간축이 어긋난 것

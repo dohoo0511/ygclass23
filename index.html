@@ -900,8 +900,13 @@
     const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
     const STOCK_HISTORY_TICKS = 240;      // 그래프용 가격 보관 회차 (1시간 × 240 = 10일)
     const STOCK_MAX_CATCHUP_TICKS = 72;   // 오래 아무도 접속하지 않았을 때 따라잡는 최대 회차 (3일), 그 이전은 가격 그대로
-    const STOCK_NEWS_TICKS_ON_CATCHUP = 2; // 한꺼번에 따라잡을 때 뉴스로 남기는 최근 회차 수 (그 전 회차는 주가만 반영)
-    const STOCK_MAX_NEWS = 32;
+    /* 밤사이 아무도 안 들어오면, 다음 날 아침 첫 접속 때 밀린 회차를 한꺼번에 처리한다.
+       예전에는 그때 '최근 2회차' 의 뉴스만 남겼다. 그래서 그래프에는 밤새 움직인 자국이
+       그대로 있는데 뉴스에는 두 시간치밖에 없어서, 주가가 왜 움직였는지 알 수 없었다.
+       이제 하룻밤(14회차)까지는 뉴스를 남긴다. 대신 밀린 회차에서는 주가가 실제로 움직인
+       것만 남겨서, 아침에 '거의 움직이지 않았다' 기사로 목록이 가득 차지 않게 한다. */
+    const STOCK_NEWS_TICKS_ON_CATCHUP = 14;
+    const STOCK_MAX_NEWS = 60;             // 밤사이 기사가 들어와도 전날 기사가 밀려나지 않을 만큼
     const STOCK_MAX_TRADES = 60;
     const AI_BATCH_SIZE = 8;              // AI에 한 번에 보내는 뉴스 수
     const AI_RETRY_COOLDOWN_MS = 3 * 60 * 1000;
@@ -1278,9 +1283,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-18-exp';
+    const APP_VERSION = '2026-09-19-nightnews';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 15;
+    const APP_BUILD = 16;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -3889,7 +3894,10 @@
         });
 
         Object.assign(item, buildTemplateNews(item));
-        if (record) {
+        // record 가 'moved' 면 주가가 실제로 움직였을 때만 남긴다 (밀린 회차를 따라잡는 중)
+        const keep = record === true
+            || (record === 'moved' && Object.values(item.deltas).some(d => d !== 0));
+        if (keep) {
             st.news.unshift(item);
             if (st.news.length > STOCK_MAX_NEWS) st.news.length = STOCK_MAX_NEWS;
         }
@@ -3948,10 +3956,13 @@
             settleStockFlow(st.lastTick * STOCK_TICK_MS);
             pushStockHistory();
         }
+        // 한 회차만 넘어간 평소인지, 밀린 회차를 한꺼번에 따라잡는 중인지 구분
+        const catchingUp = currentTick - st.lastTick > 1;
         while (st.lastTick < currentTick) {
             st.lastTick += 1;
             settleStockFlow(st.lastTick * STOCK_TICK_MS);
-            const record = st.lastTick > currentTick - STOCK_NEWS_TICKS_ON_CATCHUP;
+            const withinWindow = st.lastTick > currentTick - STOCK_NEWS_TICKS_ON_CATCHUP;
+            const record = !withinWindow ? false : (catchingUp ? 'moved' : true);
             COMPANIES.forEach(c => runStockEvent(st.lastTick * STOCK_TICK_MS, c.id, record));
             pushStockHistory();
         }

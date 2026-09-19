@@ -588,6 +588,37 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
 
+/* ── 밤사이 움직인 주가에는 그만큼의 뉴스가 있어야 함 ──
+   아무도 안 들어온 동안의 회차는 아침 첫 접속 때 한꺼번에 처리된다.
+   예전에는 그때 최근 2회차의 뉴스만 남겨서, 그래프에는 밤새 움직인 자국이 있는데
+   뉴스에는 두 시간치밖에 없었다. 주가가 왜 움직였는지 알 수 없었다. */
+(function overnightNews() {
+    const HOUR = 3600 * 1000;
+    const GAP = 9;                       // 밤 10시 ~ 아침 7시
+    const start = Date.now() - (GAP + 6) * HOUR;
+    const market = app.initStock(start);
+    app.setDb({ users: {}, stocks: market, lotto: {}, bank: { loans: [], savings: [], logs: [] }, usageRequests: [] });
+
+    for (let h = 1; h <= 6; h++) app.tickTo(start + h * HOUR);   // 저녁까지는 정상 접속
+    const before = app.COMPANIES.map(c => market.companies[c.id].price);
+    const nightBegan = start + 6 * HOUR;
+
+    app.tickTo(start + (6 + GAP) * HOUR);                        // 아침에 한 번에 따라잡음
+    const after = app.COMPANIES.map(c => market.companies[c.id].price);
+    const moved = before.reduce((sum, p, i) => sum + Math.abs(after[i] - p), 0);
+
+    const night = market.news.filter(n => n.t > nightBegan);
+    const hours = new Set(night.map(n => Math.floor(n.t / HOUR))).size;
+
+    check(`밤사이 주가가 실제로 움직임 — ${moved}π`, moved > 0);
+    check(`밤사이 뉴스가 남아 있음 — ${night.length}건 (예전 8건)`, night.length > 8);
+    check(`뉴스가 빈 시간을 거의 다 덮음 — ${hours}시간 / ${GAP}시간 (예전 2시간)`, hours >= GAP - 1);
+    // 아침에 '거의 움직이지 않았다' 기사로 목록이 가득 차면 안 된다
+    const flat = night.filter(n => !Object.values(n.deltas || {}).some(d => d !== 0));
+    check(`밀린 회차에서는 안 움직인 기사를 남기지 않음 — ${flat.length}건`, flat.length === 0);
+    check(`목록이 한도를 넘지 않음 — ${market.news.length}건`, market.news.length <= 60);
+})();
+
 /* ── 경험치가 오르는 곳 ──
    쿠폰 말고 은행·주식을 이용해도 경험치가 오르게 했다. 다만 '되돌아오는 돈' 에
    경험치를 붙이면 주고받기·사고팔기를 되풀이해서 무한정 찍어낼 수 있으므로,
