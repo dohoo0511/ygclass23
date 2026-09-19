@@ -81,13 +81,18 @@ function clean(text, maxLength) {
   return String(text).replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
+// 상대 회사가 없는 사건 (한 회사 소식, 조용한 하루)
+function isSoloKind(kind) {
+  return kind === "single" || kind === "quiet";
+}
+
 // 화면이 보낸 사건 정보를 검사해서 정해진 값만 통과시킴
 function validateItem(raw) {
   if (!raw || typeof raw !== "object") return null;
   const { id, kind, companyId, partnerId, sentiment, level, deltas, title } = raw;
   if (typeof id !== "string" || !/^n\d{1,9}$/.test(id)) return null;
   if (!KIND_LABELS[kind] || !COMPANIES[companyId]) return null;
-  if (kind !== "single" && !COMPANIES[partnerId]) return null;
+  if (!isSoloKind(kind) && !COMPANIES[partnerId]) return null;
   if (sentiment !== "good" && sentiment !== "bad" && sentiment !== "flat") return null;
   if (!LEVEL_LABELS[level]) return null;
   if (typeof title !== "string" || title.length === 0 || title.length > 80) return null;
@@ -97,7 +102,7 @@ function validateItem(raw) {
       if (COMPANIES[key] && Number.isInteger(value) && Math.abs(value) <= 200) safeDeltas[key] = value;
     }
   }
-  return { id, kind, companyId, partnerId: kind === "single" ? null : partnerId, sentiment, level, deltas: safeDeltas, title };
+  return { id, kind, companyId, partnerId: isSoloKind(kind) ? null : partnerId, sentiment, level, deltas: safeDeltas, title };
 }
 
 function describeItem(item) {
@@ -145,8 +150,12 @@ export async function onRequest({ request, env }) {
   if (rawItems.length === 0 || rawItems.length > MAX_ITEMS) {
     return json({ error: `뉴스는 1~${MAX_ITEMS}건씩 요청할 수 있어요.` }, 400);
   }
-  const items = rawItems.map(validateItem);
-  if (items.some((item) => item === null)) return json({ error: "뉴스 정보가 올바르지 않아요." }, 400);
+  /* 예전에는 한 건이라도 모양이 안 맞으면 묶음 전체를 400 으로 돌려보냈다.
+     그래서 새 사건 종류(조용한 하루)를 넣었을 때, 그게 섞인 묶음이 통째로 실패해
+     기사가 하나도 AI 로 바뀌지 않았다. 여덟 건 중 한 건만 섞여도 그렇게 된다.
+     이제는 이상한 건만 빼고 나머지로 기사를 쓴다. 전부 이상할 때만 거절한다. */
+  const items = rawItems.map(validateItem).filter((item) => item !== null);
+  if (items.length === 0) return json({ error: "뉴스 정보가 올바르지 않아요." }, 400);
 
   const recent = (Array.isArray(payload.recent) ? payload.recent : [])
     .filter((title) => typeof title === "string" && title.length <= 80)
