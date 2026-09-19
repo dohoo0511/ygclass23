@@ -768,6 +768,22 @@
          4등(2개)       21.5%   → 23.9% */
     const LOTTO_BONUS_MAX = 10;
 
+    /* ===================== 설정: 세금 =====================
+       2주마다 가진 것에 따라 세금을 낸다. 자산 100π 마다 세율이 5% 씩 오르는 누진세.
+         0~100π   0%      300~400π 15%
+         100~200π 5%      400~500π 20%
+         200~300π 10%     500π 초과 25%
+       구간별로 나눠 매기므로(누진), 1π 더 벌었다고 세금이 갑자기 뛰지 않는다.
+
+       자산 = 파이 + 주식 평가액 + 적금 원금 - 대출 잔액.
+       현금만 세면 세금 직전에 주식·적금으로 옮겨서 피할 수 있다.
+       대출을 빼는 이유는 빌린 돈이 이미 파이에 들어와 있기 때문이다
+       (빼 주지 않으면 빚이 재산으로 잡히고, 세금 직전에 빌려도 소용없게 된다). */
+    const TAX_PERIOD_DAYS = 14;
+    const TAX_BRACKET_WIDTH = 100;   // 이 금액마다 세율이 한 단계 오름
+    const TAX_STEP_PCT = 5;          // 한 단계에 오르는 세율
+    const TAX_MAX_PCT = 25;          // 최고 세율
+
     /* ===================== 설정: 쿠폰 ===================== */
     // price = 처음 정해 둔 상점 기본가 (등급 할인 전).
     // 관리자가 화면에서 바꾸면 db.couponPrices 에 저장되고, 그 값이 우선한다.
@@ -1156,6 +1172,57 @@
         return main + (bonus !== null && bonus === winBonus ? 1 : 0);
     }
 
+    // 세율 구간표 (화면 안내에도 그대로 쓴다)
+    function taxBrackets() {
+        const rows = [];
+        let lo = 0, rate = 0;
+        while (rate < TAX_MAX_PCT) {
+            rows.push({ lo, hi: lo + TAX_BRACKET_WIDTH, rate });
+            lo += TAX_BRACKET_WIDTH;
+            rate += TAX_STEP_PCT;
+        }
+        rows.push({ lo, hi: Infinity, rate: TAX_MAX_PCT });
+        return rows;
+    }
+
+    function stockValueOf(user) {
+        if (!user || !user.stocks || !db.stocks) return 0;
+        return COMPANIES.reduce((sum, c) => {
+            const price = db.stocks.companies[c.id] ? db.stocks.companies[c.id].price : 0;
+            return sum + holdingOf(user, c.id).qty * price;
+        }, 0);
+    }
+
+    // 세금을 매기는 기준이 되는 자산
+    function taxableAssets(userId) {
+        const user = db.users[userId];
+        if (!user) return 0;
+        const savings = (db.bank.savings || [])
+            .filter(x => x.studentId === userId && x.status === 'active')
+            .reduce((sum, x) => sum + (x.principal || 0), 0);
+        const loan = activeLoanOf(userId);
+        const owed = loan ? Math.max(0, (loan.principal || 0) - (loan.paid || 0)) : 0;
+        return Math.max(0, (user.pi || 0) + stockValueOf(user) + savings - owed);
+    }
+
+    // 구간마다 다른 세율을 매겨 더한다 (누진)
+    function taxFor(assets) {
+        let total = 0;
+        taxBrackets().forEach(b => {
+            if (assets > b.lo) total += (Math.min(assets, b.hi) - b.lo) * b.rate / 100;
+        });
+        return Math.round(total);
+    }
+
+    function taxPeriodOf(ms) {
+        return Math.floor(ms / (TAX_PERIOD_DAYS * DAY_MS));
+    }
+    function nextTaxAt() {
+        const period = typeof db.tax === 'object' && db.tax && typeof db.tax.lastPeriod === 'number'
+            ? db.tax.lastPeriod : taxPeriodOf(Date.now());
+        return (period + 1) * TAX_PERIOD_DAYS * DAY_MS;
+    }
+
     function lottoPriceFor(userId) {
         return LOTTO_TICKET_PRICE - (isEmerald(userId) ? 1 : 0);
     }
@@ -1227,6 +1294,8 @@
                 return `🎉 로또 당첨! ${n.x}${n.a > 0 ? ` (+${n.a}π)` : ''}${/[34]등/.test(n.x) ? ' · 쿠폰은 인벤토리를 확인하세요' : ''}`;
             case 'savings':
                 return `🐷 적금 만기! ${n.a}π를 받았어요.`;
+            case 'tax':
+                return `🧾 세금 ${n.a}π가 부과됐어요. (자산 ${n.x}π 기준) 파이가 있으면 바로 빠져나가요.`;
             case 'dividend': {
                 const company = companyById(n.c);
                 return `💹 ${company ? company.name : '주식'} 배당금 ${n.a}π를 받았어요.`;
@@ -1271,6 +1340,7 @@
         }
         if (applyStockTicks(now)) changed = true;
         if (applyDividends(now)) changed = true;
+        if (applyTax(now)) changed = true;
 
         db.bank.loans.filter(l => l.status === 'active').forEach(loan => {
             const user = db.users[loan.studentId];
@@ -1325,9 +1395,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-19-lottobonus';
+    const APP_VERSION = '2026-09-19-tax';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 18;
+    const APP_BUILD = 19;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -2405,7 +2475,27 @@
                 <div class="kv"><span>회원 등급</span>${gradeBadge(user)}</div>
                 <div class="kv"><span>경험치</span><b>${user.exp}</b></div>
                 <div class="kv"><span>보유 파이</span><b>${user.pi}π</b></div>
+                <div class="kv"><span>내 자산 (세금 기준)</span><b>${taxableAssets(currentUser)}π</b></div>
+                <div class="kv"><span>다음 세금 (${fmtDate(nextTaxAt())})</span><b>${taxFor(taxableAssets(currentUser))}π</b></div>
+                ${user.taxDue > 0 ? `<div class="kv"><span style="color:#d84315;">밀린 세금</span><b style="color:#d84315;">${user.taxDue}π</b></div>` : ''}
             </div>
+            <h4 style="margin-bottom: 4px;">🧾 세금 안내</h4>
+            <p class="muted" style="margin-top: 0;">
+                ${TAX_PERIOD_DAYS}일마다 가진 것에 세금을 내요. 자산이 <b>${TAX_BRACKET_WIDTH}π 늘 때마다 세율이 ${TAX_STEP_PCT}%씩</b> 올라가요 (최고 ${TAX_MAX_PCT}%).<br>
+                구간마다 나눠서 매기기 때문에, 조금 더 벌었다고 세금이 갑자기 뛰지 않아요.<br>
+                자산 = 보유 파이 + 주식 평가액 + 적금 원금 − 대출 잔액<br>
+                파이가 모자라면 <b>밀린 세금</b>으로 남고, 파이가 생기는 대로 빠져나가요.</p>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>자산 구간</th><th>그 구간에 매기는 세율</th></tr></thead>
+                    <tbody>${taxBrackets().map(b => `
+                        <tr>
+                            <td>${b.hi === Infinity ? `${b.lo}π 초과` : `${b.lo} ~ ${b.hi}π`}</td>
+                            <td>${b.rate}%</td>
+                        </tr>`).join('')}</tbody>
+                </table>
+            </div>
+
             <h4 style="margin-bottom: 4px;">🏅 회원 등급 안내</h4>
             <p class="muted" style="margin-top: 0;">경험치는 이렇게 쌓여요.<br>
                 · 쿠폰·로또 구매 — 기본 가격 1π당 경험치 1<br>
@@ -2795,7 +2885,7 @@
     }
 
     /* ===================== 관리자: 화면 이동 ===================== */
-    const LOG_TYPE_LABELS = { loan: '대출', savings: '적금', transfer: '송금', grade: '등급' };
+    const LOG_TYPE_LABELS = { loan: '대출', savings: '적금', transfer: '송금', grade: '등급', tax: '세금' };
     let currentAdminSection = 'main';
     const ADMIN_SECTION_RENDERERS = {
         main: () => {},
@@ -4056,6 +4146,50 @@
             pushStockHistory();
         }
         return true;
+    }
+
+    /* 2주마다 세금을 매기고, 파이가 있는 만큼 걷는다.
+       파이가 모자라면 남은 만큼이 '밀린 세금' 으로 남고, 파이가 생기는 대로 빠져나간다.
+       (주식·적금에 다 넣어 두고 세금을 안 내는 일이 없도록) */
+    function applyTax(now) {
+        if (!db.tax || typeof db.tax !== 'object') db.tax = {};
+        const period = taxPeriodOf(now);
+        let changed = false;
+
+        if (typeof db.tax.lastPeriod !== 'number') {
+            // 처음 켜는 날 곧바로 걷으면 학생들이 놀란다. 다음 기간부터 매긴다
+            db.tax.lastPeriod = period;
+            changed = true;
+        }
+        while (db.tax.lastPeriod < period) {
+            db.tax.lastPeriod += 1;
+            studentIds().forEach(id => {
+                const user = db.users[id];
+                if (!user) return;
+                const assets = taxableAssets(id);
+                const amount = taxFor(assets);
+                if (amount <= 0) return;
+                user.taxDue = (user.taxDue || 0) + amount;
+                addBankLog('tax', `🧾 ${user.name} 세금 ${amount}π (자산 ${assets}π 기준)`, [id]);
+                notifyStudent(id, { k: 'tax', a: amount, x: assets });
+            });
+            changed = true;
+        }
+
+        // 밀린 세금은 파이가 생기는 대로 걷는다
+        studentIds().forEach(id => {
+            const user = db.users[id];
+            if (!user || !(user.taxDue > 0) || !(user.pi > 0)) return;
+            const pay = Math.min(user.pi, user.taxDue);
+            user.pi -= pay;
+            user.taxDue -= pay;
+            if (user.taxDue <= 0) {
+                delete user.taxDue;
+                addBankLog('tax', `✅ ${user.name} 세금 완납`, [id]);
+            }
+            changed = true;
+        });
+        return changed;
     }
 
     function applyDividends(now) {

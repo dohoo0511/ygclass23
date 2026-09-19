@@ -39,6 +39,8 @@ eval(script + `
   app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.REASONS = NEWS_REASONS;
+  app.taxPeriodOf = taxPeriodOf; app.taxFor = taxFor; app.taxableAssets = taxableAssets; app.taxBrackets = taxBrackets;
+  app.TAX = { DAYS: TAX_PERIOD_DAYS, WIDTH: TAX_BRACKET_WIDTH, STEP: TAX_STEP_PCT, MAX: TAX_MAX_PCT };
   app.matchCount = lottoMatchCount; app.ticketNums = ticketNumbers; app.ticketBonus = ticketBonus;
   app.ticketKey = ticketKey; app.HIDDEN = HIDDEN_REWARD;
   app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
@@ -618,6 +620,112 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
+
+/* ── 세금: 2주마다, 자산이 많을수록 높은 세율 ── */
+{
+    const B = app.taxBrackets();
+    check(`세율이 ${app.TAX.STEP}% 씩 오름 — ${B.map(x => x.rate + '%').join(' → ')}`,
+        B.every((b, i) => i === 0 ? b.rate === 0 : b.rate === Math.min(app.TAX.MAX, B[i - 1].rate + app.TAX.STEP)));
+    check(`구간 폭이 ${app.TAX.WIDTH}π — ${B[1].lo}~${B[1].hi}π`, B[1].hi - B[1].lo === app.TAX.WIDTH);
+    check(`최고 세율 ${app.TAX.MAX}%`, B[B.length - 1].rate === app.TAX.MAX && B[B.length - 1].hi === Infinity);
+
+    check(`${app.TAX.WIDTH}π 이하는 세금 없음 — ${app.taxFor(app.TAX.WIDTH)}π`, app.taxFor(app.TAX.WIDTH) === 0);
+    // 누진이므로 조금 더 벌었다고 세금이 갑자기 뛰면 안 된다 (절벽이 없어야 함)
+    let cliff = 0, prevTax = 0, prevNet = 0;
+    for (let a = 0; a <= 1200; a++) {
+        const t = app.taxFor(a);
+        if (t - prevTax > 1) cliff++;          // 1π 더 벌었는데 세금이 1π 넘게 뛰는 곳
+        if (a - t < prevNet) cliff++;          // 더 벌었는데 세금 내고 나면 오히려 줄어드는 곳
+        prevTax = t; prevNet = a - t;
+    }
+    check('1π 더 벌었다고 세금이 뛰거나 손해 보는 구간이 없음 (절벽 없음)', cliff === 0);
+
+    const eff = a => app.taxFor(a) / a * 100;
+    check(`자산이 많을수록 실효세율이 높음 — 200π ${eff(200).toFixed(1)}% < 400π ${eff(400).toFixed(1)}% < 800π ${eff(800).toFixed(1)}%`,
+        eff(200) < eff(400) && eff(400) < eff(800));
+    check(`아무리 많아도 최고 세율을 넘지 않음 — 10000π 에서 ${eff(10000).toFixed(1)}%`, eff(10000) <= app.TAX.MAX);
+
+    /* 자산 계산: 주식·적금도 세고, 빌린 돈은 빼야 한다 */
+    const cid = app.COMPANIES[0].id;
+    const baseDb = (extra) => {
+        const d = {
+            users: { '1': { name: '1번', role: 'student', pi: 100, exp: 0, inventory: [], lottoTickets: [], stocks: {} } },
+            lotto: {}, usageRequests: [], notice: '',
+            bank: { loans: [], savings: [], logs: [] }, stocks: app.initStock(Date.now())
+        };
+        d.stocks.companies[cid].price = 20;
+        if (extra) extra(d);
+        app.setDb(d);
+        return d;
+    };
+    baseDb();
+    check('자산: 파이만 있으면 그대로 — 100π', app.taxableAssets('1') === 100);
+    baseDb(d => { d.users['1'].stocks[cid] = [{ q: 5, cost: 50, at: 0, paid: 0 }]; });
+    check('자산: 주식 평가액도 셈 — 100 + 5주×20π = 200π', app.taxableAssets('1') === 200);
+    baseDb(d => { d.bank.savings.push({ id: 's', studentId: '1', principal: 80, status: 'active' }); });
+    check('자산: 적금 원금도 셈 — 180π', app.taxableAssets('1') === 180);
+    baseDb(d => { d.bank.savings.push({ id: 's', studentId: '1', principal: 80, status: 'canceled' }); });
+    check('자산: 끝난 적금은 안 셈 — 100π', app.taxableAssets('1') === 100);
+    // 세금 직전에 대출받아 자산을 줄이는 수가 통하면 안 된다
+    baseDb(d => {
+        d.users['1'].pi = 180;   // 80π 빌려서 파이가 늘어난 상태
+        d.bank.loans.push({ id: 'l', studentId: '1', principal: 80, paid: 0, status: 'active',
+                            startAt: Date.now(), dueAt: Date.now() + 14 * DAY, penaltiesApplied: 0 });
+    });
+    check('자산: 빌린 돈은 빼서 셈 — 대출받아도 자산 그대로 100π', app.taxableAssets('1') === 100);
+}
+
+/* ── 세금 걷기: 2주마다 한 번, 못 내면 밀린 세금으로 남아야 함 ── */
+{
+    const cid = app.COMPANIES[0].id;
+    const makeDb = (pi, lots) => {
+        const d = {
+            users: { '1': { name: '1번', role: 'student', pi, exp: 0, inventory: [], lottoTickets: [], stocks: {} } },
+            lotto: {}, usageRequests: [], notice: '',
+            // 시세가 움직이면 자산이 달라져 검사가 흔들린다. 회차를 지금으로 맞춰 시장을 멈춰 둔다
+            bank: { loans: [], savings: [], logs: [] }, stocks: app.initStock(Date.now())
+        };
+        d.stocks.companies[cid].price = 20;
+        if (lots) d.users['1'].stocks[cid] = lots;
+        app.setDb(d);
+        return d;
+    };
+
+    // 처음 켠 날에는 곧바로 걷지 않는다
+    const d1 = makeDb(500);
+    app.timeTick();
+    check('처음 켠 날에는 세금을 걷지 않음 — 500π 그대로', d1.users['1'].pi === 500);
+    check('다음 세금 시점을 기억해 둠', d1.tax && typeof d1.tax.lastPeriod === 'number');
+
+    // 2주가 지나면 걷는다
+    const owed = app.taxFor(500);
+    d1.tax.lastPeriod -= 1;
+    app.timeTick();
+    check(`2주 지나면 세금을 걷음 — ${owed}π 빠짐 (500 → ${d1.users['1'].pi}π)`, d1.users['1'].pi === 500 - owed);
+    const after = d1.users['1'].pi;
+    app.timeTick(); app.timeTick();
+    check('같은 기간에 두 번 걷지 않음', d1.users['1'].pi === after);
+
+    // 파이가 모자라면 밀린 세금으로 남고, 생기는 대로 빠져나간다
+    const d2 = makeDb(3, [{ q: 10, cost: 100, at: Date.now(), paid: 0 }]);   // 자산 203π, 현금 3π
+    const owed2 = app.taxFor(app.taxableAssets('1'));
+    d2.tax = { lastPeriod: app.taxPeriodOf(Date.now()) - 1 };
+    app.timeTick();
+    check(`현금이 모자라면 있는 만큼만 걷음 — 세금 ${owed2}π 중 3π`, d2.users['1'].pi === 0);
+    check(`나머지는 밀린 세금으로 남음 — ${d2.users['1'].taxDue}π`, d2.users['1'].taxDue === owed2 - 3);
+    // 주식·적금에 숨겨 두고 세금을 피할 수 없어야 한다
+    check('주식에 넣어 둬도 세금이 매겨짐', owed2 > 0);
+
+    d2.users['1'].pi = 100;
+    app.timeTick();
+    check('파이가 생기면 밀린 세금이 빠져나감', d2.users['1'].pi === 100 - (owed2 - 3) && !d2.users['1'].taxDue);
+
+    // 자산이 적으면 세금이 없다
+    const d3 = makeDb(60);
+    d3.tax = { lastPeriod: app.taxPeriodOf(Date.now()) - 1 };
+    app.timeTick();
+    check('자산이 적은 학생은 세금 없음 — 60π 그대로', d3.users['1'].pi === 60 && !d3.users['1'].taxDue);
+}
 
 /* ── 기사와 주가가 같은 말을 해야 함 ──
    예전에는 호재·악재를 먼저 정하고 변동 폭을 따로 굴려서, 누가 봐도 좋은 소식인데
