@@ -256,6 +256,30 @@ async function versionSummary(env) {
   };
 }
 
+// 최근 24시간 중 기사가 하나도 없는 시간을 찾는다.
+// 주가는 매시간 움직이는데 기사가 빠진 시간이 있으면, 그 시간대가 그대로 드러난다.
+function hourlyGaps(times, now) {
+  const HOUR = 60 * 60 * 1000;
+  const KST = 9 * HOUR;
+  const nowHour = Math.floor(now / HOUR);
+  const covered = new Set(times.map((t) => Math.floor(t / HOUR)));
+  const missing = [];
+  // 지금 시간은 아직 회차가 안 끝났을 수 있으므로 한 시간 전까지만 본다
+  for (let h = nowHour - 24; h <= nowHour - 1; h++) {
+    if (!covered.has(h)) missing.push(new Date(h * HOUR + KST).toISOString().slice(5, 13).replace("T", " ") + "시");
+  }
+  return {
+    최근24시간_중_기사있는_시간: 24 - missing.length,
+    기사없는_시간_한국시간: missing.slice(0, 24),
+    // 네 회사가 모두 안 움직인 시간은 드물게(1.5%) 있을 수 있다. 서너 시간이 연달아 비면 이상한 것
+    판단: missing.length === 0
+      ? "빈 시간 없음 — 뉴스가 그래프를 잘 따라가고 있어요"
+      : missing.length <= 2
+        ? "한두 시간 비어 있음 — 그 시간에 네 회사가 모두 안 움직였을 수 있어요 (정상 범위)"
+        : `${missing.length}시간 비어 있음 — 뉴스가 빠진 것으로 보여요`,
+  };
+}
+
 // 그래프가 이상할 때 원인을 찾기 위한 요약. 학생 정보는 담지 않는다
 function stockDiagnosis(record) {
   const st = record && record.stocks;
@@ -295,6 +319,9 @@ function stockDiagnosis(record) {
     기사가_비어있는_시간: times.length
       ? Math.max(0, Math.round(((now - times[times.length - 1]) / HOUR - 1) * 10) / 10)
       : null,
+    // 목록이 이어져 보여도 가운데가 비어 있을 수 있다 (밤사이 기사가 빠지던 문제가 그랬다).
+    // 그래서 최근 24시간을 한 시간씩 짚어 본다
+    ...hourlyGaps(times, now),
   };
 
   return {
