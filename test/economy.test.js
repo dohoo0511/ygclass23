@@ -720,11 +720,17 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
     app.timeTick();
     check('파이가 생기면 밀린 세금이 빠져나감', d2.users['1'].pi === 100 - (owed2 - 3) && !d2.users['1'].taxDue);
 
-    // 자산이 적으면 세금이 없다
-    const d3 = makeDb(60);
+    // 면세 구간 안에 있는 학생은 세금이 없다 (구간 폭을 바꿔도 따라가도록 상수로 맞춤)
+    const free = app.TAX.WIDTH;
+    const d3 = makeDb(free);
     d3.tax = { lastPeriod: app.taxPeriodOf(Date.now()) - 1 };
     app.timeTick();
-    check('자산이 적은 학생은 세금 없음 — 60π 그대로', d3.users['1'].pi === 60 && !d3.users['1'].taxDue);
+    check(`자산이 적은 학생은 세금 없음 — ${free}π 그대로`, d3.users['1'].pi === free && !d3.users['1'].taxDue);
+    // 그 바로 위는 조금이라도 내야 한다
+    const d4 = makeDb(free * 2);
+    d4.tax = { lastPeriod: app.taxPeriodOf(Date.now()) - 1 };
+    app.timeTick();
+    check(`면세 구간을 넘으면 조금이라도 냄 — ${free * 2}π → ${d4.users['1'].pi}π`, d4.users['1'].pi < free * 2);
 }
 
 /* ── 기사와 주가가 같은 말을 해야 함 ──
