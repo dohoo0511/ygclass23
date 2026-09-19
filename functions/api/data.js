@@ -280,6 +280,71 @@ function hourlyGaps(times, now) {
   };
 }
 
+// 학생들의 자산이 얼마나 되고 얼마나 쏠려 있는지. 이름·비밀번호는 담지 않는다
+// (세금 구간을 실제 분포에 맞춰 정하려고 만든 요약)
+function wealthSummary(record) {
+  const users = record && record.users;
+  if (!users || typeof users !== "object") return { available: false, reason: "학생 정보가 없어요" };
+  const prices = {};
+  const companies = record.stocks && record.stocks.companies;
+  if (companies) for (const id of Object.keys(companies)) {
+    const p = companies[id] && companies[id].price;
+    if (typeof p === "number") prices[id] = p;
+  }
+
+  const rows = [];
+  let pi = 0, stock = 0, savings = 0, loans = 0;
+  for (const id of Object.keys(users)) {
+    const u = users[id];
+    if (!u || u.role !== "student") continue;
+    const cash = typeof u.pi === "number" ? u.pi : 0;
+    let held = 0;
+    if (u.stocks && typeof u.stocks === "object") {
+      for (const cid of Object.keys(u.stocks)) {
+        const lots = u.stocks[cid];
+        if (!Array.isArray(lots) || !prices[cid]) continue;
+        for (const lot of lots) held += (lot && typeof lot.q === "number" ? lot.q : 0) * prices[cid];
+      }
+    }
+    let saved = 0, owed = 0;
+    const bank = record.bank || {};
+    for (const sv of Array.isArray(bank.savings) ? bank.savings : []) {
+      if (sv && sv.studentId === id && sv.status === "active") saved += sv.principal || 0;
+    }
+    for (const ln of Array.isArray(bank.loans) ? bank.loans : []) {
+      if (ln && ln.studentId === id && ln.status === "active") owed += Math.max(0, (ln.principal || 0) - (ln.paid || 0));
+    }
+    pi += cash; stock += held; savings += saved; loans += owed;
+    // 빌린 돈은 이미 파이에 들어와 있으므로 빼 줘야 실제 가진 것이 된다
+    rows.push(Math.round(cash + held + saved - owed));
+  }
+  if (rows.length === 0) return { available: false, reason: "학생이 없어요" };
+
+  rows.sort((a, b) => a - b);
+  const at = (frac) => rows[Math.min(rows.length - 1, Math.floor(rows.length * frac))];
+  const total = rows.reduce((a, b) => a + b, 0);
+  const top5 = rows.slice(-5).reduce((a, b) => a + b, 0);
+  const bracketCounts = {};
+  for (const edge of [0, 50, 100, 200, 400, 800]) {
+    const next = { 0: 50, 50: 100, 100: 200, 200: 400, 400: 800, 800: Infinity }[edge];
+    bracketCounts[next === Infinity ? `${edge}π 초과` : `${edge}~${next}π`] =
+      rows.filter((v) => v >= edge && v < next).length;
+  }
+  return {
+    available: true,
+    학생수: rows.length,
+    총자산: total,
+    구성: { 파이: Math.round(pi), 주식평가액: Math.round(stock), 적금원금: Math.round(savings), 대출잔액: Math.round(loans) },
+    한명당: {
+      최소: rows[0], 하위25퍼센트: at(0.25), 중앙값: at(0.5),
+      상위25퍼센트: at(0.75), 최대: rows[rows.length - 1],
+      평균: Math.round(total / rows.length),
+    },
+    구간별_인원: bracketCounts,
+    상위5명이_가진_비율: total > 0 ? Math.round(top5 / total * 100) + "%" : "0%",
+  };
+}
+
 // 그래프가 이상할 때 원인을 찾기 위한 요약. 학생 정보는 담지 않는다
 function stockDiagnosis(record) {
   const st = record && record.stocks;
@@ -564,6 +629,7 @@ export async function onRequest({ request, env }) {
         versions: await versionSummary(env),
         backups: await backupSummary(env),
         ...(url.searchParams.has("stocks") ? { stocks: stockDiagnosis(record) } : {}),
+        ...(url.searchParams.has("wealth") ? { 자산: wealthSummary(record) } : {}),
       });
     } catch (error) {
       return json({
