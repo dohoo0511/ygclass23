@@ -1395,9 +1395,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-19-tax';
+    const APP_VERSION = '2026-09-19-airetry';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 20;
+    const APP_BUILD = 21;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1775,6 +1775,7 @@
         if (db.stocks && typeof db.stocks === 'object') {
             if (!db.stocks.contractProjects || typeof db.stocks.contractProjects !== 'object') db.stocks.contractProjects = {};
             if (migrateContractAges(db.stocks)) changed = true;
+            if (clearStuckAiFails(db.stocks)) changed = true;
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
             if (resetStockHistoryOnce(db.stocks)) changed = true;
@@ -3710,6 +3711,20 @@
     function companyById(id) {
         return COMPANIES.find(c => c.id === id);
     }
+    /* AI 기사 함수가 고장 났던 동안 모든 기사가 '두 번 실패' 로 기록되어 영원히 제외됐다.
+       서버를 고쳤으니 한 번만 그 기록을 지워서 다시 시도할 기회를 준다.
+       (6시간이 지난 기사는 어차피 요청하지 않으므로 최근 것만 되살아난다) */
+    const AI_FAILS_RESET_VERSION = 1;
+    function clearStuckAiFails(st) {
+        if (st.aiFailsReset === AI_FAILS_RESET_VERSION) return false;
+        st.aiFailsReset = AI_FAILS_RESET_VERSION;
+        if (!Array.isArray(st.news)) return true;
+        st.news.forEach(n => {
+            if (n && !n.ai) { delete n.aiFails; delete n.aiTriedAt; }
+        });
+        return true;
+    }
+
     // 언제 맺었는지 모르는 예전 계약에는 '지금 맺은 것' 으로 쳐서, 최소 유지 기간을 한 번 보장해 준다
     function migrateContractAges(st) {
         let changed = false;
@@ -5096,8 +5111,14 @@
                     delete target.aiFails;
                     delete target.aiTriedAt;
                     applied++;
-                } else {
+                } else if (articles) {
+                    // 기사 목록은 왔는데 이것만 빠졌다 → 이 기사의 문제. 두 번까지만 다시 시도한다
                     target.aiFails = (target.aiFails || 0) + 1;
+                    target.aiTriedAt = Date.now();
+                } else {
+                    // 요청 자체가 실패했다 (서버 문제·네트워크). 기사 탓이 아니므로 실패 횟수를 세지 않는다.
+                    // 예전에는 여기서도 세는 바람에, 서버가 잠깐 고장 난 사이 모든 기사가 두 번 실패로
+                    // 기록되어 영원히 제외됐다. 고친 뒤에도 그 기사들은 끝내 AI 로 바뀌지 않았다
                     target.aiTriedAt = Date.now();
                 }
                 changed = true;

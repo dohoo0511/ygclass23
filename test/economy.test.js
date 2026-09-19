@@ -39,6 +39,7 @@ eval(script + `
   app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.REASONS = NEWS_REASONS;
+  app.clearStuck = clearStuckAiFails; app.AI_RESET = AI_FAILS_RESET_VERSION;
   app.taxPeriodOf = taxPeriodOf; app.taxFor = taxFor; app.taxableAssets = taxableAssets; app.taxBrackets = taxBrackets;
   app.TAX = { DAYS: TAX_PERIOD_DAYS, WIDTH: TAX_BRACKET_WIDTH, STEP: TAX_STEP_PCT, MAX: TAX_MAX_PCT };
   app.matchCount = lottoMatchCount; app.ticketNums = ticketNumbers; app.ticketBonus = ticketBonus;
@@ -620,6 +621,26 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
+
+/* ── AI 기사 함수가 고장 났다 살아났을 때 ──
+   그동안 모든 기사가 '두 번 실패' 로 기록되어 영원히 제외됐다. 한 번 되살려 줘야 한다 */
+{
+    const st = {
+        news: [
+            { id: 'n1', ai: false, aiFails: 2, aiTriedAt: 123 },
+            { id: 'n2', ai: false, aiFails: 5 },
+            { id: 'n3', ai: true, title: '이미 AI 가 쓴 기사' },
+            { id: 'n4', ai: false }
+        ]
+    };
+    check('한 번은 실패 기록을 지움', app.clearStuck(st) === true);
+    check('막혀 있던 기사가 다시 시도 대상이 됨',
+        st.news[0].aiFails === undefined && st.news[0].aiTriedAt === undefined && st.news[1].aiFails === undefined);
+    check('이미 AI 가 쓴 기사는 건드리지 않음', st.news[2].ai === true && st.news[2].title === '이미 AI 가 쓴 기사');
+    check('두 번은 지우지 않음 (매번 되살리면 실패한 기사를 끝없이 다시 요청함)', app.clearStuck(st) === false);
+    check('되살린 표시를 남김', st.aiFailsReset === app.AI_RESET);
+    check('뉴스 목록이 없어도 멈추지 않음', app.clearStuck({}) === true);
+}
 
 /* ── 세금: 2주마다, 자산이 많을수록 높은 세율 ── */
 {

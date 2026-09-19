@@ -21,7 +21,7 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 20;
+const MIN_CLIENT_BUILD = 21;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -395,6 +395,14 @@ function stockDiagnosis(record) {
     // 목록이 이어져 보여도 가운데가 비어 있을 수 있다 (밤사이 기사가 빠지던 문제가 그랬다).
     // 그래서 최근 24시간을 한 시간씩 짚어 본다
     ...hourlyGaps(times, now),
+    // AI 기사 요청이 마지막으로 어떻게 됐는지 (화면 관리자 주식 탭에 나오는 것과 같은 내용)
+    AI상태: st.aiStatus
+      ? (st.aiStatus.ok
+          ? `정상 (마지막 성공 ${new Date(st.aiStatus.t).toISOString()})`
+          : `실패 (${new Date(st.aiStatus.t).toISOString()}): ${st.aiStatus.message}`)
+      : "아직 요청 기록이 없어요",
+    // 아직 AI 기사를 기다리는 중인 건수 (6시간 안쪽 + 두 번 넘게 실패하지 않은 것)
+    AI기사_기다리는_건수: news.filter((n) => !n.ai && (n.aiFails || 0) < 2 && now - n.t < 6 * HOUR).length,
   };
 
   return {
