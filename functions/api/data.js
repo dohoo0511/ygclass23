@@ -263,16 +263,24 @@ function hourlyGaps(times, now) {
   const KST = 9 * HOUR;
   const nowHour = Math.floor(now / HOUR);
   const covered = new Set(times.map((t) => Math.floor(t / HOUR)));
+  // 목록은 최근 것만 남기므로, 가장 오래된 기사보다 앞선 시간은 '빠진 것' 이 아니라
+  // '애초에 안 남긴 것' 이다. 그 시간까지 세면 멀쩡한데도 구멍이 있다고 나온다
+  const oldestHour = times.length ? Math.floor(times[0] / HOUR) : nowHour;
+  const from = Math.max(nowHour - 24, oldestHour);
   const missing = [];
   // 지금 시간은 아직 회차가 안 끝났을 수 있으므로 한 시간 전까지만 본다
-  for (let h = nowHour - 24; h <= nowHour - 1; h++) {
+  for (let h = from; h <= nowHour - 1; h++) {
     if (!covered.has(h)) missing.push(new Date(h * HOUR + KST).toISOString().slice(5, 13).replace("T", " ") + "시");
   }
+  const checked = Math.max(0, nowHour - from);
   return {
-    최근24시간_중_기사있는_시간: 24 - missing.length,
+    살펴본_시간: checked,
+    기사있는_시간: checked - missing.length,
     기사없는_시간_한국시간: missing.slice(0, 24),
     // 네 회사가 모두 안 움직인 시간은 드물게(1.5%) 있을 수 있다. 서너 시간이 연달아 비면 이상한 것
-    판단: missing.length === 0
+    판단: checked === 0
+      ? "아직 볼 기사가 없어요"
+      : missing.length === 0
       ? "빈 시간 없음 — 뉴스가 그래프를 잘 따라가고 있어요"
       : missing.length <= 2
         ? "한두 시간 비어 있음 — 그 시간에 네 회사가 모두 안 움직였을 수 있어요 (정상 범위)"
