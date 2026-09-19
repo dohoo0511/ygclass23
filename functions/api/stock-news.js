@@ -21,6 +21,7 @@ const KIND_LABELS = {
   contract_end: "두 회사의 계약 해지",
   contract_strain: "두 회사의 계약에 생긴 진통 (계약은 유지됨)",
   contract_fail: "두 회사의 계약 협상 결렬",
+  quiet: "특별한 일 없이 지나간 조용한 하루",
 };
 
 const LEVEL_LABELS = { none: "거의 없음", small: "작음", medium: "보통", large: "큼", huge: "매우 큼" };
@@ -35,6 +36,9 @@ const SYSTEM_PROMPT = `너는 학생들이 참여하는 학급 경제 게임의 
 - 사건마다 받은 id를 그대로 붙여서, 사건 수만큼 기사를 돌려준다.
 - 제목은 30자 이내, 본문은 2~3문장 150자 이내로 쓴다.
 - 호재/악재 방향과 영향 크기에 맞게 쓴다. 호재를 나쁜 일처럼, 악재를 좋은 일처럼 쓰지 않는다.
+- 방향이 '중립' 인 사건은 주가가 움직이지 않은 날의 기사다. 큰일이 난 것처럼 쓰면 안 된다.
+  제목도 본문도 차분하게, '평소와 비슷했다·별다른 소식이 없었다' 는 분위기로 쓴다.
+  좋은 소식이나 나쁜 소식을 새로 지어내지 말고, 주어진 사건 그대로만 쓴다.
 - 계약 관련 사건이면 두 회사 이름과 계약 내용을 모두 넣는다.
 - 주가가 올랐는지 떨어졌는지는 쓰되, 가격이나 퍼센트 같은 숫자는 쓰지 않는다.
 - 초등학생·중학생이 읽기 쉬운 말로 쓴다. 실제 기업·브랜드·인물, 정치, 사고, 질병 유행, 폭력 이야기는 넣지 않는다.
@@ -84,7 +88,7 @@ function validateItem(raw) {
   if (typeof id !== "string" || !/^n\d{1,9}$/.test(id)) return null;
   if (!KIND_LABELS[kind] || !COMPANIES[companyId]) return null;
   if (kind !== "single" && !COMPANIES[partnerId]) return null;
-  if (sentiment !== "good" && sentiment !== "bad") return null;
+  if (sentiment !== "good" && sentiment !== "bad" && sentiment !== "flat") return null;
   if (!LEVEL_LABELS[level]) return null;
   if (typeof title !== "string" || title.length === 0 || title.length > 80) return null;
   const safeDeltas = {};
@@ -107,7 +111,8 @@ function describeItem(item) {
     const partner = COMPANIES[item.partnerId];
     lines.push(`상대 회사: ${partner.name} (${partner.industry})`);
   }
-  lines.push(`방향: ${item.sentiment === "good" ? "호재" : "악재"}`);
+  lines.push(`방향: ${item.sentiment === "good" ? "호재" : item.sentiment === "bad" ? "악재"
+    : "중립 — 호재도 악재도 아닌, 특별할 것 없는 소식"}`);
   lines.push(`영향 크기: ${LEVEL_LABELS[item.level]}`);
   const moved = Object.entries(item.deltas)
     .filter(([, delta]) => delta !== 0)

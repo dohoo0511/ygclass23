@@ -38,6 +38,7 @@ eval(script + `
   app.getDbCouponPrices = () => db.couponPrices;
   app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
+  app.REASONS = NEWS_REASONS;
   app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
   app.BOX = { PRICE: RANDOM_BOX_PRICE, MIN: BOX_PRIZE_MIN_SHARE, MAX: BOX_PRIZE_MAX_SHARE,
               HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD };
@@ -587,6 +588,62 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
         && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
 });
+
+/* ── 기사와 주가가 같은 말을 해야 함 ──
+   예전에는 호재·악재를 먼저 정하고 변동 폭을 따로 굴려서, 누가 봐도 좋은 소식인데
+   주가는 그대로인 기사가 나왔다 ('대형 계약 수주!' · 변동 없음).
+   이제 호재면 반드시 오르고, 악재면 반드시 내리고, 안 움직이는 회차는 '잠잠' 기사가 된다. */
+(function newsMatchesPrice() {
+    const HOUR = 3600 * 1000, DAYS = 30;
+    const start = Date.now() - DAYS * 24 * HOUR;
+    const market = app.initStock(start);
+    app.setDb({ users: {}, stocks: market, lotto: {}, bank: { loans: [], savings: [], logs: [] }, usageRequests: [] });
+
+    let good = 0, bad = 0, flat = 0;
+    let goodNotUp = 0, badNotDown = 0, flatMoved = 0, quietMismatch = 0, pairOneSided = 0;
+
+    for (let h = 1; h <= DAYS * 24; h++) {
+        const t = start + h * HOUR;
+        market.lastTick = Math.floor(t / HOUR);
+        app.COMPANIES.forEach(c => {
+            const before = {};
+            app.COMPANIES.forEach(x => { before[x.id] = market.companies[x.id].price; });
+            const item = app.event(t, c.id, true);
+            const d = (item.deltas || {})[item.companyId] || 0;
+            const atFloor = before[item.companyId] <= app.K.MIN;
+            const atCeil = before[item.companyId] >= 200;
+
+            if (item.sentiment === 'good') {
+                good++;
+                if (d <= 0 && !atCeil) goodNotUp++;
+            } else if (item.sentiment === 'bad') {
+                bad++;
+                if (d >= 0 && !atFloor) badNotDown++;
+            } else if (item.sentiment === 'flat') {
+                flat++;
+                if (Object.values(item.deltas || {}).some(x => x !== 0)) flatMoved++;
+                if (item.kind !== 'quiet') quietMismatch++;
+            }
+            // 계약 뉴스는 두 회사가 함께 움직여야 한다
+            if (item.partnerId) {
+                const dp = (item.deltas || {})[item.partnerId] || 0;
+                const partnerStuck = before[item.partnerId] <= app.K.MIN || before[item.partnerId] >= 200;
+                if (dp === 0 && !partnerStuck) pairOneSided++;
+            }
+        });
+    }
+
+    check(`뉴스가 충분히 나옴 — 호재 ${good} · 악재 ${bad} · 잠잠 ${flat}`, good > 100 && bad > 100 && flat > 100);
+    check(`호재 기사는 반드시 주가가 오름 — 어긋난 기사 ${goodNotUp}건`, goodNotUp === 0);
+    check(`악재 기사는 반드시 주가가 내림 — 어긋난 기사 ${badNotDown}건`, badNotDown === 0);
+    check(`'잠잠' 기사는 주가를 움직이지 않음 — 어긋난 기사 ${flatMoved}건`, flatMoved === 0);
+    check(`변동 없는 회차는 반드시 '잠잠' 기사 — 어긋난 기사 ${quietMismatch}건`, quietMismatch === 0);
+    check(`계약 뉴스는 두 회사가 함께 움직임 — 한쪽만 움직인 기사 ${pairOneSided}건`, pairOneSided === 0);
+
+    // '잠잠' 기사에도 회사마다 쓸 문장이 있어야 한다
+    const missing = app.COMPANIES.filter(c => !(app.REASONS[c.id].flat || []).length);
+    check('회사마다 잠잠한 날 기사 문장이 있음', missing.length === 0);
+})();
 
 /* ── 밤사이 움직인 주가에는 그만큼의 뉴스가 있어야 함 ──
    아무도 안 들어온 동안의 회차는 아침 첫 접속 때 한꺼번에 처리된다.

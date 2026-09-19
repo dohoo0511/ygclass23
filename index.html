@@ -995,19 +995,27 @@
     const NEWS_REASONS = {
         taehoon: {
             good: ['신형 스마트폰이 출시 첫날 모두 팔렸다', '배터리가 이틀 가는 노트북을 공개했다', '해외 전자제품 박람회에서 최고상을 받았다', '초고속 충전 기술 특허를 따냈다', '학생용 태블릿 주문이 크게 늘었다', '새 반도체 공장을 완공했다', '접히는 화면 기술을 새로 선보였다', '인공지능 번역 이어폰이 큰 인기를 끌었다', '무선 충전 속도를 두 배로 높였다', '재활용 부품으로 만든 친환경 제품을 내놨다', '해외 대형 매장과 납품 계약을 새로 맺었다', '신제품 사전 예약자가 목표치를 넘어섰다'],
-            bad: ['신제품 화면 불량으로 교환 요청이 이어졌다', '핵심 부품 공급이 늦어져 생산이 멈췄다', '경쟁사의 값싼 제품에 밀려 판매가 줄었다', '업데이트 오류로 기기가 꺼지는 문제가 생겼다', '공장 설비 고장으로 출고가 늦어졌다', '신제품 발표회가 연기됐다', '배터리 과열 문제로 일부 제품을 회수했다', '해외 공장 노동자들이 파업에 나섰다', '신제품 디자인이 예전 제품과 비슷하다는 비판을 받았다', '소프트웨어 오류로 고객센터에 문의가 폭주했다', '원자재 가격이 올라 생산비가 늘었다', '유명 유튜버가 신제품을 혹평했다']
+            bad: ['신제품 화면 불량으로 교환 요청이 이어졌다', '핵심 부품 공급이 늦어져 생산이 멈췄다', '경쟁사의 값싼 제품에 밀려 판매가 줄었다', '업데이트 오류로 기기가 꺼지는 문제가 생겼다', '공장 설비 고장으로 출고가 늦어졌다', '신제품 발표회가 연기됐다', '배터리 과열 문제로 일부 제품을 회수했다', '해외 공장 노동자들이 파업에 나섰다', '신제품 디자인이 예전 제품과 비슷하다는 비판을 받았다', '소프트웨어 오류로 고객센터에 문의가 폭주했다', '원자재 가격이 올라 생산비가 늘었다', '유명 유튜버가 신제품을 혹평했다'],
+            // 주가가 안 움직이는 회차에 쓰는 '조용한 하루' 소식
+            flat: ['지난달과 비슷한 판매량을 이어갔다', '공장이 평소대로 돌아갔다', '신제품 발표를 앞두고 조용한 하루를 보냈다', '새 기술을 시험하는 중이라고만 밝혔다', '고객센터 문의가 평소 수준을 유지했다', '출시 일정을 예정대로 지켰다', '해외 전시회를 둘러보고 왔다', '부품 재고를 평소만큼 채워 뒀다', '직원 교육을 예정대로 진행했다', '특별한 발표 없이 하루를 마쳤다']
         },
         ttaek: {
             good: ['당일 배송 지역을 전국으로 넓혔다', '로봇 분류 시스템으로 배송 속도를 두 배로 높였다', '명절 택배 물량이 역대 최고를 기록했다', '고객 만족도 조사에서 1위를 차지했다', '전기 배송 트럭 100대를 새로 들였다', '새 물류센터가 문을 열었다', '반려동물 전용 배송 서비스를 시작했다', '배송 기사 처우 개선으로 이직률이 크게 줄었다', '야간 배송 서비스가 큰 호응을 얻었다', '파손 없는 포장 기술로 상까지 받았다', '실시간 배송 위치 추적 서비스를 새로 열었다', '대형 쇼핑몰과 전속 배송 계약을 맺었다'],
-            bad: ['물류센터 전산 오류로 배송이 하루 늦어졌다', '폭설로 배송 차량 운행이 멈췄다', '택배 상자 파손 신고가 크게 늘었다', '기름값이 올라 배송 비용이 늘었다', '큰 거래처가 계약 연장을 미뤘다', '분류 기계 고장으로 택배가 쌓였다', '배송 기사 인력이 부족해 배송이 지연됐다', '오배송 신고가 크게 늘었다', '물류센터 화재로 일부 물량을 처리하지 못했다', '파업으로 일부 지역 배송이 멈췄다', '도로 공사로 배송 경로가 막혀 지연이 잦아졌다', '배송 요금 인상에 고객 불만이 커졌다']
+            bad: ['물류센터 전산 오류로 배송이 하루 늦어졌다', '폭설로 배송 차량 운행이 멈췄다', '택배 상자 파손 신고가 크게 늘었다', '기름값이 올라 배송 비용이 늘었다', '큰 거래처가 계약 연장을 미뤘다', '분류 기계 고장으로 택배가 쌓였다', '배송 기사 인력이 부족해 배송이 지연됐다', '오배송 신고가 크게 늘었다', '물류센터 화재로 일부 물량을 처리하지 못했다', '파업으로 일부 지역 배송이 멈췄다', '도로 공사로 배송 경로가 막혀 지연이 잦아졌다', '배송 요금 인상에 고객 불만이 커졌다'],
+            // 주가가 안 움직이는 회차에 쓰는 '조용한 하루' 소식
+            flat: ['배송량이 지난주와 비슷했다', '물류센터가 평소대로 돌아갔다', '별다른 사고 없이 하루를 마쳤다', '새 배송 노선을 검토하는 중이라고 밝혔다', '날씨가 좋아 배송이 평소대로 이뤄졌다', '배송 기사 교육을 예정대로 진행했다', '포장재를 바꾸는 방안을 살펴보고 있다', '고객 문의가 평소 수준을 유지했다', '분류 기계 점검을 예정대로 마쳤다', '특별한 소식 없이 조용한 하루를 보냈다']
         },
         dohoo: {
             good: ['새로 나온 컵라면이 학생들 사이에서 인기를 끌고 있다', '건강 간식이 나오자마자 품절됐다', '해외 수출 계약을 따냈다', '학교 급식 납품 업체로 선정됐다', '유명 요리사와 함께 만든 즉석밥이 인기를 끌었다', '공장 자동화로 생산량이 크게 늘었다', '무설탕 음료가 큰 인기를 끌고 있다', '친환경 포장재로 바꿔 소비자들의 호평을 받았다', '편의점 단독 신제품이 완판 행진을 이어갔다', '지역 농가와 손잡고 특산물 과자를 내놨다', '해외 식품 박람회에서 최우수상을 받았다', '온라인 주문량이 크게 늘어 매출이 올랐다'],
-            bad: ['원재료 가격이 올라 이익이 줄었다', '포장 표기 실수로 제품을 회수하게 됐다', '신제품 맛 평가가 좋지 않았다', '날씨 탓에 과일 수확량이 줄었다', '냉동 창고 고장으로 재고 일부를 버렸다', '인기 과자의 판매가 줄었다', '위생 점검에서 보완 지시를 받았다', '유통기한 표기 오류로 논란이 됐다', '물류 차질로 신제품 출시가 미뤄졌다', '경쟁사 신제품에 밀려 매출이 줄었다', '공장 기계 고장으로 생산이 잠시 멈췄다', '원가 상승으로 일부 제품 가격을 올렸다']
+            bad: ['원재료 가격이 올라 이익이 줄었다', '포장 표기 실수로 제품을 회수하게 됐다', '신제품 맛 평가가 좋지 않았다', '날씨 탓에 과일 수확량이 줄었다', '냉동 창고 고장으로 재고 일부를 버렸다', '인기 과자의 판매가 줄었다', '위생 점검에서 보완 지시를 받았다', '유통기한 표기 오류로 논란이 됐다', '물류 차질로 신제품 출시가 미뤄졌다', '경쟁사 신제품에 밀려 매출이 줄었다', '공장 기계 고장으로 생산이 잠시 멈췄다', '원가 상승으로 일부 제품 가격을 올렸다'],
+            // 주가가 안 움직이는 회차에 쓰는 '조용한 하루' 소식
+            flat: ['판매량이 지난주와 비슷했다', '공장이 평소대로 돌아갔다', '신제품 맛을 시험하는 중이라고 밝혔다', '원재료 가격이 큰 변화 없이 유지됐다', '편의점 매대 배치를 조금 손봤다', '소비자 설문 결과가 지난번과 비슷했다', '다음 계절 신제품 준비에 들어갔다고 알렸다', '위생 점검을 평소대로 마쳤다', '포장 디자인을 검토하는 중이라고 밝혔다', '이렇다 할 소식 없이 하루를 보냈다']
         },
         pharma23: {
             good: ['새 감기약이 임상시험에서 좋은 결과를 얻었다', '비타민 제품이 약국 판매 1위에 올랐다', '연구소가 신약 특허를 등록했다', '해외 제약사에 기술을 수출했다', '알레르기 치료제 허가를 받았다', '연구 인력을 두 배로 늘렸다', '어린이용 시럽 감기약이 큰 인기를 끌었다', '친환경 포장으로 바꾼 영양제가 호평을 받았다', '해외 학회에서 연구 성과를 발표해 주목받았다', '새 유산균 제품이 매장 판매 1위에 올랐다', '정부 지원 연구 과제에 선정됐다', '국내 대형 약국 체인과 납품 계약을 맺었다'],
-            bad: ['신약 임상시험 일정이 미뤄졌다', '약 포장 불량으로 일부 제품을 회수했다', '연구비가 크게 늘어 이익이 줄었다', '주력 약품의 특허 기간이 곧 끝난다', '공장 위생 점검에서 보완 지시를 받았다', '원료 수입이 늦어져 생산량이 줄었다', '신제품 부작용 신고가 접수됐다', '경쟁 제약사의 신약에 밀려 판매가 줄었다', '연구 결과가 기대에 못 미쳤다', '원료 가격 상승으로 생산비가 늘었다', '약사들 사이에서 사용 후기가 엇갈렸다', '신제품 허가 절차가 예상보다 오래 걸리고 있다']
+            bad: ['신약 임상시험 일정이 미뤄졌다', '약 포장 불량으로 일부 제품을 회수했다', '연구비가 크게 늘어 이익이 줄었다', '주력 약품의 특허 기간이 곧 끝난다', '공장 위생 점검에서 보완 지시를 받았다', '원료 수입이 늦어져 생산량이 줄었다', '신제품 부작용 신고가 접수됐다', '경쟁 제약사의 신약에 밀려 판매가 줄었다', '연구 결과가 기대에 못 미쳤다', '원료 가격 상승으로 생산비가 늘었다', '약사들 사이에서 사용 후기가 엇갈렸다', '신제품 허가 절차가 예상보다 오래 걸리고 있다'],
+            // 주가가 안 움직이는 회차에 쓰는 '조용한 하루' 소식
+            flat: ['약국 판매량이 지난주와 비슷했다', '연구가 예정대로 진행되고 있다고 밝혔다', '공장이 평소대로 돌아갔다', '임상시험 결과 발표를 앞두고 조용했다', '새 영양제 포장을 검토하는 중이라고 알렸다', '학회 참가 계획을 예정대로 지켰다', '연구원 채용 공고를 예정대로 냈다', '품질 검사를 평소대로 마쳤다', '거래 약국 수가 지난달과 비슷했다', '특별한 발표 없이 하루를 마쳤다']
         }
     };
 
@@ -1283,9 +1291,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-19-nightnews';
+    const APP_VERSION = '2026-09-19-newsmatch';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 16;
+    const APP_BUILD = 17;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -3802,8 +3810,23 @@
         const main = companyId ? companyById(companyId) : pick(COMPANIES);
 
         const tick = typeof st.lastTick === 'number' ? st.lastTick : 0;
+
+        /* 먼저 '이번에 주가가 움직이는가' 부터 정한다.
+           예전에는 호재·악재를 먼저 정하고 변동 폭을 따로 굴려서, 누가 봐도 좋은 소식인데
+           주가는 그대로인 기사가 나왔다 ('대형 계약 수주!' · 변동 없음).
+           이제 안 움직이는 회차는 아예 '조용한 하루' 뉴스가 되고,
+           호재·악재 뉴스는 반드시 그 방향으로 주가를 움직인다. */
+        const mag = rollMagnitude(rand, mustMove);
+        if (mag.amount === 0) {
+            const reasons = NEWS_REASONS[main.id].flat;
+            Object.assign(item, {
+                kind: 'quiet', companyId: main.id, sentiment: 'flat', level: 'none',
+                reason: Math.floor(rand() * reasons.length)
+            });
+        }
+
         let pair = null;
-        if (rand() < 0.3) {
+        if (mag.amount > 0 && rand() < 0.3) {
             const a = main;
             const b = pick(COMPANIES.filter(c => c.id !== a.id));
             const key = pairKey(a.id, b.id);
@@ -3846,20 +3869,22 @@
                 delete st.contractSince[key];
                 st.contractEndedAt[key] = tick;
             }
-            const magA = rollMagnitude(rand, mustMove);
-            const magB = rollMagnitude(rand, mustMove);
             // 계약이 흔들린 것뿐이면, 깨졌을 때보다 주가가 덜 움직인다
             const soften = amount => {
-                if (kind !== 'contract_strain' || amount === 0) return amount;
+                if (kind !== 'contract_strain') return amount;
                 return Math.max(1, Math.floor(amount * CONTRACT_STRAIN_PCT / 100));
             };
-            Object.assign(item, { companyId: a.id, partnerId: b.id, sentiment: good ? 'good' : 'bad', level: magA.level });
-            planned[a.id] = (good ? 1 : -1) * soften(magA.amount);
-            planned[b.id] = (good ? 1 : -1) * soften(magB.amount);
-        } else {
+            const mainMove = soften(mag.amount);
+            // 계약 뉴스는 두 회사가 함께 움직인다. 상대 회사는 따로 굴리지 않고 이쪽 움직임에
+            // 비례해서 정한다. 따로 굴리면 한 시간에 두 회사의 움직임이 겹쳐 쌓여서,
+            // 3π 이상 크게 튀는 일이 2.8% → 8.4% 로 늘어난다 (실측)
+            const partnerMove = Math.max(1, Math.round(mainMove * STOCK_SPILLOVER_PCT / 100));
+            Object.assign(item, { companyId: a.id, partnerId: b.id, sentiment: good ? 'good' : 'bad', level: mag.level });
+            planned[a.id] = (good ? 1 : -1) * mainMove;
+            planned[b.id] = (good ? 1 : -1) * partnerMove;
+        } else if (mag.amount > 0) {
             const c = main;
             const good = rand() < goodChance(c.id);
-            const mag = rollMagnitude(rand, mustMove);
             const sentiment = good ? 'good' : 'bad';
             Object.assign(item, { kind: 'single', companyId: c.id, sentiment, level: mag.level, reason: Math.floor(rand() * NEWS_REASONS[c.id][sentiment].length) });
             planned[c.id] = (good ? 1 : -1) * mag.amount;
@@ -3910,6 +3935,13 @@
         const moved = Object.values(item.deltas || {}).some(d => d !== 0);
         const move = moved ? levelWord + (item.sentiment === 'good' ? '올랐다' : '떨어졌다') : '거의 움직이지 않았다';
 
+        if (item.kind === 'quiet') {
+            const reason = NEWS_REASONS[a.id].flat[item.reason];
+            return {
+                title: `${a.name}, ${reason}`,
+                body: `${josa(a.name, '이', '가')} ${reason}. 이렇다 할 소식이 없어 ${a.name} 주가는 거의 움직이지 않았다.`
+            };
+        }
         if (item.kind === 'single') {
             const reason = NEWS_REASONS[a.id][item.sentiment][item.reason];
             const partners = Object.keys(item.deltas).filter(id => id !== a.id).map(id => companyById(id).name);
@@ -4364,7 +4396,8 @@
     function latestHeadlineHtml(companyId) {
         const latest = newsOfCompany(visibleStockNews(db.stocks.news), companyId)[0];
         if (!latest) return '';
-        const tag = latest.sentiment === 'good' ? '<span class="up-text">▲</span>' : '<span class="down-text">▼</span>';
+        const tag = latest.sentiment === 'flat' ? '<span class="muted">—</span>'
+            : latest.sentiment === 'good' ? '<span class="up-text">▲</span>' : '<span class="down-text">▼</span>';
         return `<button class="card-headline" onclick="setStockNewsCompany('${companyId}', true)">📰 ${tag} ${esc(latest.title)}</button>`;
     }
 
@@ -4590,7 +4623,9 @@
         return list.map(n => {
             const tag = n.kind === 'open'
                 ? '<span class="news-tag neutral">📣 알림</span>'
-                : (n.sentiment === 'good' ? '<span class="news-tag up">▲ 호재</span>' : '<span class="news-tag down">▼ 악재</span>');
+                : n.sentiment === 'flat'
+                    ? '<span class="news-tag neutral">— 잠잠</span>'
+                    : (n.sentiment === 'good' ? '<span class="news-tag up">▲ 호재</span>' : '<span class="news-tag down">▼ 악재</span>');
             const impacts = Object.entries(n.deltas || {})
                 .filter(([id]) => companyById(id))
                 .map(([id, d]) => `${companyById(id).name} ${d === 0 ? '변동 없음' : signed(d) + 'π'}`).join(' · ');
