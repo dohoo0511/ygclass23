@@ -39,6 +39,8 @@ eval(script + `
   app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.REASONS = NEWS_REASONS;
+  app.matchCount = lottoMatchCount; app.ticketNums = ticketNumbers; app.ticketBonus = ticketBonus;
+  app.ticketKey = ticketKey; app.HIDDEN = HIDDEN_REWARD;
   app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
   app.BOX = { PRICE: RANDOM_BOX_PRICE, MIN: BOX_PRIZE_MIN_SHARE, MAX: BOX_PRIZE_MAX_SHARE,
               HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD };
@@ -46,7 +48,7 @@ eval(script + `
                    COOLDOWN: CONTRACT_COOLDOWN_TICKS, END_CHANCE: CONTRACT_END_CHANCE };
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
-            LOTTO_MAX: LOTTO_NUMBER_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
+            LOTTO_MAX: LOTTO_NUMBER_MAX, LOTTO_BONUS: LOTTO_BONUS_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
             HIST: STOCK_HISTORY_TICKS, MAG: NEWS_MAGNITUDES };
 `);
 
@@ -81,20 +83,48 @@ check(`적금 이자(주 ${app.SAVE_PCT}%)가 대출 이자(주 ${app.LOAN_PCT}%
    당첨자가 없는 몫만 다음 회차로 이월되고, 나머지 30% 는 지급도 이월도 되지 않고 사라진다.
    그래서 로또는 파이를 만드는 쪽이 아니라 없애는 쪽이어야 정상이다.
    (한때 "회수율 125%" 로 잘못 계산했는데, Pot 의 70% 가 매번 돌아온다고 본 탓이었다) */
-const N = app.K.LOTTO_MAX, T = C(N, 5), p = m => C(5, m) * C(N - 5, 5 - m) / T;
+const N = app.K.LOTTO_MAX, T = C(N, 5);
+const pMain = m => (m < 0 || m > 5) ? 0 : C(5, m) * C(N - 5, 5 - m) / T;
+// 보너스 번호(1~10) 가 맞으면 맞힌 개수가 1 늘어난다. 그래서 등수는 '합계' 로 매긴다
+const pB = 1 / app.K.LOTTO_BONUS;
+const p = t => pMain(t) * (1 - pB) + pMain(t - 1) * pB;
+const p1st = p(5) + p(6);                         // 5개 이상이면 모두 1등
 const TICKETS = 300;                              // 학생 30명이 주 10장씩 산다고 보고
 const revenue = TICKETS * 4;
-const noneOf = m => Math.pow(1 - p(m), TICKETS);  // 그 등수 당첨자가 한 명도 없을 확률
-const rollFrac = 0.4 * noneOf(5) + 0.3 * noneOf(4);
+const noneOf = prob => Math.pow(1 - prob, TICKETS);
+const rollFrac = 0.4 * noneOf(p1st) + 0.3 * noneOf(p(4));
 const pot = revenue / (1 - rollFrac);             // 이월이 쌓이다 멈추는 지점
-const paidCash = 0.4 * pot * (1 - noneOf(5)) + 0.3 * pot * (1 - noneOf(4))
-    + TICKETS * (p(5) * 22 + p(4) * 13);          // 기본 상금은 Pot 과 별개로 지급
+const paidCash = 0.4 * pot * (1 - noneOf(p1st)) + 0.3 * pot * (1 - noneOf(p(4)))
+    + TICKETS * (p1st * 22 + p(4) * 13);          // 기본 상금은 Pot 과 별개로 지급
 const netCash = paidCash - revenue;
 const coupons = TICKETS * (p(3) + p(2));          // 3·4등으로 공짜로 풀리는 쿠폰
 
 check(`로또가 파이를 늘리지 않음 — 주 ${netCash.toFixed(0)}π`, netCash <= 0);
 check(`누적 상금이 끝없이 불어나지 않음 — ${pot.toFixed(0)}π 에서 멈춤`, pot < 10000);
-check(`쿠폰 살포가 주 100장 미만 — ${coupons.toFixed(0)}장 (상점 수요를 죽이지 않을 것)`, coupons < 100);
+// 보너스를 넣으면서 당첨이 쉬워졌다. 쿠폰이 너무 쏟아지면 상점에서 살 이유가 없어진다
+check(`쿠폰 살포가 주 100장 미만 — ${coupons.toFixed(0)}장 (보너스 넣기 전 75장)`, coupons < 100);
+// 보너스를 넣은 이유: 1등이 거의 안 나왔다
+check(`1등이 너무 어렵지 않음 — ${(p1st * 100).toFixed(4)}% (보너스 넣기 전 0.0019%)`, p1st > pMain(5) * 5);
+check(`그래도 1등은 귀함 — 주 ${(TICKETS * p1st).toFixed(2)}명`, TICKETS * p1st < 1);
+
+/* ── 티켓 읽기: 예전 티켓(숫자 배열)도 그대로 쓸 수 있어야 함 ── */
+{
+    const win = [1, 2, 3, 4, 5], winBonus = 7;
+    check('새 티켓: 번호 3개 + 보너스 맞음 = 4개',
+        app.matchCount({ n: [1, 2, 3, 20, 21], b: 7 }, win, winBonus) === 4);
+    check('새 티켓: 보너스가 틀리면 그대로',
+        app.matchCount({ n: [1, 2, 3, 20, 21], b: 9 }, win, winBonus) === 3);
+    check('새 티켓: 5개 + 보너스 = 6개',
+        app.matchCount({ n: [1, 2, 3, 4, 5], b: 7 }, win, winBonus) === 6);
+    check('예전 티켓(배열)도 계산됨 — 보너스는 없는 것으로',
+        app.matchCount([1, 2, 3, 20, 21], win, winBonus) === 3);
+    check('보너스 번호는 본번호와 따로 셈 (같은 숫자여도 두 번 안 셈)',
+        app.matchCount({ n: [1, 2, 3, 20, 21], b: 1 }, win, winBonus) === 3);
+    check('티켓 구분값이 보너스까지 봄',
+        app.ticketKey({ n: [1, 2, 3, 4, 5], b: 1 }) !== app.ticketKey({ n: [1, 2, 3, 4, 5], b: 2 }));
+    check('예전 티켓에서도 번호를 꺼낼 수 있음',
+        app.ticketNums([3, 9]).length === 2 && app.ticketBonus([3, 9]) === null);
+}
 
 /* ── 쿠폰 가격을 관리자가 바꿀 수 있어야 함 ── */
 {
@@ -767,6 +797,8 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         const at = name => odds.find(o => o.reward.name === name).p;
         return { odds, ev, cash, at, total: odds.reduce((s, o) => s + o.p, 0) };
     };
+
+    check(`히든 보상이 ${app.HIDDEN.amount}파이`, app.HIDDEN.amount === 333 && app.HIDDEN.name === '333파이');
 
     const base = boxStats();
     check(`상자 확률 합계가 100% — ${(base.total * 100).toFixed(3)}%`, Math.abs(base.total - 1) < 1e-9);

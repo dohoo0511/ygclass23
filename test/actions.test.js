@@ -240,14 +240,26 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('송금: 끝내 안 되면 양쪽 다 그대로', student().pi === 500 && server.users['8'].pi === 50);
     check('송금: 끝내 안 되면 보냈다고 하지 않는다', !alerts.some(m => /보냈어요/.test(m)));
 
-    // ── 로또 ──
+    // ── 로또 (보너스 번호까지) ──
     server = freshServer(20, 500);
-    alerts = []; setInputs({ lottoNumbersInput: '1,2,3,4,5' });
+    alerts = []; setInputs({ lottoNumbersInput: '1,2,3,4,5', lottoBonusInput: 7 });
     await openScreen();
     beforeNextSave = () => { server.rev += 1; };
     await app.buyLotto();
     check('로또: 겹쳐도 표가 남는다', student().lottoTickets.length === 1);
     check('로또: 겹쳐도 당첨금이 쌓인다', server.lotto.currentPot > 0);
+    check('로또: 보너스 번호가 표에 저장됨',
+        student().lottoTickets[0] && student().lottoTickets[0].b === 7
+        && Array.isArray(student().lottoTickets[0].n) && student().lottoTickets[0].n.length === 5);
+
+    // 보너스를 안 고르거나 범위를 벗어나면 사지 못해야 한다
+    for (const bad of ['', 0, 11, 'x']) {
+        server = freshServer(20, 500);
+        alerts = []; setInputs({ lottoNumbersInput: '1,2,3,4,5', lottoBonusInput: bad });
+        await openScreen();
+        await app.buyLotto();
+        check(`로또: 보너스가 '${bad}' 면 사지 않음`, student().lottoTickets.length === 0);
+    }
 
     // ── 대출 ──
     server = freshServer(20, 500);
@@ -286,6 +298,19 @@ const check = (name, cond) => results.push([name, !!cond]);
     beforeNextSave = null;
     check('랜덤상자: 끝내 안 되면 열지 않은 것으로 둔다',
         student().pi === 500 && student().inventory.length === 0 && student().lottoTickets.length === 0);
+
+    // ── 랜덤상자에서 나온 로또에도 보너스 번호가 있어야 함 ──
+    server = freshServer(20, 3000);
+    server.users['7'].lottoTickets = [];
+    alerts = []; setInputs({});
+    await openScreen();
+    for (let i = 0; i < 150 && student().pi > 5; i++) await app.box();
+    const boxTickets = student().lottoTickets;
+    check(`랜덤상자에서 로또가 나옴 — ${boxTickets.length}장`, boxTickets.length > 0);
+    check('랜덤상자 로또에도 보너스 번호가 붙음',
+        boxTickets.length > 0 && boxTickets.every(t => Number.isInteger(t.b) && t.b >= 1 && t.b <= 10));
+    check('랜덤상자 로또도 번호 5개',
+        boxTickets.every(t => Array.isArray(t.n) && new Set(t.n).size === 5));
 
     // ── 할 수 없는 일은 예전처럼 그대로 막아야 한다 ──
     server = freshServer(20, 1);

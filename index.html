@@ -420,8 +420,10 @@
             <h3>🎲 학급 로또 (장당 <span id="lottoPriceLabel">4</span> π)</h3>
             <div id="lottoRewardInfo" style="margin: 15px 0;"></div>
             <div id="myLottoResult" style="margin: 15px 0;"></div>
-            <p style="font-size: 14px; color: #555;">1~<span id="lottoMaxHint"></span> 사이의 숫자 5개를 쉼표(,)로 구분하여 입력 (주 최대 15장) · 로또를 사면 경험치 +4</p>
+            <p style="font-size: 14px; color: #555;">1~<span id="lottoMaxHint"></span> 사이의 숫자 5개를 쉼표(,)로 구분하여 입력 (주 최대 15장) · 로또를 사면 경험치 +4<br>
+                보너스 번호는 1~<span id="lottoBonusHint"></span> 중 하나를 고르세요. 보너스가 맞으면 맞힌 개수에 1개가 더해져요.</p>
             <input type="text" id="lottoNumbersInput" placeholder="예: 3, 9, 14, 20, 24" style="width: 250px;">
+            <input type="number" id="lottoBonusInput" min="1" max="10" placeholder="보너스" style="width: 90px;">
             <button onclick="buyLotto()">구매하기</button>
             <div id="myLottoList" style="margin-top: 15px; background: #FFF8F0; padding: 15px; border-radius: 16px; font-size: 14px; box-shadow: inset 0 2px 6px rgba(230,81,0,0.06);"></div>
         </div>
@@ -634,6 +636,7 @@
             <p class="muted">기본 당첨금: 1등 <span id="adminBasePrize1"></span>π · 2등 <span id="adminBasePrize2"></span>π (상금 Pot 분배와 별도로 지급)</p>
             당첨 번호 입력:
             <input type="text" id="winningNumbersInput" placeholder="당첨 번호 5개 (쉼표로 구분)" style="width: 250px;">
+            <input type="number" id="winningBonusInput" min="1" max="10" placeholder="보너스" style="width: 90px;">
             <button class="admin-btn" style="background-color: #ff5722;" onclick="drawLotto()">추첨 실행</button>
             <div id="lottoResultArea" style="margin-top: 20px; padding: 15px; background-color: #fff3e0; border-radius: 16px; box-shadow: 0 4px 12px rgba(230,81,0,0.1); display: none;"></div>
         </div>
@@ -757,6 +760,13 @@
     // 20까지였을 때: 4등(2개 일치) 29.4%, 3등(3개 일치) 6.8%
     // 25까지로 넓히면: 4등 21.5%, 3등 3.6%
     const LOTTO_NUMBER_MAX = 25;
+    /* 보너스 번호: 5개와 따로, 1~10 중 하나를 더 고른다.
+       맞힌 개수에 보너스 일치를 더해서 등수를 매기므로 당첨이 훨씬 쉬워진다.
+         1등(5개 이상)  0.0019% → 0.021%  (11배)
+         2등(4개)       0.188%  → 0.527%
+         3등(3개)       3.58%   → 5.36%
+         4등(2개)       21.5%   → 23.9% */
+    const LOTTO_BONUS_MAX = 10;
 
     /* ===================== 설정: 쿠폰 ===================== */
     // price = 처음 정해 둔 상점 기본가 (등급 할인 전).
@@ -876,7 +886,7 @@
     const BOX_PRIZE_MAX_SHARE = 0.12;
     // hiddenTrigger 보상이 뽑혔을 때 이 확률로 히든 보상으로 바뀜 (확률표에는 ???로 표시)
     const HIDDEN_REWARD_CHANCE = 0.05;
-    const HIDDEN_REWARD = { name: '100파이', tier: 'hidden', type: 'pi', amount: 100 };
+    const HIDDEN_REWARD = { name: '333파이', tier: 'hidden', type: 'pi', amount: 333 };
 
     /* ===================== 설정: 주식 ===================== */
     const HOUR_MS = 60 * 60 * 1000;
@@ -1122,6 +1132,30 @@
     function isEmerald(userId) {
         return gradeIndexOf(db.users[userId].exp) >= EMERALD_INDEX;
     }
+    /* 로또 티켓 읽기.
+       예전 티켓은 숫자 5개짜리 배열이고, 새 티켓은 { n: [5개], b: 보너스 } 다.
+       예전 티켓도 그대로 쓸 수 있도록 둘 다 여기서 받아 준다 (보너스는 없는 것으로 침) */
+    function ticketNumbers(t) {
+        if (Array.isArray(t)) return t;
+        return t && Array.isArray(t.n) ? t.n : [];
+    }
+    function ticketBonus(t) {
+        return !Array.isArray(t) && t && typeof t.b === 'number' ? t.b : null;
+    }
+    function ticketKey(t) {
+        return ticketNumbers(t).join(',') + '|' + (ticketBonus(t) === null ? '' : ticketBonus(t));
+    }
+    function ticketText(t) {
+        const bonus = ticketBonus(t);
+        return ticketNumbers(t).join(', ') + (bonus === null ? '' : ` <span class="muted">+ 보너스 ${bonus}</span>`);
+    }
+    // 맞힌 개수 = 번호 5개 중 맞힌 수 + 보너스가 맞으면 1
+    function lottoMatchCount(t, winNums, winBonus) {
+        const main = ticketNumbers(t).filter(n => winNums.includes(n)).length;
+        const bonus = ticketBonus(t);
+        return main + (bonus !== null && bonus === winBonus ? 1 : 0);
+    }
+
     function lottoPriceFor(userId) {
         return LOTTO_TICKET_PRICE - (isEmerald(userId) ? 1 : 0);
     }
@@ -1291,9 +1325,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-19-newsmatch';
+    const APP_VERSION = '2026-09-19-lottobonus';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 17;
+    const APP_BUILD = 18;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1814,6 +1848,8 @@
     function fillLottoHint() {
         const el = document.getElementById('lottoMaxHint');
         if (el) el.textContent = String(LOTTO_NUMBER_MAX);
+        const bonusEl = document.getElementById('lottoBonusHint');
+        if (bonusEl) bonusEl.textContent = String(LOTTO_BONUS_MAX);
     }
 
     function renderNotice() {
@@ -2184,9 +2220,10 @@
                     if (!numbers.includes(n)) numbers.push(n);
                 }
                 numbers.sort((a, b) => a - b);
-                user.lottoTickets.push(numbers);
+                const bonus = Math.floor(Math.random() * LOTTO_BONUS_MAX) + 1;
+                user.lottoTickets.push({ n: numbers, b: bonus });
                 db.lotto.currentPot += LOTTO_TICKET_PRICE;
-                resultText = `로또 1장 획득! (번호: ${numbers.join(', ')})`;
+                resultText = `로또 1장 획득! (번호: ${numbers.join(', ')} + 보너스 ${bonus})`;
             } else {
                 user.inventory.push(reward.name);
                 resultText = `${reward.name} 획득!`;
@@ -2251,6 +2288,11 @@
         const inputStr = document.getElementById('lottoNumbersInput').value;
         let numbers = inputStr.split(',').map(n => parseInt(n.trim()));
         numbers = [...new Set(numbers.filter(n => !isNaN(n) && n >= 1 && n <= LOTTO_NUMBER_MAX))];
+        const bonus = parseInt(document.getElementById('lottoBonusInput').value, 10);
+        if (!Number.isInteger(bonus) || bonus < 1 || bonus > LOTTO_BONUS_MAX) {
+            alert(`보너스 번호는 1부터 ${LOTTO_BONUS_MAX} 사이의 숫자 하나를 골라주세요.`);
+            return;
+        }
         if (numbers.length !== 5) {
             alert(`1부터 ${LOTTO_NUMBER_MAX} 사이의 중복되지 않는 숫자 5개를 쉼표로 구분하여 입력해주세요.`);
             return;
@@ -2267,13 +2309,14 @@
             user.pi -= price;
             db.lotto.currentPot += LOTTO_TICKET_PRICE;
             numbers.sort((a, b) => a - b);
-            user.lottoTickets.push(numbers);
+            user.lottoTickets.push({ n: numbers, b: bonus });
             const promoted = addExp(currentUser, LOTTO_TICKET_PRICE, '로또 구매');
             return { ok: `로또가 정상적으로 발급되었습니다. (${price}π · 경험치 +${LOTTO_TICKET_PRICE})` + promotionText(promoted) };
         });
         if (!done) return;
         alert(done.ok);
         document.getElementById('lottoNumbersInput').value = '';
+        document.getElementById('lottoBonusInput').value = '';
         renderStudentSection();
     }
 
@@ -2284,7 +2327,7 @@
         const prize2nd = Math.floor(totalPot * 0.3);
 
         const cards = [
-            { match: '5개 일치', rank: '1등', reward: `기본 ${BASE_PRIZE_1ST}π + 상금 40%<br>(약 ${BASE_PRIZE_1ST + prize1st}π)` },
+            { match: '5개 이상', rank: '1등', reward: `기본 ${BASE_PRIZE_1ST}π + 상금 40%<br>(약 ${BASE_PRIZE_1ST + prize1st}π)` },
             { match: '4개 일치', rank: '2등', reward: `기본 ${BASE_PRIZE_2ND}π + 상금 30%<br>(약 ${BASE_PRIZE_2ND + prize2nd}π)` },
             { match: '3개 일치', rank: '3등', reward: '청소 면제권' },
             { match: '2개 일치', rank: '4등', reward: '간식 교환권' }
@@ -2292,6 +2335,7 @@
 
         let html = `<div style="background: linear-gradient(135deg, #FFE0B2 0%, #FFD599 100%); border-radius:16px; padding:16px; box-shadow: 0 4px 12px rgba(230,81,0,0.1);">`;
         html += `<p style="margin:0 0 12px 0; font-size:14px;">🏆 현재 누적 상금(Pot): <b style="color:#E65100; font-size:1.1em;">${totalPot} π</b></p>`;
+        html += `<p style="margin:-6px 0 12px 0; font-size:13px; color:#6d4c41;">번호 5개에 <b>보너스 번호</b>가 맞으면 맞힌 개수가 1개 더 늘어나요. (보너스는 1~${LOTTO_BONUS_MAX})</p>`;
         html += `<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px;">`;
         cards.forEach(c => {
             html += `
@@ -2313,7 +2357,7 @@
             html += `<span style="color: #888;">구매 내역이 없습니다.</span>`;
         } else {
             user.lottoTickets.forEach((ticket, idx) => {
-                html += `<div style="margin-bottom: 5px;"><span style="color: #888;">[${idx + 1}번]</span> <b>${ticket.join(', ')}</b></div>`;
+                html += `<div style="margin-bottom: 5px;"><span style="color: #888;">[${idx + 1}번]</span> <b>${ticketText(ticket)}</b></div>`;
             });
         }
         div.innerHTML = html;
@@ -2329,11 +2373,14 @@
         const dateStr = new Date(result.date).toLocaleDateString('ko-KR');
         let html = `<div style="background: #fff3e0; padding: 16px; border-radius: 16px; box-shadow: 0 4px 12px rgba(230,81,0,0.1);">`;
         html += `<h4 style="margin: 0 0 8px 0;">📢 지난 추첨 결과 (${dateStr})</h4>`;
-        html += `<p style="margin: 0 0 10px 0; font-size: 14px;">당첨 번호: <b>${result.winNums.join(', ')}</b></p>`;
+        const bonusStr = typeof result.winBonus === 'number' ? ` · 보너스 <b>${result.winBonus}</b>` : '';
+        html += `<p style="margin: 0 0 10px 0; font-size: 14px;">당첨 번호: <b>${result.winNums.join(', ')}</b>${bonusStr}</p>`;
         result.tickets.forEach((t, idx) => {
             const isWin = t.matchCount >= 2;
+            const mine = (t.numbers || []).join(', ')
+                + (typeof t.bonus === 'number' ? ` + 보너스 ${t.bonus}${t.bonusHit ? ' ✅' : ''}` : '');
             html += `<div style="margin-bottom: 4px; font-size: 14px; ${isWin ? 'color:#d84315; font-weight:bold;' : 'color:#888;'}">
-                [${idx + 1}번] ${t.numbers.join(', ')} → ${t.matchCount}개 일치 - ${esc(t.rewardText)}
+                [${idx + 1}번] ${mine} → ${t.matchCount}개 일치 - ${esc(t.rewardText)}
             </div>`;
         });
         html += `</div>`;
@@ -2921,7 +2968,12 @@
             alert("당첨 번호 5개를 정확히 입력하세요.");
             return;
         }
-        if (!confirm("추첨을 시작하시겠습니까?\n이 작업은 되돌릴 수 없으며, 모든 학생의 티켓이 정산 후 삭제됩니다.")) return;
+        const winBonus = parseInt(document.getElementById('winningBonusInput').value, 10);
+        if (!Number.isInteger(winBonus) || winBonus < 1 || winBonus > LOTTO_BONUS_MAX) {
+            alert(`보너스 번호를 1부터 ${LOTTO_BONUS_MAX} 사이로 입력하세요.`);
+            return;
+        }
+        if (!confirm(`추첨을 시작하시겠습니까?\n당첨 번호 ${winNums.join(', ')} · 보너스 ${winBonus}\n\n이 작업은 되돌릴 수 없으며, 모든 학생의 티켓이 정산 후 삭제됩니다.`)) return;
 
         if (!await loadData()) return;
         const totalPot = db.lotto.currentPot + db.lotto.rolloverPot;
@@ -2936,15 +2988,19 @@
             wins[id].pi += pi;
         };
 
-        let resultLog = `<h4 style="margin-top:0;">🎉 당첨 번호: ${winNums.join(', ')}</h4>`;
+        let resultLog = `<h4 style="margin-top:0;">🎉 당첨 번호: ${winNums.join(', ')} · 보너스 ${winBonus}</h4>`;
         resultLog += `<p>총 상금: <b>${totalPot} π</b></p><ul style="padding-left: 20px;">`;
 
         studentIds().forEach(id => {
             const user = db.users[id];
             const ticketResults = [];
             user.lottoTickets.forEach(ticket => {
-                const matchCount = ticket.filter(num => winNums.includes(num)).length;
-                const resultEntry = { numbers: ticket, matchCount, rewardText: "낙첨" };
+                const matchCount = lottoMatchCount(ticket, winNums, winBonus);
+                const resultEntry = {
+                    numbers: ticketNumbers(ticket), bonus: ticketBonus(ticket),
+                    bonusHit: ticketBonus(ticket) !== null && ticketBonus(ticket) === winBonus,
+                    matchCount, rewardText: "낙첨"
+                };
                 if (matchCount === 2) {
                     user.inventory.push("간식 교환권");
                     resultEntry.rewardText = "4등 당첨! (간식 교환권 지급)";
@@ -2957,13 +3013,14 @@
                     recordWin(id, 3);
                 } else if (matchCount === 4) {
                     winners2nd.push({ id, user, resultEntry });
-                } else if (matchCount === 5) {
+                } else if (matchCount >= 5) {
+                    // 보너스까지 맞으면 6개가 될 수 있다. 5개 이상이면 모두 1등
                     winners1st.push({ id, user, resultEntry });
                 }
                 ticketResults.push(resultEntry);
             });
             user.lottoTickets = [];
-            user.lastLottoResult = { winNums: winNums.slice(), date: drawDate, tickets: ticketResults };
+            user.lastLottoResult = { winNums: winNums.slice(), winBonus, date: drawDate, tickets: ticketResults };
         });
 
         let nextRollover = 0;
@@ -3412,7 +3469,7 @@
             ? '<li style="color:#888; font-size:14px;">구매한 로또가 없습니다.</li>'
             : user.lottoTickets.map((ticket, idx) => `
                 <li class="detail-row">
-                    [${idx + 1}번] ${ticket.join(', ')}
+                    [${idx + 1}번] ${ticketText(ticket)}
                     <button class="small-btn" style="margin:0; background-color:#EF6C00; color:#fff;" onclick="refundLotto(${idx})">환불</button>
                 </li>`).join('');
 
@@ -3537,11 +3594,11 @@
             return;
         }
         const refund = lottoPriceFor(detailStudentId);
-        const ticketKey = user.lottoTickets[index].join(',');
+        const key = ticketKey(user.lottoTickets[index]);
         if (!await confirmThenReload(`[${index + 1}번] 로또 티켓을 환불하시겠습니까?\n${refund}π가 반환됩니다.`)) return;
 
         const freshUser = db.users[detailStudentId];
-        const freshIndex = freshUser.lottoTickets.findIndex(t => t.join(',') === ticketKey);
+        const freshIndex = freshUser.lottoTickets.findIndex(t => ticketKey(t) === key);
         if (freshIndex === -1 || lottoPriceFor(detailStudentId) !== refund) {
             alert('그 사이 학생의 로또나 등급이 바뀌었어요. 다시 확인해주세요.');
             renderStudentDetail();
