@@ -69,6 +69,8 @@ eval(script + `
   app.initStock = initStockMarket;
   app.COMPANIES = COMPANIES;
   app.BUILD = APP_BUILD;
+  app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, TOTAL: STOCK_MAX_HOLD_TOTAL,
+            PER: STOCK_MAX_HOLD_PER_COMPANY, ORDER: STOCK_MAX_ORDER };
   app.load = () => loadData({ silent: true });
   app.buyItem = buyItem; app.buyLotto = buyLotto; app.transfer = sendTransfer;
   app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox;
@@ -94,7 +96,9 @@ function setOrderQty(n) {
 }
 function setInputs(map) { inputs = { ...map }; }
 
-function freshServer(price = 20, pi = 100) {
+const PRICE = () => app.K.MIN + 15;       // 흔한 주가
+const QTY = () => Math.max(1, Math.min(app.K.ORDER, app.K.TOTAL) - 1);   // 한도 안쪽 수량
+function freshServer(price = PRICE(), pi = 100) {
     const market = app.initStock(Date.now());
     Object.keys(market.companies).forEach(id => {
         market.companies[id].price = price;
@@ -127,36 +131,41 @@ const check = (name, cond) => results.push([name, !!cond]);
 (async () => {
     /* ── 평소: 그냥 사진다 ── */
     server = freshServer();
-    alerts = []; setOrderQty(2);
+    const q1 = QTY();
+    alerts = []; setOrderQty(q1);
     app.setUser('7');
+    server.users['7'].pi = PRICE() * app.K.TOTAL + 50;
     await openScreen();
     await app.buy(CO);
-    check('평범할 때 주식을 산다', heldOnServer() === 2);
-    check('산 만큼 파이가 줄어든다', piOnServer() === 100 - 40);
+    check('평범할 때 주식을 산다', heldOnServer() === q1);
+    check('산 만큼 파이가 줄어든다', piOnServer() === PRICE() * app.K.TOTAL + 50 - q1 * PRICE());
     check('샀다고 알려준다', saidBought());
 
     /* ── 핵심: 저장 직전에 다른 기기가 먼저 저장한 경우 ──
        예전에는 여기서 주문이 버려지는데도 '샀어요!' 가 떴다 (주식이 사라지던 증상) */
     server = freshServer();
-    alerts = []; setOrderQty(3);
+    const q2 = QTY();
+    alerts = []; setOrderQty(q2);
+    server.users['7'].pi = PRICE() * app.K.TOTAL + 50;
     await openScreen();
     beforeNextSave = () => { server.rev += 1; server.notice = '다른 기기가 먼저 저장함'; };
     await app.buy(CO);
-    check('겹쳐도 주식이 사라지지 않는다', heldOnServer() === 3);
-    check('겹쳐도 파이가 맞다', piOnServer() === 100 - 60);
+    check('겹쳐도 주식이 사라지지 않는다', heldOnServer() === q2);
+    check('겹쳐도 파이가 맞다', piOnServer() === PRICE() * app.K.TOTAL + 50 - q2 * PRICE());
     check('다른 기기가 저장한 내용도 그대로 남는다', server.notice === '다른 기기가 먼저 저장함');
     check('겹쳤다고 학생을 놀라게 하지 않는다', !alerts.some(m => /덮어쓰지 않고|새로고침/.test(m)));
     check('그래도 샀다고 알려준다', saidBought());
 
     /* ── 파는 쪽도 같아야 한다 ── */
     server = freshServer();
-    server.users['7'].stocks[CO] = [{ q: 4, cost: 80, at: Date.now(), paid: 0 }];
-    alerts = []; setOrderQty(4);
+    const q3 = QTY();
+    server.users['7'].stocks[CO] = [{ q: q3, cost: q3 * PRICE(), at: Date.now(), paid: 0 }];
+    alerts = []; setOrderQty(q3);
     await openScreen();
     beforeNextSave = () => { server.rev += 1; };
     await app.sell(CO);
     check('겹쳐도 판 것이 제대로 반영된다', heldOnServer() === 0);
-    check('판 만큼 파이를 받는다', piOnServer() === 100 + 80);
+    check('판 만큼 파이를 받는다', piOnServer() === 100 + q3 * PRICE());
 
     /* ── 끝내 저장되지 않으면, 샀다고 거짓말하면 안 된다 ── */
     server = freshServer();
@@ -171,14 +180,14 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('안 됐다고 분명히 알려준다', alerts.some(m => /처리되지 않았어요/.test(m)));
 
     /* ── 살 수 없는 상황은 예전처럼 그대로 막아야 한다 ── */
-    server = freshServer(20, 10);        // 파이 10 으로 2주(40π)는 못 삼
-    alerts = []; setOrderQty(2);
+    server = freshServer(PRICE(), 1);    // 파이 1 로는 한 주도 못 삼
+    alerts = []; setOrderQty(1);
     await openScreen();
     await app.buy(CO);
-    check('파이가 모자라면 사지 않는다', heldOnServer() === 0 && piOnServer() === 10);
+    check('파이가 모자라면 사지 않는다', heldOnServer() === 0 && piOnServer() === 1);
     check('왜 안 되는지 알려준다', alerts.some(m => /파이가 부족/.test(m)));
 
-    server = freshServer(5);             // 최저가에서는 살 수 없음
+    server = freshServer(app.K.LOCK);    // 최저가에서는 살 수 없음
     alerts = []; setOrderQty(1);
     await openScreen();
     await app.buy(CO);
@@ -186,13 +195,13 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('최저가라고 알려준다', alerts.some(m => /최저가/.test(m)));
 
     server = freshServer();
-    alerts = []; setOrderQty(10);
-    server.users['7'].pi = 10000;
+    alerts = []; setOrderQty(app.K.ORDER);
+    server.users['7'].pi = 100000;
     await openScreen();
     await app.buy(CO);
     const held = heldOnServer();
-    alerts = []; setOrderQty(10);
-    await app.buy(CO);                   // 한도(전체 10주)를 넘겨 또 사려 함
+    alerts = []; setOrderQty(app.K.ORDER);
+    await app.buy(CO);                   // 한도를 넘겨 또 사려 함
     check('보유 한도를 넘겨 사지 않는다', heldOnServer() === held);
     check('한도라고 알려준다', alerts.some(m => /주까지/.test(m)));
 

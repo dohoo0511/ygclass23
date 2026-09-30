@@ -39,6 +39,7 @@ eval(script + `
   app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.REASONS = NEWS_REASONS;
+  app.rescale = rescaleStockPrices; app.SCALE = STOCK_PRICE_SCALE_VERSION;
   app.clearStuck = clearStuckAiFails; app.AI_RESET = AI_FAILS_RESET_VERSION;
   app.taxPeriodOf = taxPeriodOf; app.taxFor = taxFor; app.taxableAssets = taxableAssets; app.taxBrackets = taxBrackets;
   app.TAX = { DAYS: TAX_PERIOD_DAYS, WIDTH: TAX_BRACKET_WIDTH, STEP: TAX_STEP_PCT, MAX: TAX_MAX_PCT };
@@ -52,7 +53,7 @@ eval(script + `
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
             TOTAL: STOCK_MAX_HOLD_TOTAL, ORDER: STOCK_MAX_ORDER, DIV: DIVIDEND_RATE_PCT,
             LOTTO_MAX: LOTTO_NUMBER_MAX, LOTTO_BONUS: LOTTO_BONUS_MAX, TERMS: SAVINGS_TERM_WEEKS, TICK: STOCK_TICK_MS,
-            HIST: STOCK_HISTORY_TICKS, MAG: NEWS_MAGNITUDES };
+            HIST: STOCK_HISTORY_TICKS, MAG: NEWS_MAGNITUDES, MAX: STOCK_MAX_PRICE };
 `);
 
 const results = [];
@@ -179,10 +180,13 @@ check('처음엔 전체 한도만큼 살 수 있음', app.buyableQty(user, 'taeh
 user.stocks.taehoon = [{ q: app.K.PER, cost: 100, at: 0, paid: 0 }];
 check('한 회사를 한도까지 채우면 그 회사는 더 못 삼', app.buyableQty(user, 'taehoon') === 0);
 check('전체 한도도 함께 걸림', app.buyableQty(user, 'ttaek') === Math.max(0, app.K.TOTAL - app.K.PER));
-user.stocks.taehoon = [{ q: 3, cost: 30, at: 0, paid: 0 }];
-user.stocks.ttaek = [{ q: 4, cost: 40, at: 0, paid: 0 }];
-check('여러 회사에 나눠 가져도 합계로 계산', app.totalHeldQty(user) === 7);
-check('남은 만큼만 더 살 수 있음', app.buyableQty(user, 'dohoo') === app.K.TOTAL - 7);
+// 한도를 바꿔도 따라가도록 숫자를 박지 않는다
+const splitA = Math.max(1, Math.floor(app.K.TOTAL / 3));
+const splitB = Math.max(1, Math.floor((app.K.TOTAL - splitA) / 2));
+user.stocks.taehoon = [{ q: splitA, cost: 30, at: 0, paid: 0 }];
+user.stocks.ttaek = [{ q: splitB, cost: 40, at: 0, paid: 0 }];
+check('여러 회사에 나눠 가져도 합계로 계산', app.totalHeldQty(user) === splitA + splitB);
+check('남은 만큼만 더 살 수 있음', app.buyableQty(user, 'dohoo') === app.K.TOTAL - splitA - splitB);
 check('1회 주문 한도가 보유 한도를 넘지 않음', app.K.ORDER <= app.K.TOTAL);
 
 /* ── 최저가에서 사는 것을 막는 설정이 살아 있는가 ── */
@@ -324,8 +328,10 @@ const REAL_NOW = Date.now();
     const broken = makeMarket(app.K.TICK, 24, REAL_NOW);
     broken.tickMs = app.K.TICK;                       // 간격은 이미 맞은 상태 = 간격 옮김으로는 안 지워짐
     const cid = app.COMPANIES[0].id;
-    broken.companies[cid].price = 15;
-    broken.companies[cid].history = [5, 21, ...Array(22).fill(15)];   // 화면과 같은 모양
+    const NOW_P = app.K.MIN + 15;
+    broken.companies[cid].price = NOW_P;
+    // 지금 주가와 동떨어진 옛 값이 섞여 있는 모양 (화면에서 본 것과 같은 형태)
+    broken.companies[cid].history = [app.K.MIN, NOW_P + 21, ...Array(22).fill(NOW_P)];
     const before = app.scale(broken.companies[cid].history);
     check(`고장난 기록이면 세로축이 크게 벌어짐 — ${before.lo}~${before.hi}π (화면과 같음)`,
         before.hi - before.lo >= 20);
@@ -334,9 +340,9 @@ const REAL_NOW = Date.now();
     check('간격 옮김만으로는 안 지워짐', app.migSize(broken) === false);
     check('기록 비우기가 한 번 일어남', app.wipe(broken) === true);
     check('기록이 지금 가격 하나로 새로 시작', broken.companies[cid].history.length === 1
-        && broken.companies[cid].history[0] === 15);
+        && broken.companies[cid].history[0] === NOW_P);
     check('시간축이 현재 회차와 맞음', broken.historyStartTick === broken.lastTick);
-    check('주가는 그대로', broken.companies[cid].price === 15);
+    check('주가는 그대로', broken.companies[cid].price === NOW_P);
     check('두 번은 비우지 않음', app.wipe(broken) === false);
 
     // 비운 뒤 하루 돌리면 정상적인 24시간 그래프가 나오는지
@@ -344,7 +350,9 @@ const REAL_NOW = Date.now();
     const last24 = broken.companies[cid].history.slice(-24);
     const after = app.scale(last24);
     const used = (Math.max(...last24) - Math.min(...last24)) / (after.hi - after.lo) * 100;
-    check(`비운 뒤 하루 만에 세로축이 좁아짐 — ${after.lo}~${after.hi}π`, after.hi - after.lo < 20);
+    // 고장난 기록(위에서 만든 것)보다 확실히 좁아야 한다
+    check(`비운 뒤 하루 만에 세로축이 좁아짐 — ${after.lo}~${after.hi}π (고장났을 때 ${before.hi - before.lo}π)`,
+        after.hi - after.lo < before.hi - before.lo);
     check(`비운 뒤 선이 화면 높이를 씀 — ${used.toFixed(0)}%`, used >= 30);
 }
 
@@ -555,10 +563,12 @@ function heightUsed(prices) {
     const { lo, hi } = app.scale(prices);
     return (Math.max(...prices) - Math.min(...prices)) / (hi - lo) * 100;
 }
-check(`1π 움직임이 화면 높이의 15% 이상 — ${heightUsed([14, 15, 14, 15]).toFixed(0)}%`, heightUsed([14, 15, 14, 15]) >= 15);
-check(`2π 움직임이 화면 높이의 30% 이상 — ${heightUsed([13, 14, 15, 14]).toFixed(0)}%`, heightUsed([13, 14, 15, 14]) >= 30);
-check(`4π 움직임이 화면 높이의 40% 이상 — ${heightUsed([11, 13, 15, 12]).toFixed(0)}%`, heightUsed([11, 13, 15, 12]) >= 40);
-check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFixed(0)}%`, heightUsed([10, 18, 12, 22]) <= 85);
+// 흔한 주가 근처에서 본다. 주가 자릿수를 바꿔도 따라가도록 최저가에서 끌어다 쓴다
+const P = app.K.MIN + 15;
+check(`1π 움직임이 화면 높이의 15% 이상 — ${heightUsed([P - 1, P, P - 1, P]).toFixed(0)}%`, heightUsed([P - 1, P, P - 1, P]) >= 15);
+check(`2π 움직임이 화면 높이의 30% 이상 — ${heightUsed([P - 2, P - 1, P, P - 1]).toFixed(0)}%`, heightUsed([P - 2, P - 1, P, P - 1]) >= 30);
+check(`4π 움직임이 화면 높이의 40% 이상 — ${heightUsed([P - 4, P - 2, P, P - 3]).toFixed(0)}%`, heightUsed([P - 4, P - 2, P, P - 3]) >= 40);
+check(`큰 움직임도 넘치지 않음 — ${heightUsed([P - 5, P + 3, P - 3, P + 7]).toFixed(0)}%`, heightUsed([P - 5, P + 3, P - 3, P + 7]) <= 85);
 
 /* ── 실제 엔진이 만든 값으로 그래프를 그려 본다 (설명이 아니라 결과로 확인) ── */
 {
@@ -615,11 +625,12 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
         bigJumps / moves < 0.06);
 }
 
-[[15, 15, 15], [14, 15], [5, 5, 5], [5, 6, 7], [198, 200], [11, 13, 15, 12]].forEach(ps => {
+const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
+[[Q, Q, Q], [Q - 1, Q], [M, M, M], [M, M + 1, M + 2], [X - 2, X], [Q - 4, Q - 2, Q, Q - 3]].forEach(ps => {
     const { lo, hi } = app.scale(ps);
     check(`세로축이 늘 올바름 [${ps.join(',')}] → ${lo}~${hi}π`,
         hi > lo && lo <= Math.min(...ps) && hi >= Math.max(...ps)
-        && lo >= app.K.MIN && hi <= 200 && (hi - lo) % 2 === 0);
+        && lo >= app.K.MIN && hi <= X && (hi - lo) % 2 === 0);
 });
 
 /* ── AI 기사 함수가 고장 났다 살아났을 때 ──
@@ -640,6 +651,49 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
     check('두 번은 지우지 않음 (매번 되살리면 실패한 기사를 끝없이 다시 요청함)', app.clearStuck(st) === false);
     check('되살린 표시를 남김', st.aiFailsReset === app.AI_RESET);
     check('뉴스 목록이 없어도 멈추지 않음', app.clearStuck({}) === true);
+}
+
+/* ── 주가 자릿수를 3배로 키울 때, 지금 돌아가는 자료도 함께 옮겨야 함 ──
+   주가만 3배가 되고 학생이 산 값은 그대로면, 모두가 앉은자리에서 3배를 번 것이 된다 */
+{
+    const cid = app.COMPANIES[0].id;
+    const make = () => ({
+        users: { '1': { role: 'student', pi: 100, stocks: { [cid]: [{ q: 2, cost: 30, at: 0, paid: 0 }] } } },
+        stocks: {
+            companies: Object.fromEntries(app.COMPANIES.map(c => [c.id, { price: 15, anchor: 14, history: [12, 15, 18] }])),
+            lastTick: 0, historyStartTick: 0, news: []
+        }
+    });
+
+    const d = make();
+    check('예전 자료는 한 번 옮겨짐', app.rescale(d) === true);
+    check('주가가 3배 — 15 → 45', d.stocks.companies[cid].price === 45);
+    check('기준가도 3배 — 14 → 42', d.stocks.companies[cid].anchor === 42);
+    check('그래프 기록도 3배 — [12,15,18] → [36,45,54]',
+        d.stocks.companies[cid].history.join(',') === '36,45,54');
+    check('학생이 산 값도 3배 — 30 → 90 (앉은자리에서 번 것이 되지 않게)',
+        d.users['1'].stocks[cid][0].cost === 90);
+    check('가진 주식 수는 그대로', d.users['1'].stocks[cid][0].q === 2);
+    check('파이는 건드리지 않음', d.users['1'].pi === 100);
+    check('두 번은 옮기지 않음', app.rescale(d) === false && d.stocks.companies[cid].price === 45);
+
+    // 새로 만든 시장은 이미 지금 자릿수다 (표시가 없으면 곧바로 또 3배가 된다)
+    const fresh = { users: {}, stocks: app.initStock(Date.now()) };
+    const startPrice = fresh.stocks.companies[cid].price;
+    app.rescale(fresh);
+    check(`새로 만든 시장은 다시 안 올림 — ${startPrice}π 그대로`,
+        fresh.stocks.companies[cid].price === startPrice);
+    check('새 시장에도 자릿수 표시가 있음', fresh.stocks.priceScale === app.SCALE);
+
+    // 옮긴 값이 최저·최고 밖으로 나가지 않아야 함
+    const edge = make();
+    edge.stocks.companies[cid].price = 1;
+    edge.stocks.companies[cid].history = [1, 300];
+    app.rescale(edge);
+    check(`아주 낮던 값도 최저가 위로 — ${edge.stocks.companies[cid].price}π`,
+        edge.stocks.companies[cid].price >= app.K.MIN);
+    check('아주 높던 값도 최고가 아래로',
+        Math.max(...edge.stocks.companies[cid].history) <= app.K.MAX);
 }
 
 /* ── 세금: 2주마다, 자산이 많을수록 높은 세율 ── */
@@ -1038,14 +1092,18 @@ check(`큰 움직임도 넘치지 않음 — ${heightUsed([10, 18, 12, 22]).toFi
     const drift = driftSum / n * 100;
     const moveAway = moveAwaySum / n * 100;
 
+    // 주가 자릿수를 3배로 키우면서 같은 π 움직임이 작은 비율이 됐다. 그게 이 변경의 목적이라
+    // 기준을 20% → 10% 로 낮춘다 (제자리로 돌아오지 않는다는 것만 확인하면 된다)
     check(`회사가 제자리로 돌아오지 않음 — 시작가에서 평균 ${moveAway.toFixed(0)}% 떨어진 곳에 있음`,
-        moveAway >= 20);
+        moveAway >= 10);
     check(`최저가에 눌러앉지 않음 — 바닥 부근에 머문 시간 ${floorPct.toFixed(1)}% (받침 넣기 전 7.5%)`,
         floorPct < 3);
     check(`${DAYS}일 지나도 전체 물가가 크게 밀리지 않음 — ${drift >= 0 ? '+' : ''}${drift.toFixed(0)}%`,
         Math.abs(drift) <= 25);
-    check(`주가가 학생 재산을 무너뜨릴 만큼 비싸지지 않음 — 최고 ${maxPrice}π (${app.K.TOTAL}주 들면 ${maxPrice * app.K.TOTAL}π)`,
-        maxPrice <= 70);
+    // 주가 자릿수가 아니라 '한 학생이 가질 수 있는 주식 값어치' 가 중요하다.
+    // 자릿수를 키워도 한도를 함께 줄이면 이 값은 그대로여야 한다
+    check(`한 학생이 가질 수 있는 주식 값어치가 지나치지 않음 — 최고 ${maxPrice}π × ${app.K.TOTAL}주 = ${maxPrice * app.K.TOTAL}π`,
+        maxPrice * app.K.TOTAL <= 320);
 })();
 
 /* ── 계약이 너무 빨리 끊어지지 않아야 함 ──
