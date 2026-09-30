@@ -39,7 +39,7 @@ eval(script + `
   app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.REASONS = NEWS_REASONS;
-  app.rescale = rescaleStockPrices; app.SCALE = STOCK_PRICE_SCALE_VERSION;
+  app.rescale = rescaleStockPrices; app.split = fixStockShareCount; app.SCALE = STOCK_PRICE_SCALE_VERSION;
   app.clearStuck = clearStuckAiFails; app.AI_RESET = AI_FAILS_RESET_VERSION;
   app.taxPeriodOf = taxPeriodOf; app.taxFor = taxFor; app.taxableAssets = taxableAssets; app.taxBrackets = taxBrackets;
   app.TAX = { DAYS: TAX_PERIOD_DAYS, WIDTH: TAX_BRACKET_WIDTH, STEP: TAX_STEP_PCT, MAX: TAX_MAX_PCT };
@@ -671,7 +671,9 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
     check('기준가도 3배 — 14 → 42', d.stocks.companies[cid].anchor === 42);
     check('그래프 기록도 3배 — [12,15,18] → [36,45,54]',
         d.stocks.companies[cid].history.join(',') === '36,45,54');
-    check('학생이 산 값도 3배 — 30 → 90 (앉은자리에서 번 것이 되지 않게)',
+    // 산 값을 옮기는 것은 손익 표시를 맞추기 위한 것이다.
+    // 실제 재산을 그대로 두는 것은 아래 '주식 수 줄이기' 가 한다
+    check('학생이 산 값도 3배 — 30 → 90 (손익 표시가 어긋나지 않게)',
         d.users['1'].stocks[cid][0].cost === 90);
     check('가진 주식 수는 그대로', d.users['1'].stocks[cid][0].q === 2);
     check('파이는 건드리지 않음', d.users['1'].pi === 100);
@@ -694,6 +696,64 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
         edge.stocks.companies[cid].price >= app.K.MIN);
     check('아주 높던 값도 최고가 아래로',
         Math.max(...edge.stocks.companies[cid].history) <= app.K.MAX);
+}
+
+/* ── 자릿수를 바꿔도 학생이 실제로 가진 값어치는 그대로여야 함 ──
+   처음에 주식 수를 그대로 두고 주가만 3배로 올렸더니, 쿠폰 값은 그대로인데
+   주식 값어치만 3배가 되어 학생이 앉은자리에서 3배 부자가 됐다.
+   주식 수를 3분의 1로 줄이고 남는 몫은 옛 주가로 돌려줘서 값어치를 맞춘다. */
+{
+    const cid = app.COMPANIES[0].id;
+    const OLD_PRICE = 20;
+    const make = (q, pi) => ({
+        users: { '1': { name: '1번', role: 'student', pi, exp: 0, inventory: [], lottoTickets: [], notices: [],
+                        stocks: { [cid]: [{ q, cost: q * OLD_PRICE, at: 1000, paid: 0 }] } } },
+        lotto: {}, usageRequests: [], notice: '', bank: { loans: [], savings: [], logs: [] },
+        stocks: {
+            companies: Object.fromEntries(app.COMPANIES.map(c => [c.id, { price: OLD_PRICE, anchor: OLD_PRICE, history: [OLD_PRICE] }])),
+            lastTick: 0, historyStartTick: 0, news: []
+        }
+    });
+
+    let worst = 0;
+    [1, 2, 3, 4, 5, 7, 10].forEach(q => {
+        const d = make(q, 50);
+        app.setDb(d);
+        const before = 50 + q * OLD_PRICE;
+        app.rescale(d);
+        app.split(d);
+        const price = d.stocks.companies[cid].price;
+        const after = d.users['1'].pi + app.holdingOf(d.users['1'], cid).qty * price;
+        worst = Math.max(worst, Math.abs(after - before));
+    });
+    check(`몇 주를 갖고 있든 재산이 그대로 — 가장 큰 차이 ${worst}π`, worst === 0);
+
+    {
+        const d = make(10, 50);
+        app.setDb(d); app.rescale(d); app.split(d);
+        check('10주 → 3주 (한도 안쪽으로 들어옴)', app.holdingOf(d.users['1'], cid).qty === 3);
+        check('남는 몫은 파이로 돌려받음', d.users['1'].pi > 50);
+        check('돌려받은 것을 알림으로 알려줌',
+            (d.users['1'].notices || []).some(n => n.k === 'grant' && /주가 단위/.test(n.x || '')));
+        check('산 값도 남은 주식에 맞게 줄어듦', d.users['1'].stocks[cid][0].cost === 180);
+        check('두 번은 하지 않음', app.split(d) === false && app.holdingOf(d.users['1'], cid).qty === 3);
+    }
+    {
+        // 자릿수를 바꾼 뒤에 산 주식은 이미 새 주가로 샀으므로 건드리면 안 된다
+        const d = make(3, 100);
+        app.setDb(d); app.rescale(d);
+        d.users['1'].stocks[cid] = [{ q: 3, cost: 180, at: Date.now() + 60000, paid: 0 }];
+        app.split(d);
+        check('바꾼 뒤에 산 주식은 그대로 둠',
+            app.holdingOf(d.users['1'], cid).qty === 3 && d.users['1'].pi === 100);
+    }
+    {
+        // 주식이 없는 학생은 아무 일도 없어야 한다
+        const d = make(0, 80);
+        d.users['1'].stocks = {};
+        app.setDb(d); app.rescale(d); app.split(d);
+        check('주식이 없으면 그대로', d.users['1'].pi === 80);
+    }
 }
 
 /* ── 세금: 2주마다, 자산이 많을수록 높은 세율 ── */

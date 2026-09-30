@@ -1407,9 +1407,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-30-scale3x';
+    const APP_VERSION = '2026-09-30-sharefix';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 22;
+    const APP_BUILD = 23;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1789,6 +1789,7 @@
             if (migrateContractAges(db.stocks)) changed = true;
             if (clearStuckAiFails(db.stocks)) changed = true;
             if (rescaleStockPrices(db)) changed = true;
+            if (fixStockShareCount(db)) changed = true;
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
             if (resetStockHistoryOnce(db.stocks)) changed = true;
@@ -3734,6 +3735,7 @@
         // 예전 자료에는 표시가 없다. 그때가 1배였으므로 3배로 올린다
         const from = typeof st.priceScale === 'number' ? st.priceScale : 1;
         st.priceScale = STOCK_PRICE_SCALE_VERSION;
+        st.priceScaledAt = Date.now();
         const factor = STOCK_PRICE_SCALE_VERSION / from;
         if (factor === 1) return true;
 
@@ -3755,6 +3757,52 @@
                     if (lot && typeof lot.cost === 'number') lot.cost = Math.round(lot.cost * factor);
                 });
             });
+        });
+        return true;
+    }
+
+    /* 주가를 3배로 올리면서 갖고 있던 주식 수를 그대로 뒀더니, 쿠폰 값은 그대로인데
+       주식 값어치만 3배가 되어 학생이 앉은자리에서 3배 부자가 됐다 (내 실수).
+       주식 수를 3분의 1로 줄여서 값어치를 원래대로 돌려놓는다.
+       3으로 나누어떨어지지 않는 몫은 옛 주가로 쳐서 파이로 돌려준다.
+       예: 20π 짜리 10주(200π) → 60π 짜리 3주(180π) + 20π = 200π 그대로.
+
+       자릿수를 올린 뒤에 산 주식은 이미 새 주가로 샀으므로 건드리지 않는다. */
+    const STOCK_SHARE_SPLIT_VERSION = 1;
+    function fixStockShareCount(data) {
+        const st = data.stocks;
+        if (!st || st.shareSplit === STOCK_SHARE_SPLIT_VERSION) return false;
+        st.shareSplit = STOCK_SHARE_SPLIT_VERSION;
+        const factor = STOCK_PRICE_SCALE_VERSION;
+        if (factor <= 1) return true;
+        const cutoff = typeof st.priceScaledAt === 'number' ? st.priceScaledAt : Date.now();
+
+        Object.keys(data.users || {}).forEach(id => {
+            const user = data.users[id];
+            if (!user || !user.stocks) return;
+            let refund = 0;
+            COMPANIES.forEach(c => {
+                const lots = user.stocks[c.id];
+                if (!Array.isArray(lots) || lots.length === 0) return;
+                const price = st.companies && st.companies[c.id] ? st.companies[c.id].price : 0;
+                const oldPrice = Math.max(1, Math.round(price / factor));
+                const kept = [];
+                lots.forEach(lot => {
+                    if (!lot || typeof lot.q !== 'number' || lot.q <= 0) return;
+                    if (typeof lot.at === 'number' && lot.at > cutoff) { kept.push(lot); return; }
+                    const newQ = Math.floor(lot.q / factor);
+                    refund += (lot.q - newQ * factor) * oldPrice;   // 남는 주식은 옛 주가로 돌려줌
+                    if (newQ > 0) {
+                        kept.push({ ...lot, q: newQ, cost: Math.round((lot.cost || 0) * newQ / lot.q) });
+                    }
+                });
+                if (kept.length > 0) user.stocks[c.id] = kept;
+                else delete user.stocks[c.id];
+            });
+            if (refund > 0) {
+                user.pi = (user.pi || 0) + refund;
+                notifyStudent(id, { k: 'grant', a: refund, x: '주가 단위 변경 정산' });
+            }
         });
         return true;
     }
