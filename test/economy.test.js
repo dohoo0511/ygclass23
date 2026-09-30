@@ -39,7 +39,7 @@ eval(script + `
   app.timeTick = applyTimeBasedUpdates; app.savingsPayoutOf = savingsPayout;
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.REASONS = NEWS_REASONS;
-  app.rescale = rescaleStockPrices; app.split = fixStockShareCount; app.SCALE = STOCK_PRICE_SCALE_VERSION;
+  app.rescale = rescaleStockPrices; app.refundAll = refundAllStocksOnce; app.PER_SHARE = STOCK_REFUND_PER_SHARE; app.SCALE = STOCK_PRICE_SCALE_VERSION;
   app.clearStuck = clearStuckAiFails; app.AI_RESET = AI_FAILS_RESET_VERSION;
   app.taxPeriodOf = taxPeriodOf; app.taxFor = taxFor; app.taxableAssets = taxableAssets; app.taxBrackets = taxBrackets;
   app.TAX = { DAYS: TAX_PERIOD_DAYS, WIDTH: TAX_BRACKET_WIDTH, STEP: TAX_STEP_PCT, MAX: TAX_MAX_PCT };
@@ -698,61 +698,52 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
         Math.max(...edge.stocks.companies[cid].history) <= app.K.MAX);
 }
 
-/* ── 자릿수를 바꿔도 학생이 실제로 가진 값어치는 그대로여야 함 ──
-   처음에 주식 수를 그대로 두고 주가만 3배로 올렸더니, 쿠폰 값은 그대로인데
-   주식 값어치만 3배가 되어 학생이 앉은자리에서 3배 부자가 됐다.
-   주식 수를 3분의 1로 줄이고 남는 몫은 옛 주가로 돌려줘서 값어치를 맞춘다. */
+/* ── 자릿수를 바꾸면서 갖고 있던 주식은 모두 1주당 15π 로 환불 ──
+   자릿수가 바뀌면 예전 주식을 그대로 두면 값어치가 3배가 되고, 수를 줄이면
+   계산이 지저분해진다. 한 번 정산하고 새 주가에서 다시 시작하기로 했다. */
 {
     const cid = app.COMPANIES[0].id;
-    const OLD_PRICE = 20;
-    const make = (q, pi) => ({
-        users: { '1': { name: '1번', role: 'student', pi, exp: 0, inventory: [], lottoTickets: [], notices: [],
-                        stocks: { [cid]: [{ q, cost: q * OLD_PRICE, at: 1000, paid: 0 }] } } },
+    const cid2 = app.COMPANIES[1].id;
+    const make = (lots, pi) => ({
+        users: { '1': { name: '1번', role: 'student', pi, exp: 0, inventory: [], lottoTickets: [], notices: [], stocks: lots } },
         lotto: {}, usageRequests: [], notice: '', bank: { loans: [], savings: [], logs: [] },
         stocks: {
-            companies: Object.fromEntries(app.COMPANIES.map(c => [c.id, { price: OLD_PRICE, anchor: OLD_PRICE, history: [OLD_PRICE] }])),
+            companies: Object.fromEntries(app.COMPANIES.map(c => [c.id, { price: 20, anchor: 20, history: [20] }])),
             lastTick: 0, historyStartTick: 0, news: []
         }
     });
 
-    let worst = 0;
-    [1, 2, 3, 4, 5, 7, 10].forEach(q => {
-        const d = make(q, 50);
+    {
+        const d = make({ [cid]: [{ q: 10, cost: 200, at: 1000, paid: 0 }] }, 50);
         app.setDb(d);
-        const before = 50 + q * OLD_PRICE;
-        app.rescale(d);
-        app.split(d);
-        const price = d.stocks.companies[cid].price;
-        const after = d.users['1'].pi + app.holdingOf(d.users['1'], cid).qty * price;
-        worst = Math.max(worst, Math.abs(after - before));
-    });
-    check(`몇 주를 갖고 있든 재산이 그대로 — 가장 큰 차이 ${worst}π`, worst === 0);
-
-    {
-        const d = make(10, 50);
-        app.setDb(d); app.rescale(d); app.split(d);
-        check('10주 → 3주 (한도 안쪽으로 들어옴)', app.holdingOf(d.users['1'], cid).qty === 3);
-        check('남는 몫은 파이로 돌려받음', d.users['1'].pi > 50);
-        check('돌려받은 것을 알림으로 알려줌',
-            (d.users['1'].notices || []).some(n => n.k === 'grant' && /주가 단위/.test(n.x || '')));
-        check('산 값도 남은 주식에 맞게 줄어듦', d.users['1'].stocks[cid][0].cost === 180);
-        check('두 번은 하지 않음', app.split(d) === false && app.holdingOf(d.users['1'], cid).qty === 3);
+        check('환불이 한 번 일어남', app.refundAll(d) === true);
+        check(`10주 × ${app.PER_SHARE}π = ${10 * app.PER_SHARE}π 를 받음 — 50 → ${d.users['1'].pi}π`,
+            d.users['1'].pi === 50 + 10 * app.PER_SHARE);
+        check('주식은 모두 없어짐', Object.keys(d.users['1'].stocks).length === 0);
+        check('얼마를 왜 받았는지 알려줌',
+            (d.users['1'].notices || []).some(n => n.k === 'grant' && /주식 10주 환불/.test(n.x || '')));
+        check('두 번은 환불하지 않음', app.refundAll(d) === false && d.users['1'].pi === 50 + 10 * app.PER_SHARE);
     }
     {
-        // 자릿수를 바꾼 뒤에 산 주식은 이미 새 주가로 샀으므로 건드리면 안 된다
-        const d = make(3, 100);
-        app.setDb(d); app.rescale(d);
-        d.users['1'].stocks[cid] = [{ q: 3, cost: 180, at: Date.now() + 60000, paid: 0 }];
-        app.split(d);
-        check('바꾼 뒤에 산 주식은 그대로 둠',
-            app.holdingOf(d.users['1'], cid).qty === 3 && d.users['1'].pi === 100);
+        // 여러 회사에 나눠 갖고 있어도 전부 합쳐서 환불
+        const d = make({ [cid]: [{ q: 2, cost: 40, at: 1000, paid: 0 }, { q: 1, cost: 20, at: 1000, paid: 0 }],
+                         [cid2]: [{ q: 4, cost: 80, at: 1000, paid: 0 }] }, 0);
+        app.setDb(d); app.refundAll(d);
+        check(`여러 회사·여러 번에 나눠 산 것도 모두 셈 — 7주 × ${app.PER_SHARE}π`,
+            d.users['1'].pi === 7 * app.PER_SHARE && Object.keys(d.users['1'].stocks).length === 0);
     }
     {
-        // 주식이 없는 학생은 아무 일도 없어야 한다
-        const d = make(0, 80);
-        d.users['1'].stocks = {};
-        app.setDb(d); app.rescale(d); app.split(d);
-        check('주식이 없으면 그대로', d.users['1'].pi === 80);
+        // 이미 '주식 수 줄이기' 를 거친 자료는 1주가 예전 3주다
+        const d = make({ [cid]: [{ q: 3, cost: 180, at: 1000, paid: 0 }] }, 20);
+        d.stocks.shareSplit = 1;
+        app.setDb(d); app.refundAll(d);
+        check(`수를 이미 줄인 자료는 1주를 예전 3주로 쳐서 돌려줌 — ${d.users['1'].pi}π`,
+            d.users['1'].pi === 20 + 3 * app.PER_SHARE * 3);
+    }
+    {
+        const d = make({}, 80);
+        app.setDb(d); app.refundAll(d);
+        check('주식이 없는 학생은 그대로', d.users['1'].pi === 80);
     }
 }
 

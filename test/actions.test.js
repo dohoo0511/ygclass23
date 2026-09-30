@@ -100,6 +100,8 @@ const PRICE = () => app.K.MIN + 15;       // 흔한 주가
 const QTY = () => Math.max(1, Math.min(app.K.ORDER, app.K.TOTAL) - 1);   // 한도 안쪽 수량
 function freshServer(price = PRICE(), pi = 100) {
     const market = app.initStock(Date.now());
+    // 한 번뿐인 '주식 전부 환불' 은 이미 끝난 것으로 둔다 (그 검사는 economy 쪽에 있음)
+    market.refundedAll = 1;
     Object.keys(market.companies).forEach(id => {
         market.companies[id].price = price;
         market.companies[id].anchor = price;
@@ -159,8 +161,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     /* ── 파는 쪽도 같아야 한다 ── */
     server = freshServer();
     const q3 = QTY();
-    // 자릿수 바꾸기 정산이 끼어들지 않도록, 방금 산 것으로 둔다
-    server.users['7'].stocks[CO] = [{ q: q3, cost: q3 * PRICE(), at: Date.now() + 60000, paid: 0 }];
+    server.users['7'].stocks[CO] = [{ q: q3, cost: q3 * PRICE(), at: Date.now(), paid: 0 }];
     alerts = []; setOrderQty(q3);
     await openScreen();
     const startPi = piOnServer();

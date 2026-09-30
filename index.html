@@ -1407,9 +1407,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-30-sharefix';
+    const APP_VERSION = '2026-09-30-refund';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 23;
+    const APP_BUILD = 24;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1789,7 +1789,7 @@
             if (migrateContractAges(db.stocks)) changed = true;
             if (clearStuckAiFails(db.stocks)) changed = true;
             if (rescaleStockPrices(db)) changed = true;
-            if (fixStockShareCount(db)) changed = true;
+            if (refundAllStocksOnce(db)) changed = true;
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
             if (resetStockHistoryOnce(db.stocks)) changed = true;
@@ -3761,48 +3761,35 @@
         return true;
     }
 
-    /* 주가를 3배로 올리면서 갖고 있던 주식 수를 그대로 뒀더니, 쿠폰 값은 그대로인데
-       주식 값어치만 3배가 되어 학생이 앉은자리에서 3배 부자가 됐다 (내 실수).
-       주식 수를 3분의 1로 줄여서 값어치를 원래대로 돌려놓는다.
-       3으로 나누어떨어지지 않는 몫은 옛 주가로 쳐서 파이로 돌려준다.
-       예: 20π 짜리 10주(200π) → 60π 짜리 3주(180π) + 20π = 200π 그대로.
+    /* 주가 자릿수를 바꾸면서, 그때까지 갖고 있던 주식은 모두 1주당 15π 로 환불한다.
+       자릿수가 바뀌면 예전 주식을 그대로 두든 수를 줄이든 어느 쪽도 깔끔하지 않아서,
+       한 번 정산하고 새 주가에서 다시 시작하기로 했다 (선생님 결정).
 
-       자릿수를 올린 뒤에 산 주식은 이미 새 주가로 샀으므로 건드리지 않는다. */
-    const STOCK_SHARE_SPLIT_VERSION = 1;
-    function fixStockShareCount(data) {
+       이미 '주식 수 줄이기' 가 돌아간 자료에서는 1주가 예전 3주에 해당하므로,
+       그만큼 쳐서 돌려준다. 어느 쪽을 먼저 거쳤든 받는 돈이 비슷해진다. */
+    const STOCK_REFUND_VERSION = 1;
+    const STOCK_REFUND_PER_SHARE = 15;
+    function refundAllStocksOnce(data) {
         const st = data.stocks;
-        if (!st || st.shareSplit === STOCK_SHARE_SPLIT_VERSION) return false;
-        st.shareSplit = STOCK_SHARE_SPLIT_VERSION;
-        const factor = STOCK_PRICE_SCALE_VERSION;
-        if (factor <= 1) return true;
-        const cutoff = typeof st.priceScaledAt === 'number' ? st.priceScaledAt : Date.now();
+        if (!st || st.refundedAll === STOCK_REFUND_VERSION) return false;
+        st.refundedAll = STOCK_REFUND_VERSION;
+        // 수를 이미 줄인 자료라면 1주가 예전 3주다
+        const perShare = STOCK_REFUND_PER_SHARE * (st.shareSplit ? STOCK_PRICE_SCALE_VERSION : 1);
 
         Object.keys(data.users || {}).forEach(id => {
             const user = data.users[id];
             if (!user || !user.stocks) return;
-            let refund = 0;
+            let shares = 0;
             COMPANIES.forEach(c => {
                 const lots = user.stocks[c.id];
-                if (!Array.isArray(lots) || lots.length === 0) return;
-                const price = st.companies && st.companies[c.id] ? st.companies[c.id].price : 0;
-                const oldPrice = Math.max(1, Math.round(price / factor));
-                const kept = [];
-                lots.forEach(lot => {
-                    if (!lot || typeof lot.q !== 'number' || lot.q <= 0) return;
-                    if (typeof lot.at === 'number' && lot.at > cutoff) { kept.push(lot); return; }
-                    const newQ = Math.floor(lot.q / factor);
-                    refund += (lot.q - newQ * factor) * oldPrice;   // 남는 주식은 옛 주가로 돌려줌
-                    if (newQ > 0) {
-                        kept.push({ ...lot, q: newQ, cost: Math.round((lot.cost || 0) * newQ / lot.q) });
-                    }
-                });
-                if (kept.length > 0) user.stocks[c.id] = kept;
-                else delete user.stocks[c.id];
+                if (!Array.isArray(lots)) return;
+                lots.forEach(lot => { if (lot && typeof lot.q === 'number' && lot.q > 0) shares += lot.q; });
             });
-            if (refund > 0) {
-                user.pi = (user.pi || 0) + refund;
-                notifyStudent(id, { k: 'grant', a: refund, x: '주가 단위 변경 정산' });
-            }
+            if (shares === 0) return;
+            user.stocks = {};
+            const refund = shares * perShare;
+            user.pi = (user.pi || 0) + refund;
+            notifyStudent(id, { k: 'grant', a: refund, x: `주식 ${shares}주 환불 (1주 ${perShare}π)` });
         });
         return true;
     }
