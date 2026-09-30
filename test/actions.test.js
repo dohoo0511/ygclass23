@@ -159,13 +159,15 @@ const check = (name, cond) => results.push([name, !!cond]);
     /* ── 파는 쪽도 같아야 한다 ── */
     server = freshServer();
     const q3 = QTY();
-    server.users['7'].stocks[CO] = [{ q: q3, cost: q3 * PRICE(), at: Date.now(), paid: 0 }];
+    // 자릿수 바꾸기 정산이 끼어들지 않도록, 방금 산 것으로 둔다
+    server.users['7'].stocks[CO] = [{ q: q3, cost: q3 * PRICE(), at: Date.now() + 60000, paid: 0 }];
     alerts = []; setOrderQty(q3);
     await openScreen();
+    const startPi = piOnServer();
     beforeNextSave = () => { server.rev += 1; };
     await app.sell(CO);
     check('겹쳐도 판 것이 제대로 반영된다', heldOnServer() === 0);
-    check('판 만큼 파이를 받는다', piOnServer() === 100 + q3 * PRICE());
+    check('판 만큼 파이를 받는다', piOnServer() === startPi + q3 * PRICE());
 
     /* ── 끝내 저장되지 않으면, 샀다고 거짓말하면 안 된다 ── */
     server = freshServer();
