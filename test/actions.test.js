@@ -25,7 +25,7 @@ const stub = () => ({ addEventListener(){}, style:{}, classList:{add(){},remove(
     querySelectorAll:()=>[], children:[] });
 global.document = { getElementById: stub, createElement: stub, addEventListener(){}, body: stub(),
     querySelectorAll: () => [], visibilityState: 'visible' };
-global.window = { addEventListener(){}, innerWidth: 400 };
+global.window = { addEventListener(){}, innerWidth: 400, scrollTo(){} };
 global.location = { protocol: 'https:', hostname: 'x.pages.dev', reload(){} };
 global.localStorage = { getItem: () => null, setItem(){}, removeItem(){} };
 global.setInterval = () => 0; global.setTimeout = (fn) => { if (typeof fn === 'function') fn(); return 0; };
@@ -76,6 +76,7 @@ eval(script + `
   app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox;
   app.COUPONS = COUPONS; app.couponPriceFor = couponPriceFor;
   app.repay = repayLoan; app.loanInterest = loanInterest;
+  app.cancelSavings = cancelSavingsByStudent; app.open = openStudentSection; app.section = () => currentStudentSection;
 `);
 
 /* ---------- 도구 ---------- */
@@ -376,6 +377,73 @@ const check = (name, cond) => results.push([name, !!cond]);
     await app.repay(true);
     check('겹쳐도 상환과 경험치가 함께 반영됨',
         server.bank.loans[0].status === 'repaid' && server.users['7'].exp === owed2);
+
+    /* ── 대출이 연체된 학생은 갚기 전까지 다른 기능을 못 쓴다 ──
+       단, 갚는 일과 갚을 돈을 마련하는 일(주식 팔기·적금 해지)은 열어 둔다 */
+    const DAYMS = 24 * 3600 * 1000;
+    const overdueServer = (pi = 1000) => {
+        const sv = freshServer(PRICE(), pi);
+        const started = Date.now() - 20 * DAYMS;
+        sv.bank.loans.push({ id: 'od', studentId: '7', principal: 10, paid: 0, startAt: started,
+                             dueAt: started + 14 * DAYMS, penaltiesApplied: 0, status: 'active' });
+        return sv;
+    };
+    const lockedMsg = () => alerts.some(m => /상환 기한이 지나서/.test(m));
+
+    const tryLocked = async (label, setup, act, unchanged) => {
+        server = overdueServer();
+        if (setup) setup(server);
+        alerts = [];
+        await openScreen();
+        const before = JSON.stringify(server.users['7']);
+        await act();
+        check(`연체 중: ${label} 막힘`, lockedMsg() && (unchanged ? unchanged() : JSON.stringify(server.users['7']) === before));
+    };
+    await tryLocked('쿠폰 구매', () => setInputs({}), () => app.buyItem(0));
+    await tryLocked('로또 구매', () => setInputs({ lottoNumbersInput: '1,2,3,4,5', lottoBonusInput: 3 }), () => app.buyLotto());
+    await tryLocked('랜덤상자', () => setInputs({}), () => app.box());
+    await tryLocked('주식 사기', () => setOrderQty(1), () => app.buy(CO));
+    await tryLocked('적금 가입', () => setInputs({ savingsAmountInput: 50, savingsTermSelect: 2 }), () => app.openSavings(),
+        () => server.bank.savings.length === 0);
+    await tryLocked('송금', () => setInputs({ transferTo: '8', transferAmount: 10 }), () => app.transfer(),
+        () => server.users['8'].pi === 50);
+
+    // 잠긴 화면에 들어가려 하면 은행으로 안내
+    server = overdueServer(); alerts = []; await openScreen();
+    app.open('shop');
+    check('연체 중: 상점에 들어가려 하면 은행으로 보냄', app.section() === 'bank' && lockedMsg());
+
+    // 열어 둬야 하는 것들
+    server = overdueServer();
+    server.users['7'].stocks[CO] = [{ q: 1, cost: PRICE(), at: Date.now(), paid: 0 }];
+    alerts = []; setOrderQty(1); await openScreen();
+    await app.sell(CO);
+    check('연체 중에도 주식은 팔 수 있음 (갚을 돈 마련)', heldOnServer() === 0 && !lockedMsg());
+
+    server = overdueServer();
+    server.bank.savings.push({ id: 'sv', studentId: '7', principal: 50, weeks: 2, weeklyRatePct: 5,
+                               startAt: Date.now() - DAYMS, maturesAt: Date.now() + 13 * DAYMS, status: 'active' });
+    alerts = []; await openScreen();
+    await app.cancelSavings('sv');
+    check('연체 중에도 적금은 해지할 수 있음 (갚을 돈 마련)',
+        server.bank.savings[0].status === 'canceled' && !lockedMsg());
+
+    server = overdueServer(); alerts = []; setInputs({}); await openScreen();
+    await app.repay(true);
+    check('연체 중에도 대출은 갚을 수 있음', server.bank.loans[0].status === 'repaid');
+    // 갚고 나면 다시 쓸 수 있어야 한다
+    alerts = []; setInputs({}); await openScreen();
+    const inv = server.users['7'].inventory.length;
+    await app.buyItem(0);
+    check('갚고 나면 다시 쓸 수 있음', server.users['7'].inventory.length === inv + 1 && !lockedMsg());
+
+    // 기한이 안 지난 대출은 아무것도 막지 않는다
+    server = freshServer(PRICE(), 1000);
+    server.bank.loans.push({ id: 'ok', studentId: '7', principal: 10, paid: 0, startAt: Date.now(),
+                             dueAt: Date.now() + 14 * DAYMS, penaltiesApplied: 0, status: 'active' });
+    alerts = []; setInputs({}); await openScreen();
+    await app.buyItem(0);
+    check('기한 전 대출은 막지 않음', server.users['7'].inventory.length === 1 && !lockedMsg());
 
     console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
     const failed = results.filter(x => !x[1]).length;

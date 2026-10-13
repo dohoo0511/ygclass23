@@ -1267,6 +1267,29 @@
     function activeLoanOf(userId) {
         return db.bank.loans.find(l => l.status === 'active' && l.studentId === userId);
     }
+    /* 대출 상환 기한이 지난 학생은 대출을 갚기 전까지 다른 기능을 쓰지 못한다.
+       다만 '갚는 일' 과 '갚을 돈을 마련하는 일'(주식 팔기, 적금 해지), 보기만 하는 화면은 열어 둔다.
+       이것까지 막으면 파이가 없는 학생은 갚을 방법이 없어 영영 풀려날 수 없다. */
+    const OVERDUE_LOCKED_SECTIONS = ['shop', 'lotto', 'randombox'];
+    function overdueLoanOf(userId) {
+        const loan = activeLoanOf(userId);
+        return loan && Date.now() > loan.dueAt ? loan : null;
+    }
+    function overdueMessage(userId) {
+        const loan = overdueLoanOf(userId);
+        if (!loan) return null;
+        return `⛔ 대출 상환 기한이 지나서 지금은 이 기능을 쓸 수 없어요.\n`
+            + `은행에서 남은 ${loanRemaining(loan)}π를 갚으면 다시 쓸 수 있어요.\n\n`
+            + `(갚을 돈이 모자라면 주식을 팔거나 적금을 해지할 수 있어요)`;
+    }
+    // 버튼을 눌렀을 때 바로 막는다. 막았으면 true
+    function blockedByOverdue() {
+        const msg = overdueMessage(currentUser);
+        if (!msg) return false;
+        alert(msg);
+        return true;
+    }
+
     function activeSavingsOf(userId) {
         return db.bank.savings.filter(s => s.status === 'active' && s.studentId === userId);
     }
@@ -1407,9 +1430,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-09-30-refund';
+    const APP_VERSION = '2026-10-13-overdue-lock';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 24;
+    const APP_BUILD = 25;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1959,6 +1982,7 @@
     };
 
     function openStudentSection(name) {
+        if (OVERDUE_LOCKED_SECTIONS.includes(name) && blockedByOverdue()) name = 'bank';
         currentStudentSection = name;
         document.querySelectorAll('#studentPage .section').forEach(el => {
             el.classList.toggle('active', el.id === 'stu-' + name);
@@ -2026,7 +2050,9 @@
                 ${grade.benefit ? `<br>🎁 등급 혜택: ${grade.benefit}` : ''}
             </div>`;
         if (loan && Date.now() > loan.dueAt) {
-            html += `<div class="warn-box">⚠️ 대출 상환 기한이 지났어요! 은행에서 갚아주세요. (남은 금액 ${loanRemaining(loan)}π · ${loanStatusText(loan)})</div>`;
+            html += `<div class="warn-box">⛔ 대출 상환 기한이 지나서 <b>대출을 갚기 전까지 쿠폰·로또·랜덤상자·주식 사기·적금 가입·송금을 쓸 수 없어요.</b><br>
+                은행에서 갚아주세요. (남은 금액 ${loanRemaining(loan)}π · ${loanStatusText(loan)})<br>
+                <span style="font-size:0.9em;">갚을 돈이 모자라면 주식을 팔거나 적금을 해지할 수 있어요.</span></div>`;
         }
         const unread = unreadNoticeCount(user);
         if (unread > 0) {
@@ -2117,8 +2143,11 @@
     }
 
     async function buyItem(couponIdx) {
+        if (blockedByOverdue()) return;
         const coupon = COUPONS[couponIdx];
         const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
             const user = db.users[currentUser];
             const price = couponPriceFor(currentUser, coupon);
             if (user.pi < price) return { stop: "파이(π)가 부족합니다." };
@@ -2147,6 +2176,7 @@
     }
 
     async function useItem(index) {
+        if (blockedByOverdue()) return;
         if (!await loadData()) return;
         const itemName = db.users[currentUser].inventory[index];
         if (itemName === undefined) {
@@ -2157,6 +2187,8 @@
         if (!await confirmThenReload(`[${itemName}] 쿠폰을 사용하시겠습니까?\n(선생님께 사용 확인 요청이 전송됩니다)`)) return;
 
         const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
             const fresh = db.users[currentUser];
             const freshIndex = fresh.inventory.indexOf(itemName);
             if (freshIndex === -1) return { stop: '그 사이 쿠폰이 사용되었거나 없어졌어요.' };
@@ -2279,6 +2311,7 @@
     }
 
     async function buyRandomBox() {
+        if (blockedByOverdue()) return;
         const btn = document.getElementById('randomBoxBtn');
         if (btn.disabled) return;
         btn.disabled = true;
@@ -2286,6 +2319,8 @@
         // 연출을 하는 동안 백그라운드 새로고침이 끼어들어 보상이 사라지지 않도록, 결과를 먼저 저장하고 연출은 그 뒤에 함.
         // 저장이 다른 사람과 겹치면 상자를 다시 뽑는다. 아직 학생에게 아무것도 보여주지 않았으므로 공정하다
         const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
             const user = db.users[currentUser];
             const price = randomBoxPriceFor(currentUser);
             if (user.pi < price) return { stop: "파이(π)가 부족합니다." };
@@ -2370,6 +2405,7 @@
     }
 
     async function buyLotto() {
+        if (blockedByOverdue()) return;
         const inputStr = document.getElementById('lottoNumbersInput').value;
         let numbers = inputStr.split(',').map(n => parseInt(n.trim()));
         numbers = [...new Set(numbers.filter(n => !isNaN(n) && n >= 1 && n <= LOTTO_NUMBER_MAX))];
@@ -2384,6 +2420,8 @@
         }
 
         const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
             const user = db.users[currentUser];
             const price = lottoPriceFor(currentUser);
             if (user.lottoTickets.length >= LOTTO_WEEKLY_LIMIT) {
@@ -2753,6 +2791,7 @@
     }
 
     async function openSavings() {
+        if (blockedByOverdue()) return;
         const amount = parsePositiveInt(document.getElementById('savingsAmountInput').value);
         const weeks = Number(document.getElementById('savingsTermSelect').value);
         if (!amount || amount < SAVINGS_MIN_AMOUNT) {
@@ -2775,6 +2814,8 @@
         if (!await confirmThenReload(`${amount}π를 ${weeks}주 적금에 넣을까요?\n\n만기일: ${fmtDate(preview.maturesAt)}\n만기 시 받을 금액: ${savingsPayout(preview)}π`)) return;
 
         const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
             const fresh = db.users[currentUser];
             if (fresh.pi < amount) return { stop: `파이가 부족해요. (보유 ${fresh.pi}π)` };
             const now = Date.now();
@@ -2846,6 +2887,7 @@
     }
 
     async function sendTransfer() {
+        if (blockedByOverdue()) return;
         const toId = document.getElementById('transferTo').value;
         const amount = parsePositiveInt(document.getElementById('transferAmount').value);
         if (!toId) {
@@ -2871,6 +2913,8 @@
         if (!await confirmThenReload(`${target.name}에게 ${amount}π를 보낼까요?`)) return;
 
         const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
             const fresh = db.users[currentUser];
             const freshTarget = db.users[toId];
             if (!freshTarget || fresh.pi - amount < 0) {
@@ -4387,6 +4431,7 @@
     }
 
     async function buyStock(companyId) {
+        if (blockedByOverdue()) return;
         const qty = readOrderQty(companyId);
         if (!qty) return;
         const company = companyById(companyId);
@@ -4394,6 +4439,8 @@
         if (!confirm(`${company.name} ${qty}주를 ${previewPrice * qty}π에 살까요? (1주 ${previewPrice}π)`)) return;
 
         const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
             const user = db.users[currentUser];
             const price = db.stocks.companies[companyId].price;
 
