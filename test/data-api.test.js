@@ -15,8 +15,14 @@ const os = require('os');
 const path = require('path');
 
 const SRC = path.join(__dirname, '..', 'functions', 'api', 'data.js');
-const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ygfn-')), 'data.mjs');
-fs.copyFileSync(SRC, tmp);
+// 사이트를 닫아 둔 상태여도 나머지 동작은 열린 상태로 확인한다. 닫힌 상태는 따로 확인
+const TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ygfn-'));
+const SRC_TEXT = fs.readFileSync(SRC, 'utf8');
+const CLOSED_FLAG = /const SITE_CLOSED = (true|false);/;
+const tmp = path.join(TMPDIR, 'data.mjs');
+const tmpClosed = path.join(TMPDIR, 'data-closed.mjs');
+fs.writeFileSync(tmp, SRC_TEXT.replace(CLOSED_FLAG, 'const SITE_CLOSED = false;'));
+fs.writeFileSync(tmpClosed, SRC_TEXT.replace(CLOSED_FLAG, 'const SITE_CLOSED = true;'));
 
 // Cloudflare KV 를 흉내 낸 저장공간
 function makeKV() {
@@ -136,6 +142,7 @@ const req = (method, query = '', body = null) => new Request(`https://example.pa
     ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {})
 });
 
+const SITE_CLOSED_TEXT = src => (src.match(/SITE_CLOSED_MESSAGE = "([^"]*)"/) || [])[1] || '';
 const results = [];
 const check = (name, cond) => results.push([name, !!cond]);
 
@@ -532,6 +539,32 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('저장소가 하나도 없으면 503', r.status === 503 && r.body.d1 === false);
     check('D1 설정 방법을 안내', /D1/.test(r.body.hint) && /DB/.test(r.body.hint));
 
+
+    /* ── 사이트 닫기: 점검 말고는 아무것도 읽거나 쓸 수 없어야 함 ── */
+    check('닫기 스위치가 소스에 있음', CLOSED_FLAG.test(SRC_TEXT));
+    const closedFn = (await import('file://' + tmpClosed)).onRequest;
+    const callClosed = async (method, query, body) => {
+        const res = await closedFn({ request: req(method, query, body), env: ENV });
+        return { status: res.status, body: await res.json() };
+    };
+    storageUp = true;
+    storage = { rev: 7, users: { admin: { password: 'pw!' }, '1': { pi: 3, password: '1' } } };
+    const closedBefore = JSON.stringify(storage);
+    r = await callClosed('GET', '');
+    check('닫힘: 읽기 503', r.status === 503 && r.body.closed === true && !r.body.record);
+    check('닫힘: 비밀번호가 응답에 없음', !JSON.stringify(r.body).includes('password'));
+    r = await callClosed('GET', '?backups=1');
+    check('닫힘: 백업 목록 503', r.status === 503);
+    r = await callClosed('GET', '?backup=2026-01-01');
+    check('닫힘: 백업 내용 503', r.status === 503 && !r.body.record);
+    r = await callClosed('PUT', '', { baseRev: 7, record: { users: { admin: { password: 'x' }, '1': { pi: 999 } }, lastSave: { build: 999 } } });
+    check('닫힘: 저장 503', r.status === 503);
+    r = await callClosed('POST', '', { record: { users: { admin: { password: 'x' } } }, password: '2323' });
+    check('닫힘: 되돌리기 503', r.status === 503);
+    check('닫힘: 저장소 내용 그대로', JSON.stringify(storage) === closedBefore);
+    r = await callClosed('GET', '?check=1');
+    check('닫힘: 점검 주소는 열려 있음', r.status === 200 && r.body.ok === true);
+    check('닫힘: 학생에게 보일 안내 문구', /닫았어요/.test(SITE_CLOSED_TEXT(SRC_TEXT)));
 
     console.log('\n' + results.map(([n, ok]) => `  ${ok ? '통과' : '실패'}  ${n}`).join('\n'));
     const failed = results.filter(x => !x[1]).length;

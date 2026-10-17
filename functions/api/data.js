@@ -23,6 +23,11 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
 const MIN_CLIENT_BUILD = 25;
 
+// 사이트 닫기. true 면 학생 정보 읽기·저장·백업·되돌리기를 모두 막는다 (점검 주소 ?check=1 만 열어 둠).
+// 계정 도용이 계속될 때 비상으로 닫는 용도. 다시 열려면 false 로 바꿔 배포하세요.
+const SITE_CLOSED = true;
+const SITE_CLOSED_MESSAGE = "🔒 사이트를 잠시 닫았어요.\n선생님이 다시 열 때까지 기다려 주세요.";
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -657,6 +662,10 @@ export async function onRequest({ request, env }) {
           : `${error.message} — 새 Master Key 와 Bin ID 가 맞는지 확인해주세요.`,
       }, 502);
     }
+  }
+
+  if (SITE_CLOSED) {
+    return json({ error: SITE_CLOSED_MESSAGE, closed: true }, 503);
   }
 
   /* ---------- 읽기 ---------- */
