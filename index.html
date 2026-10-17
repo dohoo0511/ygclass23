@@ -1430,9 +1430,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-10-13-overdue-lock';
+    const APP_VERSION = '2026-10-17-audit-log';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 25;
+    const APP_BUILD = 26;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1459,6 +1459,43 @@
         const error = new Error(text);
         error.permanent = true;   // 다시 시도해도 소용없음
         return error;
+    }
+
+    // 이 기기를 구별하는 번호. 브라우저에 한 번 만들어 두고 계속 쓴다.
+    // 학교 와이파이에서는 모든 기기의 IP 가 같아서, 활동 기록에서 누구 기기인지 가리려면 이 번호가 필요하다
+    const DEVICE_ID_KEY = 'ygclass23_device_id';
+    let memoryDeviceId = null;
+    function newDeviceId() {
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    }
+    function deviceId() {
+        try {
+            let id = localStorage.getItem(DEVICE_ID_KEY);
+            if (!id) {
+                id = newDeviceId();
+                localStorage.setItem(DEVICE_ID_KEY, id);
+            }
+            return id;
+        } catch (e) {
+            if (!memoryDeviceId) memoryDeviceId = 'tmp-' + newDeviceId();
+            return memoryDeviceId;
+        }
+    }
+    // 기록용 정보가 없다고 저장이 막히면 안 되므로, 무슨 일이 있어도 예외를 내지 않는다
+    function auditHeaders() {
+        try {
+            return { 'X-Device-Id': deviceId(), 'X-Account': String(currentUser || '') };
+        } catch (e) {
+            return {};
+        }
+    }
+    // 로그인 시도를 활동 기록에 남긴다. 실패해도 로그인은 그대로 진행
+    function reportLogin(account, ok) {
+        fetch(DATA_ENDPOINT + '?audit=login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...auditHeaders() },
+            body: JSON.stringify({ account, ok })
+        }).catch(() => {});
     }
 
     const netDelay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -1580,7 +1617,7 @@
     async function restoreRecord(record, password) {
         const response = await fetch(DATA_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...auditHeaders() },
             body: JSON.stringify({ record, password })
         });
         const body = await response.json().catch(() => null);
@@ -1593,7 +1630,7 @@
     async function putRecord(baseRev, record) {
         const response = await fetch(DATA_ENDPOINT, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...auditHeaders() },
             body: JSON.stringify({ baseRev, record })
         });
         if (response.status === 409) return { conflict: true };
@@ -1885,11 +1922,13 @@
             return;
         }
         if (db.users[inputId].password !== inputPw) {
+            reportLogin(inputId, false);
             alert("비밀번호가 일치하지 않습니다.");
             return;
         }
 
         currentUser = inputId;
+        reportLogin(inputId, true);
         document.getElementById('loginId').value = '';
         document.getElementById('loginPw').value = '';
         document.getElementById('userInfoDisplay').style.display = 'block';

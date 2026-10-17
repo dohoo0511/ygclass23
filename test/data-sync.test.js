@@ -60,6 +60,7 @@ function scheduleAiNews() { }
 function revOfRecord(r) { return r && typeof r.rev === 'number' ? r.rev : 0; }
 const res = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 
+const putHeaders = [];
 async function fetch(url, opts = {}) {
     if (!netUp) throw new Error('network down');
     const method = opts.method || 'GET';
@@ -88,6 +89,7 @@ async function fetch(url, opts = {}) {
         }
         server = { ...record, rev: baseRev + 1 };
         putBodies.push(server);
+        putHeaders.push(opts.headers || {});
         return res(200, { ok: true, rev: server.rev });
     }
 
@@ -158,6 +160,9 @@ check('불러오기 결과를 확인하지 않는 호출부가 없음' +
 
     // 되돌린 내용이 또 사라졌을 때 누가 덮어썼는지 알 수 있어야 함
     check('저장 흔적(lastSave)이 남음', !!server.lastSave && !!server.lastSave.at);
+    const lastHeaders = putHeaders[putHeaders.length - 1] || {};
+    check('저장할 때 기기 번호를 함께 보냄 (활동 기록용)', typeof lastHeaders['X-Device-Id'] === 'string' && lastHeaders['X-Device-Id'].length > 5);
+    check('저장할 때 기기 번호가 매번 같음', putHeaders.length >= 2 && putHeaders[putHeaders.length - 2]['X-Device-Id'] === lastHeaders['X-Device-Id']);
     check('저장 흔적에 코드 버전이 들어감', /^\d{4}-\d{2}-\d{2}/.test(server.lastSave.v || ''));
 
     /* ── 일시적 오류는 재시도로 넘김 ── */

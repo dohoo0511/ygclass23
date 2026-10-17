@@ -40,6 +40,7 @@ function makeD1() {
     const self = {
         state: undefined,            // { rev, record, updated_at }
         backups: new Map(),          // date -> { record, rev, users, at }
+        audit: [],                   // 활동 기록 줄
         record() { return JSON.parse(self.state.record); },
         setRaw(rev, obj) { self.state = { rev, record: JSON.stringify(obj), updated_at: 'x' }; },
         // 다음 번 '읽기' 직후에 딱 한 번 끼어들어 저장을 바꿔치기 (동시 저장 흉내)
@@ -87,6 +88,21 @@ function makeD1() {
         if (/^SELECT record FROM backups WHERE date/.test(sql)) {
             const b = self.backups.get(args[0]);
             return { first: b ? { record: b.record } : null };
+        }
+        if (/^INSERT INTO audit/.test(sql)) {
+            const [at, kind, account, name, ip, device, ua, detail] = args;
+            self.audit.push({ id: self.audit.length + 1, at, kind, account, name, ip, device, ua, detail });
+            return { meta: { changes: 1 } };
+        }
+        if (/^DELETE FROM audit/.test(sql)) {
+            const maxId = self.audit.reduce((m, r) => Math.max(m, r.id), 0);
+            self.audit = self.audit.filter(r => !(r.at < args[0] || r.id <= maxId - args[1]));
+            return { meta: { changes: 1 } };
+        }
+        if (/^SELECT id, at, kind, account, name, ip, device, ua, detail FROM audit/.test(sql)) {
+            const byAccount = /WHERE account = \?1/.test(sql);
+            const rows = self.audit.filter(r => !byAccount || r.account === args[0]).slice().reverse();
+            return { all: rows.slice(0, byAccount ? args[1] : args[0]) };
         }
         throw new Error('가짜 D1 이 모르는 문장: ' + sql);
     };
@@ -137,9 +153,10 @@ global.fetch = async (url, opts = {}) => {
 };
 
 const backupIndexKey = 'backup:index';
-const req = (method, query = '', body = null) => new Request(`https://example.pages.dev/api/data${query}`, {
+const req = (method, query = '', body = null, headers = {}) => new Request(`https://example.pages.dev/api/data${query}`, {
     method,
-    ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {})
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }
 });
 
 const SITE_CLOSED_TEXT = src => (src.match(/SITE_CLOSED_MESSAGE = "([^"]*)"/) || [])[1] || '';
@@ -209,18 +226,18 @@ const check = (name, cond) => results.push([name, !!cond]);
 
     /* ── 저장: 판번호가 맞을 때만 ──
        (lastSave.build 는 화면 버전. 이게 없거나 낮으면 아래 '예전 화면 차단' 에서 거부된다) */
-    const good = { users: { admin: {}, '1': { pi: 6 } }, note: '새 내용', lastSave: { build: 25 } };
+    const good = { users: { admin: {}, '1': { pi: 6 } }, note: '새 내용', lastSave: { build: 26 } };
     r = await call('PUT', '', { baseRev: 10, record: good });
     check('판번호가 맞으면 저장됨', r.status === 200 && r.body.rev === 11);
     check('저장소에 반영되고 판번호가 올라감', storage.rev === 11 && storage.note === '새 내용');
 
     const before = JSON.stringify(storage);
-    r = await call('PUT', '', { baseRev: 10, record: { users: { admin: {} }, note: '오래된 화면', lastSave: { build: 25 } } });
+    r = await call('PUT', '', { baseRev: 10, record: { users: { admin: {} }, note: '오래된 화면', lastSave: { build: 26 } } });
     check('오래된 판번호로 저장하면 409', r.status === 409);
     check('409 일 때 저장소가 바뀌지 않음', JSON.stringify(storage) === before);
     check('409 가 최신 내용을 함께 돌려줌', r.body.rev === 11 && !!r.body.record);
 
-    r = await call('PUT', '', { baseRev: 11, record: { note: '학생 정보 없음', lastSave: { build: 25 } } });
+    r = await call('PUT', '', { baseRev: 11, record: { note: '학생 정보 없음', lastSave: { build: 26 } } });
     check('학생 정보 없는 저장은 400 으로 거부', r.status === 400);
     check('거부 후 저장소 그대로', JSON.stringify(storage) === before);
 
@@ -286,8 +303,8 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('빌드 번호가 아예 없으면 거부', r.status === 426 && r.body.gotBuild === null);
     check('그때도 저장소 그대로', JSON.stringify(storage) === keepStorage);
 
-    r = await call('PUT', '', { baseRev: 200, record: withBuild(25) });
-    check('현재 빌드(25)의 저장은 통과', r.status === 200 && storage.users['1'].pi === 2);
+    r = await call('PUT', '', { baseRev: 200, record: withBuild(26) });
+    check('현재 빌드(26)의 저장은 통과', r.status === 200 && storage.users['1'].pi === 2);
 
     storage = { rev: 300, users: { admin: {}, '1': { pi: 3 } } };
     r = await call('PUT', '', { baseRev: 300, record: withBuild(99) });
@@ -323,14 +340,14 @@ const check = (name, cond) => results.push([name, !!cond]);
     r = await call('GET', '?check=1');
     check('백업이 아직 없으면 그렇게 알려줌', r.body.backups.available === true && r.body.backups.count === 0);
 
-    r = await call('PUT', '', { baseRev: 100, record: { users: { admin: { password: 'pw!' }, '1': { pi: 11 } }, note: '첫 저장', lastSave: { build: 25 } } });
+    r = await call('PUT', '', { baseRev: 100, record: { users: { admin: { password: 'pw!' }, '1': { pi: 11 } }, note: '첫 저장', lastSave: { build: 26 } } });
     check('저장하면 자동으로 사본이 남음', r.status === 200 && KV.store.size === 2);
 
     r = await call('GET', '?check=1');
     check('백업 목록에 오늘 날짜가 있음', r.body.backups.count === 1 && /^\d{4}-\d{2}-\d{2}$/.test(r.body.backups.dates[0]));
 
     const kvSizeAfterFirst = KV.store.size;
-    r = await call('PUT', '', { baseRev: 101, record: { users: { admin: { password: 'pw!' }, '1': { pi: 12 } }, lastSave: { build: 25 } } });
+    r = await call('PUT', '', { baseRev: 101, record: { users: { admin: { password: 'pw!' }, '1': { pi: 12 } }, lastSave: { build: 26 } } });
     check('같은 날 또 저장해도 사본은 하나 (저장 횟수 아낌)', KV.store.size === kvSizeAfterFirst);
 
     // 백업에서 되돌리기
@@ -359,7 +376,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     const savedKV = KV;
     KV = null;
     storage = { rev: 900, users: { admin: {}, '1': { pi: 1 } } };
-    r = await call('PUT', '', { baseRev: 900, record: { users: { admin: {} }, note: 'KV 없음', lastSave: { build: 25 } } });
+    r = await call('PUT', '', { baseRev: 900, record: { users: { admin: {} }, note: 'KV 없음', lastSave: { build: 26 } } });
     check('백업이 꺼져 있어도 저장은 정상', r.status === 200 && storage.note === 'KV 없음');
     r = await call('GET', '?check=1');
     check('백업이 꺼져 있으면 설정 방법을 안내', r.body.backups.available === false && /D1/.test(r.body.backups.hint));
@@ -386,7 +403,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     const QUIET = makeD1();
     const QUIETENV = { get DB() { return QUIET.db; } };
     QUIET.hideChanges();
-    const qrec = (pi) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build: 25 } });
+    const qrec = (pi) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build: 26 } });
 
     r = await call('PUT', '', { baseRev: 0, record: qrec(1) }, QUIETENV);
     check('D1(조용): 진짜 저장됐으면 성공으로 답함', r.status === 200 && QUIET.record().users['1'].pi === 1);
@@ -408,7 +425,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('D1: 비어 있으면 빈 내용을 돌려줌', r.status === 200 && Object.keys(r.body.record).length === 0 && r.body.rev === 0);
     check('D1: 표를 알아서 만듦', D1.tablesMade === 2);
 
-    const rec = (pi, build = 25) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build } });
+    const rec = (pi, build = 26) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build } });
 
     r = await call('PUT', '', { baseRev: 0, record: rec(10) }, D1ENV);
     check('D1: 첫 저장이 들어감', r.status === 200 && r.body.rev === 1 && D1.record().users['1'].pi === 10);
@@ -436,11 +453,11 @@ const check = (name, cond) => results.push([name, !!cond]);
 
     // 예전 화면 차단은 D1 에서도 그대로
     const beforeBuild = JSON.stringify(D1.state);
-    r = await call('PUT', '', { baseRev: 5, record: rec(1, 24) }, D1ENV);
-    check('D1: 예전 빌드는 426 으로 거부', r.status === 426 && r.body.needBuild === 25);
+    r = await call('PUT', '', { baseRev: 5, record: rec(1, 25) }, D1ENV);
+    check('D1: 예전 빌드는 426 으로 거부', r.status === 426 && r.body.needBuild === 26);
     check('D1: 그때도 저장소 그대로', JSON.stringify(D1.state) === beforeBuild);
 
-    r = await call('PUT', '', { baseRev: 5, record: { note: '학생 정보 없음', lastSave: { build: 25 } } }, D1ENV);
+    r = await call('PUT', '', { baseRev: 5, record: { note: '학생 정보 없음', lastSave: { build: 26 } } }, D1ENV);
     check('D1: 학생 정보 없는 저장은 거부', r.status === 400 && JSON.stringify(D1.state) === beforeBuild);
 
     /* ── D1 자동 백업 ── */
@@ -539,6 +556,78 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('저장소가 하나도 없으면 503', r.status === 503 && r.body.d1 === false);
     check('D1 설정 방법을 안내', /D1/.test(r.body.hint) && /DB/.test(r.body.hint));
 
+
+
+    /* ── 활동 기록: 누가, 어느 기기에서 돈을 움직였는지 ── */
+    {
+        const A = makeD1();
+        const AENV = { get DB() { return A.db; }, RECOVERY_PASSWORD: undefined };
+        const callA = async (method, query, body, headers) => {
+            const res = await onRequest({ request: req(method, query, body, headers), env: AENV });
+            return { status: res.status, body: await res.json() };
+        };
+        const users = (p1, p30, pw1 = '1') => ({
+            admin: { name: '선생님', password: 'adminpw' },
+            '1': { name: '김일', pi: p1, password: pw1 },
+            '30': { name: '박삼십', pi: p30, password: '30' }
+        });
+        const DEV = { 'X-Device-Id': 'dev-aaa', 'X-Account': '1', 'CF-Connecting-IP': '203.0.113.7', 'User-Agent': 'Mozilla/5.0 (iPhone)' };
+        await callA('PUT', '', { baseRev: 0, record: { users: users(100, 0), bank: { logs: [] }, lastSave: { build: 26 } } }, DEV);
+        const before = A.audit.length;
+        r = await callA('PUT', '', { baseRev: 1, record: {
+            users: users(80, 20), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, lastSave: { build: 26, by: '김일' }
+        } }, DEV);
+        check('기록: 송금 저장 성공', r.status === 200);
+        const row = A.audit[A.audit.length - 1];
+        check('기록: 돈이 움직인 저장은 한 줄 남김', A.audit.length === before + 1 && row.kind === 'save');
+        check('기록: IP 를 서버가 적음', row.ip === '203.0.113.7');
+        check('기록: 기기 번호를 적음', row.device === 'dev-aaa');
+        check('기록: 브라우저 종류를 적음', /iPhone/.test(row.ua));
+        check('기록: 어느 계정으로 했는지', row.account === '1' && /김일/.test(row.name));
+        const detail = JSON.parse(row.detail);
+        check('기록: 누가 얼마 잃고 얻었는지', detail.includes('1(김일) -20π') && detail.includes('30(박삼십) +20π'));
+        check('기록: 새로 생긴 은행 기록도 적음', detail.some(d => /송금/.test(d)));
+
+        const n = A.audit.length;
+        r = await callA('PUT', '', { baseRev: 2, record: {
+            users: users(80, 20), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, stocks: { tick: 5 }, lastSave: { build: 26 }
+        } }, DEV);
+        check('기록: 돈이 안 움직인 저장(주가 등)은 안 남김', r.status === 200 && A.audit.length === n);
+
+        r = await callA('PUT', '', { baseRev: 3, record: {
+            users: users(80, 20, 'secret-new'), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, lastSave: { build: 26 }
+        } }, DEV);
+        const pwRow = A.audit[A.audit.length - 1];
+        check('기록: 비밀번호가 바뀌면 남김', JSON.parse(pwRow.detail).includes('1(김일) 비밀번호 바뀜'));
+        check('기록: 비밀번호 값은 절대 안 적음', !A.audit.some(x => JSON.stringify(x).includes('secret-new')));
+
+        r = await callA('POST', '?audit=login', { account: '1', ok: false }, { ...DEV, 'X-Device-Id': 'dev-bbb', 'X-Account': '' });
+        check('기록: 로그인 실패를 남김', r.status === 200 && A.audit[A.audit.length - 1].kind === 'login_fail' && A.audit[A.audit.length - 1].device === 'dev-bbb');
+        r = await callA('POST', '?audit=login', { account: '1', ok: true }, { ...DEV, 'X-Device-Id': 'dev-bbb' });
+        check('기록: 로그인 성공을 남김', A.audit[A.audit.length - 1].kind === 'login' && /김일/.test(A.audit[A.audit.length - 1].name));
+
+        r = await callA('POST', '?audit=list', { password: 'wrong' });
+        check('기록 보기: 틀린 비밀번호는 403', r.status === 403 && !r.body.rows);
+        r = await callA('POST', '?audit=list', { password: '2323' });
+        check('기록 보기: 누구나 아는 기본 복구 비밀번호는 안 받음', r.status === 403);
+        r = await callA('GET', '?audit=list');
+        check('기록 보기: GET 으로는 안 됨', r.status === 405);
+        r = await callA('POST', '?audit=list', { password: 'adminpw' });
+        check('기록 보기: 관리자 비밀번호면 볼 수 있음', r.status === 200 && r.body.rows.length === A.audit.length);
+        check('기록 보기: 최신 것이 먼저', r.body.rows[0].kind === 'login' && Array.isArray(r.body.rows[0].detail));
+        r = await callA('POST', '?audit=list', { password: 'adminpw', account: '30' });
+        check('기록 보기: 계정으로 골라 보기', r.status === 200 && r.body.rows.length === 0);
+
+        // 오래된 기록은 지움
+        A.audit[0].at = Date.now() - 40 * 86400000;
+        await callA('POST', '?audit=login', { account: '30', ok: true }, DEV);
+        check('기록: 30일 넘은 줄은 지워짐', !A.audit.some(x => x.at < Date.now() - 31 * 86400000));
+
+        // 사이트를 닫아도 관리자는 기록을 볼 수 있음
+        const closedA = (await import('file://' + tmpClosed)).onRequest;
+        const res = await closedA({ request: req('POST', '?audit=list', { password: 'adminpw' }), env: AENV });
+        check('기록 보기: 사이트를 닫아도 볼 수 있음', res.status === 200);
+    }
 
     /* ── 사이트 닫기: 점검 말고는 아무것도 읽거나 쓸 수 없어야 함 ── */
     check('닫기 스위치가 소스에 있음', CLOSED_FLAG.test(SRC_TEXT));

@@ -21,7 +21,7 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 25;
+const MIN_CLIENT_BUILD = 26;
 
 // 사이트 닫기. true 면 학생 정보 읽기·저장·백업·되돌리기를 모두 막는다 (점검 주소 ?check=1 만 열어 둠).
 // 계정 도용이 계속될 때 비상으로 닫는 용도. 다시 열려면 false 로 바꿔 배포하세요.
@@ -554,6 +554,163 @@ async function backupSummary(env) {
   }
 }
 
+/* ===================== 활동 기록 (누가, 어느 기기에서) =====================
+   돈이 움직이거나 비밀번호가 바뀐 저장, 로그인 시도를 한 줄씩 남깁니다.
+   - IP 와 브라우저 종류는 서버가 직접 보고 적으므로 화면에서 속일 수 없습니다.
+   - 기기 번호는 각 기기의 브라우저에 한 번 만들어 두는 값입니다. 학교 와이파이는 모두 같은 IP 로
+     보이므로, 같은 반 학생끼리는 이 기기 번호로 구별합니다.
+   - 무엇이 바뀌었는지는 서버가 저장 전후를 비교해서 적습니다 (화면이 보내는 설명을 믿지 않음).
+   - 비밀번호 값 자체는 절대 적지 않습니다. 관리자 비밀번호로만 볼 수 있습니다. */
+
+const AUDIT_KEEP_DAYS = 30;
+const AUDIT_MAX_ROWS = 20000;
+const AUDIT_LIST_LIMIT = 1000;
+const AUDIT_MAX_ITEMS = 40;
+
+const CREATE_AUDIT = `CREATE TABLE IF NOT EXISTS audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  account TEXT,
+  name TEXT,
+  ip TEXT,
+  device TEXT,
+  ua TEXT,
+  detail TEXT
+)`;
+
+const auditReady = new WeakSet();
+
+async function ensureAudit(env) {
+  const db = env.DB;
+  if (auditReady.has(db)) return;
+  await db.prepare(CREATE_AUDIT).run();
+  auditReady.add(db);
+}
+
+function clip(value, max) {
+  return typeof value === "string" ? value.slice(0, max) : "";
+}
+
+// 요청을 보낸 기기에 대해 서버가 알 수 있는 것
+function requestOrigin(request) {
+  const h = request.headers;
+  return {
+    ip: clip(h.get("CF-Connecting-IP") || h.get("X-Forwarded-For") || "", 64),
+    device: clip(h.get("X-Device-Id") || "", 40),
+    ua: clip(h.get("User-Agent") || "", 300),
+    account: clip(h.get("X-Account") || "", 30),
+  };
+}
+
+function userLabel(users, id) {
+  const u = users && users[id];
+  return u && u.name ? `${id}(${u.name})` : String(id);
+}
+
+// 저장 전후를 비교해서, 사람이 읽을 수 있는 변화 목록을 만든다
+function auditChanges(before, after) {
+  const items = [];
+  const bu = (before && before.users) || {};
+  const au = (after && after.users) || {};
+  for (const id of new Set([...Object.keys(bu), ...Object.keys(au)])) {
+    const b = bu[id];
+    const a = au[id];
+    if (!b) { items.push(`${userLabel(au, id)} 계정 생김`); continue; }
+    if (!a) { items.push(`${userLabel(bu, id)} 계정 지워짐`); continue; }
+    const diff = (Number(a.pi) || 0) - (Number(b.pi) || 0);
+    if (diff !== 0) items.push(`${userLabel(au, id)} ${diff > 0 ? "+" : ""}${diff}π`);
+    if (a.password !== b.password) items.push(`${userLabel(au, id)} 비밀번호 바뀜`);
+  }
+  const seen = new Set((((before && before.bank) || {}).logs || []).map(l => l && l.id));
+  const fresh = (((after && after.bank) || {}).logs || []).filter(l => l && !seen.has(l.id));
+  for (const l of fresh.slice(0, 10)) items.push(`[기록] ${clip(String(l.text || ""), 200)}`);
+  return items.slice(0, AUDIT_MAX_ITEMS);
+}
+
+async function auditWrite(env, row) {
+  if (!hasD1(env)) return;
+  await ensureAudit(env);
+  const now = Date.now();
+  await env.DB.prepare(
+    "INSERT INTO audit (at, kind, account, name, ip, device, ua, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+  ).bind(now, row.kind, row.account || "", row.name || "", row.ip || "", row.device || "",
+    row.ua || "", JSON.stringify(row.detail || [])).run();
+  // 오래된 줄은 지운다 (기간, 개수 둘 다)
+  await env.DB.prepare("DELETE FROM audit WHERE at < ?1 OR id <= (SELECT MAX(id) FROM audit) - ?2")
+    .bind(now - AUDIT_KEEP_DAYS * 86400000, AUDIT_MAX_ROWS).run();
+}
+
+// 기록이 실패해도 저장이나 로그인은 막지 않는다
+async function auditSafely(env, row) {
+  try {
+    await auditWrite(env, row);
+  } catch (error) {
+    console.error("활동 기록 실패:", error);
+  }
+}
+
+async function auditList(env, account) {
+  await ensureAudit(env);
+  const stmt = account
+    ? env.DB.prepare("SELECT id, at, kind, account, name, ip, device, ua, detail FROM audit WHERE account = ?1 ORDER BY id DESC LIMIT ?2").bind(account, AUDIT_LIST_LIMIT)
+    : env.DB.prepare("SELECT id, at, kind, account, name, ip, device, ua, detail FROM audit ORDER BY id DESC LIMIT ?1").bind(AUDIT_LIST_LIMIT);
+  const res = await stmt.all();
+  return ((res && res.results) || []).map(r => {
+    let detail = [];
+    try { detail = JSON.parse(r.detail || "[]"); } catch { detail = []; }
+    return { ...r, detail };
+  });
+}
+
+// /api/data?audit=login (로그인 시도 남기기) , /api/data?audit=list (관리자가 보기)
+async function handleAudit(request, env, mode) {
+  if (request.method !== "POST") return json({ error: "POST 로만 쓸 수 있어요." }, 405);
+  if (!hasD1(env)) return json({ error: "활동 기록은 D1 저장소에서만 쓸 수 있어요." }, 400);
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: "요청 형식이 올바르지 않아요." }, 400);
+  }
+  const origin = requestOrigin(request);
+
+  if (mode === "login") {
+    const account = clip(String((payload && payload.account) || ""), 30);
+    let name = "";
+    try {
+      const current = await readLatest(env);
+      name = userLabel(current.users, account);
+    } catch { /* 이름을 못 찾아도 기록은 남긴다 */ }
+    await auditSafely(env, {
+      kind: payload && payload.ok ? "login" : "login_fail",
+      account, name, ip: origin.ip, device: origin.device, ua: origin.ua, detail: [],
+    });
+    return json({ ok: true });
+  }
+
+  if (mode === "list") {
+    let current;
+    try {
+      current = await readLatest(env);
+    } catch (error) {
+      return json({ error: error.message }, 502);
+    }
+    // 기본 복구 비밀번호는 누구나 알 수 있으므로 받지 않는다. 관리자 비밀번호(또는 직접 정한 복구 비밀번호)만
+    const recovery = env && env.RECOVERY_PASSWORD;
+    const pw = payload && payload.password;
+    const allowed = isAdminPassword(current, pw) || (typeof recovery === "string" && recovery.length > 0 && pw === recovery);
+    if (!allowed) return json({ error: "관리자 비밀번호가 맞지 않아요." }, 403);
+    try {
+      const account = clip(String((payload && payload.account) || ""), 30);
+      return json({ ok: true, keepDays: AUDIT_KEEP_DAYS, rows: await auditList(env, account) });
+    } catch (error) {
+      return json({ error: error.message }, 502);
+    }
+  }
+  return json({ error: "알 수 없는 요청이에요." }, 400);
+}
+
 // 관리자 비밀번호 확인 (되돌리기처럼 위험한 작업에만 사용)
 function isAdminPassword(current, password) {
   const admin = current && current.users && current.users.admin;
@@ -664,6 +821,10 @@ export async function onRequest({ request, env }) {
     }
   }
 
+  // 활동 기록은 사이트를 닫아도 관리자가 볼 수 있어야 한다
+  const auditMode = url.searchParams.get("audit");
+  if (auditMode !== null) return handleAudit(request, env, auditMode);
+
   if (SITE_CLOSED) {
     return json({ error: SITE_CLOSED_MESSAGE, closed: true }, 503);
   }
@@ -759,6 +920,17 @@ export async function onRequest({ request, env }) {
       }
       return json({ error: "conflict", rev: revOf(fresh), record: fresh }, 409);
     }
+    // 돈이 움직였거나 비밀번호가 바뀐 저장만 남긴다 (주가만 바뀐 저장까지 적으면 너무 많음)
+    const changes = auditChanges(current, saved);
+    if (changes.length > 0) {
+      const origin = requestOrigin(request);
+      await auditSafely(env, {
+        kind: "save",
+        account: origin.account,
+        name: origin.account ? userLabel(saved.users, origin.account) : clip(String((saved.lastSave && saved.lastSave.by) || ""), 30),
+        ip: origin.ip, device: origin.device, ua: origin.ua, detail: changes,
+      });
+    }
     // 백업이 실패해도 저장 자체는 성공으로 본다 (백업 때문에 수업이 막히면 안 됨)
     try {
       await ensureDailyBackup(env, saved);
@@ -831,6 +1003,11 @@ export async function onRequest({ request, env }) {
     } catch (error) {
       return json({ error: error.message }, 502);
     }
+    const origin = requestOrigin(request);
+    await auditSafely(env, {
+      kind: "restore", account: origin.account, name: "", ip: origin.ip, device: origin.device, ua: origin.ua,
+      detail: [`${source} 으로 되돌림`],
+    });
     return json({ ok: true, rev: nextRev, restoredFrom: source });
   }
 
