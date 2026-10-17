@@ -30,6 +30,7 @@
     .k-save { background: #e3f2fd; color: #0d47a1; }
     .k-login { background: #e8f5e9; color: #1b5e20; }
     .k-login_fail { background: #ffebee; color: #b71c1c; }
+    .k-login_blocked { background: #fff3e0; color: #e65100; }
     .k-restore { background: #f3e5f5; color: #4a148c; }
     .suspect { background: #fff8e1; }
     .minus { color: #c62828; }
@@ -79,7 +80,7 @@
     let deviceNames = new Map();
     let deviceFilter = null;
 
-    const KIND_LABELS = { save: '저장', login: '로그인', login_fail: '로그인 실패', restore: '되돌리기' };
+    const KIND_LABELS = { save: '저장', login: '로그인', login_fail: '로그인 실패', login_blocked: '막힌 로그인', restore: '되돌리기' };
 
     function esc(value) {
         return String(value == null ? '' : value)
@@ -146,7 +147,7 @@
             if (r.ip) d.ips.add(r.ip);
             d.uas.add(uaSummary(r.ua));
             const acc = accountOf(r);
-            if (acc && r.kind !== 'login_fail') d.accounts.set(acc, r.name || acc);
+            if (acc && r.kind !== 'login_fail' && !(r.kind === 'login_blocked' && /틀림/.test((r.detail || []).join('')))) d.accounts.set(acc, r.name || acc);
         }
         const list = [...map.values()].sort((a, b) => (b.accounts.size - a.accounts.size) || (b.last - a.last));
         document.getElementById('devices').innerHTML = `

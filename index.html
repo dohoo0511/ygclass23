@@ -1430,9 +1430,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-10-17-audit-log';
+    const APP_VERSION = '2026-10-17-admin-only';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 26;
+    const APP_BUILD = 27;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1481,10 +1481,18 @@
             return memoryDeviceId;
         }
     }
+    // 로그인할 때 넣은 아이디·비밀번호. 서버가 '선생님만' 상태일 때 요청마다 직접 확인한다 (메모리에만 둠)
+    let loginCredentials = null;
     // 기록용 정보가 없다고 저장이 막히면 안 되므로, 무슨 일이 있어도 예외를 내지 않는다
     function auditHeaders() {
         try {
-            return { 'X-Device-Id': deviceId(), 'X-Account': String(currentUser || '') };
+            const headers = { 'X-Device-Id': deviceId(), 'X-Account': String(currentUser || '') };
+            if (loginCredentials) {
+                // 한글 비밀번호도 실을 수 있게 인코딩
+                headers['X-Login-Id'] = encodeURIComponent(loginCredentials.id);
+                headers['X-Login-Key'] = encodeURIComponent(loginCredentials.pw);
+            }
+            return headers;
         } catch (e) {
             return {};
         }
@@ -1594,7 +1602,7 @@
         let lastError;
         for (let attempt = 0; attempt <= NET_RETRIES; attempt++) {
             try {
-                const response = await fetch(DATA_ENDPOINT, { cache: 'no-store' });
+                const response = await fetch(DATA_ENDPOINT, { cache: 'no-store', headers: auditHeaders() });
                 if (!response.ok) throw await endpointError(response);
                 const result = await response.json();
                 return validRecord(result && result.record);
@@ -1915,13 +1923,21 @@
     async function login() {
         const inputId = document.getElementById('loginId').value.trim();
         const inputPw = document.getElementById('loginPw').value.trim();
-        if (!await loadData()) return;
+        // 이전에 로그인한 사람의 정보는 버리고, 지금 넣은 것으로 서버에 확인받는다
+        const previous = loginCredentials;
+        loginCredentials = { id: inputId, pw: inputPw };
+        if (!await loadData()) {
+            loginCredentials = previous;
+            return;
+        }
 
         if (!db.users[inputId]) {
+            loginCredentials = previous;
             alert("존재하지 않는 아이디입니다.");
             return;
         }
         if (db.users[inputId].password !== inputPw) {
+            loginCredentials = previous;
             reportLogin(inputId, false);
             alert("비밀번호가 일치하지 않습니다.");
             return;
@@ -1951,6 +1967,7 @@
 
     function logout() {
         currentUser = null;
+        loginCredentials = null;
         selectedReason = null;
         closeStudentDetail();
         document.getElementById('userInfoDisplay').style.display = 'none';
@@ -2620,6 +2637,8 @@
             return { ok: "비밀번호가 성공적으로 변경되었습니다." };
         });
         if (!done) return;
+        // 서버가 요청마다 비밀번호를 확인하는 동안에도 계속 쓸 수 있도록 새 비밀번호로 바꿔 둔다
+        if (loginCredentials && loginCredentials.id === currentUser) loginCredentials.pw = newPw;
         alert(done.ok);
         document.getElementById('currentPwInput').value = '';
         document.getElementById('newPwInput').value = '';
