@@ -90,6 +90,12 @@
         hr { border: none; border-top: 2px dashed #FFCC80; opacity: .7; }
 
         /* 메인 메뉴 */
+        .access-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-radius: 12px; background: #fff; border: 2px solid #cfd8dc; }
+        .access-bar.open { border-color: #43a047; background: #f1f8e9; }
+        .access-bar.locked { border-color: #e53935; background: #ffebee; }
+        .access-bar .admin-btn { width: auto; margin: 0; }
+        .access-state { font-weight: bold; }
+        .access-hint { font-size: .85em; color: #607d8b; }
         .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
         .menu-card {
             position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
@@ -554,6 +560,11 @@
 
         <!-- 관리자 메인 메뉴 -->
         <div id="adm-main" class="section active">
+            <div id="accessBar" class="access-bar" hidden>
+                <div><b>학생 접속</b> <span id="accessState" class="access-state">확인 중…</span>
+                    <div class="access-hint" id="accessHint"></div></div>
+                <button id="accessToggleBtn" class="admin-btn" onclick="toggleSiteAccess()" disabled>…</button>
+            </div>
             <div class="menu-grid">
                 <button class="menu-card" data-section="notice" onclick="openAdminSection('notice')"><span class="menu-emoji">📢</span>공지사항</button>
                 <button class="menu-card" data-section="usage" onclick="openAdminSection('usage')"><span class="menu-emoji">🔔</span>쿠폰 사용 요청<span class="badge-count" id="usageBadge"></span></button>
@@ -1430,9 +1441,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-10-17-admin-only';
+    const APP_VERSION = '2026-10-20-access-switch';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 27;
+    const APP_BUILD = 28;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1774,11 +1785,14 @@
                 return true;
             } catch (error) {
                 lastError = error;
+                if (error && error.permanent) break;   // 다시 해도 똑같음 (예: 학생 접속이 꺼짐)
                 if (attempt < NET_RETRIES) await netDelay(NET_RETRY_BASE_MS * (attempt + 1));
             }
         }
         console.error("데이터 저장 실패:", lastError);
-        alert("서버 저장 중 오류가 발생했습니다.\n새로고침 후 다시 확인해주세요.");
+        alert(lastError && lastError.permanent
+            ? `⚠️ ${lastError.message}`
+            : "서버 저장 중 오류가 발생했습니다.\n새로고침 후 다시 확인해주세요.");
         return false;
     }
 
@@ -3004,8 +3018,76 @@
     /* ===================== 관리자: 화면 이동 ===================== */
     const LOG_TYPE_LABELS = { loan: '대출', savings: '적금', transfer: '송금', grade: '등급', tax: '세금' };
     let currentAdminSection = 'main';
+    /* --- 학생 접속 스위치 (관리자만) ---
+       켜면 모두 쓸 수 있고, 끄면 선생님(관리자)만 로그인할 수 있다.
+       서버가 요청마다 관리자 아이디·비밀번호를 직접 확인하므로, 화면을 고쳐서 우회할 수 없다 */
+    let siteAccessState = null;
+    async function fetchSiteAccess() {
+        const response = await fetch(DATA_ENDPOINT + '?access=1', { cache: 'no-store', headers: auditHeaders() });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body) throw new Error((body && body.error) || `HTTP ${response.status}`);
+        return body.access;
+    }
+    function paintAccessBar() {
+        const bar = document.getElementById('accessBar');
+        const user = db.users[currentUser];
+        bar.hidden = !(user && user.role === 'admin');
+        if (bar.hidden) return;
+        const open = siteAccessState === 'open';
+        const known = siteAccessState === 'open' || siteAccessState === 'admin';
+        bar.classList.toggle('open', open);
+        bar.classList.toggle('locked', known && !open);
+        document.getElementById('accessState').textContent = !known
+            ? (siteAccessState === 'closed' ? '🔒 모두 닫힘' : '확인하지 못함')
+            : (open ? '🟢 켜짐 — 모두 쓸 수 있어요' : '🔒 꺼짐 — 선생님만 로그인할 수 있어요');
+        document.getElementById('accessHint').textContent = known
+            ? (open ? '끄면 학생은 바로 아무것도 할 수 없게 돼요.' : '켜기 전에 도용된 계정의 비밀번호를 바꿔 주세요.')
+            : '';
+        const btn = document.getElementById('accessToggleBtn');
+        btn.disabled = !known;
+        btn.textContent = open ? '학생 접속 끄기' : '학생 접속 켜기';
+        btn.style.background = open ? '#e53935' : '#43a047';
+    }
+    async function renderAccessBar() {
+        const user = db.users[currentUser];
+        if (!user || user.role !== 'admin') {
+            document.getElementById('accessBar').hidden = true;
+            return;
+        }
+        paintAccessBar();
+        try {
+            siteAccessState = await fetchSiteAccess();
+        } catch (error) {
+            siteAccessState = null;
+        }
+        paintAccessBar();
+    }
+    async function toggleSiteAccess() {
+        const next = siteAccessState === 'open' ? 'admin' : 'open';
+        const message = next === 'open'
+            ? '학생 접속을 켤까요?\n모든 학생이 다시 로그인하고 쓸 수 있게 돼요.'
+            : '학생 접속을 끌까요?\n선생님(관리자)만 로그인할 수 있고, 학생은 아무것도 할 수 없게 돼요.';
+        if (!confirm(message)) return;
+        const btn = document.getElementById('accessToggleBtn');
+        btn.disabled = true;
+        try {
+            const response = await fetch(DATA_ENDPOINT + '?access=1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...auditHeaders() },
+                body: JSON.stringify({ mode: next })
+            });
+            const body = await response.json().catch(() => null);
+            if (!response.ok || !body || !body.ok) throw new Error((body && body.error) || `HTTP ${response.status}`);
+            siteAccessState = body.access;
+            alert(next === 'open' ? '🟢 학생 접속을 켰어요.' : '🔒 학생 접속을 껐어요. 이제 선생님만 로그인할 수 있어요.');
+        } catch (error) {
+            alert('바꾸지 못했어요: ' + error.message);
+        }
+        paintAccessBar();
+    }
+
     const ADMIN_SECTION_RENDERERS = {
-        main: () => {},
+        main: renderAccessBar,
         notice: renderNotice,
         usage: renderUsageRequests,
         grant: renderGrantSection,

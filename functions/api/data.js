@@ -21,14 +21,17 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 27;
+const MIN_CLIENT_BUILD = 28;
 
 // 사이트 문 열기.
 //   "open"  : 평소처럼 모두 사용
 //   "admin" : 관리자(역할이 admin 인 계정)만. 요청마다 서버가 아이디·비밀번호를 직접 확인한다
 //   "closed": 아무도 못 씀 (점검 주소 ?check=1 과 활동 기록만 열어 둠)
-// 계정 도용이 계속될 때 비상으로 막는 용도. 다시 열려면 "open" 으로 바꿔 배포하세요.
+// 관리자 화면에서 open ↔ admin 을 바꿀 수 있고, 그 값은 D1 의 settings 표에 남는다.
+// 아래 값은 아직 한 번도 바꾼 적이 없을 때(또는 D1 이 없을 때) 쓰는 기본값.
 const SITE_ACCESS = "admin";
+const SITE_ACCESS_MODES = ["open", "admin", "closed"];
+const SITE_ACCESS_SETTABLE = ["open", "admin"];
 const SITE_CLOSED_MESSAGE = "🔒 사이트를 잠시 닫았어요.\n선생님이 다시 열 때까지 기다려 주세요.";
 const ADMIN_ONLY_MESSAGE = "🔒 지금은 선생님만 로그인할 수 있어요.\n선생님이 다시 열 때까지 기다려 주세요.";
 
@@ -558,6 +561,85 @@ async function backupSummary(env) {
   }
 }
 
+/* ===================== 사이트 문 열기 설정 ===================== */
+
+const CREATE_SETTINGS = `CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT
+)`;
+const settingsReady = new WeakSet();
+
+async function ensureSettings(env) {
+  const db = env.DB;
+  if (settingsReady.has(db)) return;
+  await db.prepare(CREATE_SETTINGS).run();
+  settingsReady.add(db);
+}
+
+// 지금 문 상태. 읽지 못하면 기본값 (기본값이 '관리자만' 이므로, 고장 나도 열리는 쪽으로 가지 않음)
+async function siteAccess(env) {
+  if (!hasD1(env)) return SITE_ACCESS;
+  try {
+    await ensureSettings(env);
+    const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'access'").first();
+    const value = row && row.value;
+    return SITE_ACCESS_MODES.includes(value) ? value : SITE_ACCESS;
+  } catch (error) {
+    console.error("문 상태를 읽지 못함:", error);
+    return SITE_ACCESS;
+  }
+}
+
+async function setSiteAccess(env, value) {
+  await ensureSettings(env);
+  await env.DB.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('access', ?1, ?2)
+     ON CONFLICT(key) DO UPDATE SET value = ?1, updated_at = ?2`
+  ).bind(value, new Date().toISOString()).run();
+}
+
+// /api/data?access=1  (GET: 지금 상태, 누구나) / POST {mode}: 관리자만 바꿈
+async function handleAccess(request, env) {
+  if (request.method === "GET") return json({ access: await siteAccess(env) });
+  if (request.method !== "POST") return json({ error: "GET, POST 만 받을 수 있어요." }, 405);
+  if (!hasD1(env)) return json({ error: "D1 저장소가 있어야 바꿀 수 있어요." }, 400);
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: "요청 형식이 올바르지 않아요." }, 400);
+  }
+  const mode = payload && payload.mode;
+  if (!SITE_ACCESS_SETTABLE.includes(mode)) return json({ error: "open 또는 admin 만 고를 수 있어요." }, 400);
+  let current;
+  try {
+    current = await readLatest(env);
+  } catch (error) {
+    return json({ error: error.message }, 502);
+  }
+  const origin = requestOrigin(request);
+  const gate = adminGate(request, current);
+  if (!gate.ok) {
+    await auditSafely(env, {
+      kind: "access", account: gate.account, name: gate.account ? userLabel(current.users, gate.account) : "",
+      ip: origin.ip, device: origin.device, ua: origin.ua, detail: [`접속 설정 바꾸기 거부됨 (${mode})`],
+    });
+    return json({ error: "관리자만 바꿀 수 있어요." }, 403);
+  }
+  try {
+    await setSiteAccess(env, mode);
+  } catch (error) {
+    return json({ error: error.message }, 502);
+  }
+  await auditSafely(env, {
+    kind: "access", account: gate.account, name: userLabel(current.users, gate.account),
+    ip: origin.ip, device: origin.device, ua: origin.ua,
+    detail: [mode === "open" ? "학생 접속 켬" : "학생 접속 끔 (선생님만)"],
+  });
+  return json({ ok: true, access: mode });
+}
+
 /* ===================== 활동 기록 (누가, 어느 기기에서) =====================
    돈이 움직이거나 비밀번호가 바뀐 저장, 로그인 시도를 한 줄씩 남깁니다.
    - IP 와 브라우저 종류는 서버가 직접 보고 적으므로 화면에서 속일 수 없습니다.
@@ -852,10 +934,14 @@ export async function onRequest({ request, env }) {
   const auditMode = url.searchParams.get("audit");
   if (auditMode !== null) return handleAudit(request, env, auditMode);
 
-  if (SITE_ACCESS === "closed") {
+  // 문 상태 보기·바꾸기 (관리자 화면의 '학생 접속' 스위치)
+  if (url.searchParams.has("access")) return handleAccess(request, env);
+
+  const access = await siteAccess(env);
+  if (access === "closed") {
     return json({ error: SITE_CLOSED_MESSAGE, closed: true }, 503);
   }
-  if (SITE_ACCESS === "admin") {
+  if (access === "admin") {
     let current;
     try {
       current = await readLatest(env);
