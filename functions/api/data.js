@@ -21,11 +21,11 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 28;
+const MIN_CLIENT_BUILD = 29;
 
 // 사이트 문 열기.
 //   "open"  : 평소처럼 모두 사용
-//   "admin" : 관리자(역할이 admin 인 계정)만. 요청마다 서버가 아이디·비밀번호를 직접 확인한다
+//   "admin" : 관리자·매니저만 (학생 접속 꺼짐). 요청마다 서버가 아이디·비밀번호를 직접 확인한다
 //   "closed": 아무도 못 씀 (점검 주소 ?check=1 과 활동 기록만 열어 둠)
 // 관리자 화면에서 open ↔ admin 을 바꿀 수 있고, 그 값은 D1 의 settings 표에 남는다.
 // 아래 값은 아직 한 번도 바꾼 적이 없을 때(또는 D1 이 없을 때) 쓰는 기본값.
@@ -33,7 +33,7 @@ const SITE_ACCESS = "admin";
 const SITE_ACCESS_MODES = ["open", "admin", "closed"];
 const SITE_ACCESS_SETTABLE = ["open", "admin"];
 const SITE_CLOSED_MESSAGE = "🔒 사이트를 잠시 닫았어요.\n선생님이 다시 열 때까지 기다려 주세요.";
-const ADMIN_ONLY_MESSAGE = "🔒 지금은 선생님만 로그인할 수 있어요.\n선생님이 다시 열 때까지 기다려 주세요.";
+const ADMIN_ONLY_MESSAGE = "🔒 지금은 학생 접속이 꺼져 있어요.\n선생님이 다시 켤 때까지 기다려 주세요.";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -635,7 +635,7 @@ async function handleAccess(request, env) {
   await auditSafely(env, {
     kind: "access", account: gate.account, name: userLabel(current.users, gate.account),
     ip: origin.ip, device: origin.device, ua: origin.ua,
-    detail: [mode === "open" ? "학생 접속 켬" : "학생 접속 끔 (선생님만)"],
+    detail: [mode === "open" ? "학생 접속 켬" : "학생 접속 끔 (선생님·매니저만)"],
   });
   return json({ ok: true, access: mode });
 }
@@ -807,9 +807,9 @@ function headerText(request, name) {
   }
 }
 
-// 관리자만 쓰는 동안: 요청에 실린 아이디·비밀번호가 역할이 admin 인 계정과 맞는지 서버가 직접 본다.
-// (반장 같은 manager 는 학생이므로 넣지 않음)
-function adminGate(request, current) {
+// 학생 접속이 꺼진 동안: 요청에 실린 아이디·비밀번호가 맞는지, 들어올 수 있는 역할인지 서버가 직접 본다.
+// 사이트 사용은 관리자(admin)와 매니저(manager), 접속 스위치는 관리자만 (allowManager: false)
+function adminGate(request, current, { allowManager = false } = {}) {
   const account = clip(headerText(request, "X-Login-Id"), 30);
   const password = headerText(request, "X-Login-Key");
   if (!account) return { ok: false, account: "" };
@@ -817,7 +817,8 @@ function adminGate(request, current) {
   const user = Object.prototype.hasOwnProperty.call(users, account) ? users[account] : null;
   const passwordRight = !!user && typeof user.password === "string" && password.length > 0 && user.password === password;
   const isAdmin = !!user && (user.role === "admin" || account === "admin");
-  return { ok: passwordRight && isAdmin, account, passwordRight };
+  const isManager = !!user && user.role === "manager";
+  return { ok: passwordRight && (isAdmin || (allowManager && isManager)), account, passwordRight };
 }
 
 // 관리자 비밀번호 확인 (되돌리기처럼 위험한 작업에만 사용)
@@ -948,14 +949,14 @@ export async function onRequest({ request, env }) {
     } catch (error) {
       return json({ error: error.message }, 502);
     }
-    const gate = adminGate(request, current);
+    const gate = adminGate(request, current, { allowManager: true });
     if (!gate.ok) {
       if (gate.account) {
         const origin = requestOrigin(request);
         await auditSafely(env, {
           kind: "login_blocked", account: gate.account, name: userLabel(current.users, gate.account),
           ip: origin.ip, device: origin.device, ua: origin.ua,
-          detail: [`선생님만 들어올 수 있는 동안 로그인 시도 (비밀번호 ${gate.passwordRight ? "맞음" : "틀림"})`],
+          detail: [`학생 접속이 꺼진 동안 로그인 시도 (비밀번호 ${gate.passwordRight ? "맞음" : "틀림"})`],
         });
       }
       return json({ error: ADMIN_ONLY_MESSAGE, adminOnly: true }, 503);

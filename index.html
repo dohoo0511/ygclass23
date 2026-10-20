@@ -574,6 +574,7 @@
                 <button class="menu-card" data-section="students" onclick="openAdminSection('students')"><span class="menu-emoji">📊</span>학생 현황</button>
                 <button class="menu-card" data-section="stock" onclick="openAdminSection('stock')"><span class="menu-emoji">📈</span>주식 관리</button>
                 <button class="menu-card" data-section="shop" onclick="openAdminSection('shop')"><span class="menu-emoji">🎫</span>쿠폰 가격</button>
+                <button class="menu-card" data-section="password" onclick="openAdminSection('password')"><span class="menu-emoji">🔒</span>비밀번호</button>
             </div>
         </div>
 
@@ -676,6 +677,29 @@
             </div>
             <h3>📈 주식 관리</h3>
             <div id="adminStockContent"></div>
+        </div>
+
+        <!-- 비밀번호 (내 비밀번호 / 관리자는 다른 계정도) -->
+        <div id="adm-password" class="section">
+            <div class="section-bar">
+                <button class="back-btn" onclick="openAdminSection('main')">← 메인으로</button>
+            </div>
+            <h3>🔒 내 비밀번호 바꾸기</h3>
+            <div style="display: flex; flex-direction: column; max-width: 280px; background: #FFF8F0; padding: 15px; border-radius: 16px;">
+                <input type="password" id="staffCurrentPw" placeholder="현재 비밀번호" autocomplete="current-password">
+                <input type="password" id="staffNewPw" placeholder="새 비밀번호" autocomplete="new-password">
+                <input type="password" id="staffConfirmPw" placeholder="새 비밀번호 확인" autocomplete="new-password">
+                <button onclick="changeStaffPassword()" style="margin-top: 8px;">비밀번호 변경</button>
+            </div>
+            <div id="otherPwBox" hidden>
+                <h3 style="margin-top: 24px;">🔑 다른 계정 비밀번호 바꾸기</h3>
+                <p style="font-size:14px; color:#666; margin-top:0;">도용된 학생이나 매니저 계정의 비밀번호를 새로 정해 주세요. 새 비밀번호는 그 사람에게 직접 알려 주세요.</p>
+                <div style="display: flex; flex-direction: column; max-width: 280px; background: #FFF8F0; padding: 15px; border-radius: 16px;">
+                    <select id="otherPwAccount"></select>
+                    <input type="text" id="otherPwNew" placeholder="새 비밀번호" autocomplete="off">
+                    <button onclick="setOtherPassword()" style="margin-top: 8px;">이 계정 비밀번호 바꾸기</button>
+                </div>
+            </div>
         </div>
 
         <!-- 학생 현황 -->
@@ -872,7 +896,7 @@
         { id: 'mn3', name: '매니저3', password: 'mang3!' }
     ];
     const MANAGER_OLD_PASSWORD = 'mnmn1234'; // 예전 비밀번호를 그대로 쓰는 계정만 새 비밀번호로 바꿈
-    const MANAGER_SECTIONS = ['main', 'grant', 'usage', 'students', 'bank'];
+    const MANAGER_SECTIONS = ['main', 'grant', 'usage', 'students', 'bank', 'password'];
 
     /* ===================== 설정: 랜덤상자 ===================== */
     const RANDOM_BOX_PRICE = 3;
@@ -1441,9 +1465,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-10-20-access-switch';
+    const APP_VERSION = '2026-10-20-manager-access';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 28;
+    const APP_BUILD = 29;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -3039,9 +3063,9 @@
         bar.classList.toggle('locked', known && !open);
         document.getElementById('accessState').textContent = !known
             ? (siteAccessState === 'closed' ? '🔒 모두 닫힘' : '확인하지 못함')
-            : (open ? '🟢 켜짐 — 모두 쓸 수 있어요' : '🔒 꺼짐 — 선생님만 로그인할 수 있어요');
+            : (open ? '🟢 켜짐 — 모두 쓸 수 있어요' : '🔒 꺼짐 — 선생님과 매니저만 로그인할 수 있어요');
         document.getElementById('accessHint').textContent = known
-            ? (open ? '끄면 학생은 바로 아무것도 할 수 없게 돼요.' : '켜기 전에 도용된 계정의 비밀번호를 바꿔 주세요.')
+            ? (open ? '끄면 학생은 바로 아무것도 할 수 없게 돼요.' : '켜기 전에 도용된 계정의 비밀번호를 바꿔 주세요. (🔒 비밀번호 메뉴)')
             : '';
         const btn = document.getElementById('accessToggleBtn');
         btn.disabled = !known;
@@ -3066,7 +3090,7 @@
         const next = siteAccessState === 'open' ? 'admin' : 'open';
         const message = next === 'open'
             ? '학생 접속을 켤까요?\n모든 학생이 다시 로그인하고 쓸 수 있게 돼요.'
-            : '학생 접속을 끌까요?\n선생님(관리자)만 로그인할 수 있고, 학생은 아무것도 할 수 없게 돼요.';
+            : '학생 접속을 끌까요?\n선생님과 매니저만 로그인할 수 있고, 학생은 아무것도 할 수 없게 돼요.';
         if (!confirm(message)) return;
         const btn = document.getElementById('accessToggleBtn');
         btn.disabled = true;
@@ -3079,14 +3103,69 @@
             const body = await response.json().catch(() => null);
             if (!response.ok || !body || !body.ok) throw new Error((body && body.error) || `HTTP ${response.status}`);
             siteAccessState = body.access;
-            alert(next === 'open' ? '🟢 학생 접속을 켰어요.' : '🔒 학생 접속을 껐어요. 이제 선생님만 로그인할 수 있어요.');
+            alert(next === 'open' ? '🟢 학생 접속을 켰어요.' : '🔒 학생 접속을 껐어요. 이제 선생님과 매니저만 로그인할 수 있어요.');
         } catch (error) {
             alert('바꾸지 못했어요: ' + error.message);
         }
         paintAccessBar();
     }
 
+    /* --- 비밀번호 (관리자·매니저) ---
+       학생 화면에만 있던 비밀번호 바꾸기를 관리자 화면에도 둔다.
+       관리자는 다른 계정(학생·매니저)의 비밀번호도 새로 정할 수 있다 (도용된 계정 되찾기) */
+    function renderPasswordSection() {
+        const isAdmin = (db.users[currentUser] || {}).role === 'admin';
+        document.getElementById('otherPwBox').hidden = !isAdmin;
+        if (!isAdmin) return;
+        const select = document.getElementById('otherPwAccount');
+        const keep = select.value;
+        const ids = Object.keys(db.users).filter(id => id !== currentUser)
+            .sort((a, b) => (Number(a) || 1e9) - (Number(b) || 1e9) || a.localeCompare(b));
+        select.innerHTML = '<option value="">계정을 고르세요</option>' + ids.map(id =>
+            `<option value="${esc(id)}">${esc(id)} · ${esc(db.users[id].name || '')}${db.users[id].role === 'manager' ? ' (매니저)' : ''}</option>`).join('');
+        if (ids.includes(keep)) select.value = keep;
+    }
+    async function changeStaffPassword() {
+        const currentPw = document.getElementById('staffCurrentPw').value.trim();
+        const newPw = document.getElementById('staffNewPw').value.trim();
+        const confirmPw = document.getElementById('staffConfirmPw').value.trim();
+        if (!currentPw || !newPw || !confirmPw) return alert("모든 항목을 입력해주세요.");
+        const done = await runAction(() => {
+            const user = db.users[currentUser];
+            if (user.password !== currentPw) return { stop: "현재 비밀번호가 일치하지 않습니다." };
+            if (newPw === currentPw) return { stop: "새 비밀번호는 기존 비밀번호와 달라야 합니다." };
+            if (newPw !== confirmPw) return { stop: "새 비밀번호와 확인란이 일치하지 않습니다." };
+            user.password = newPw;
+            return { ok: "비밀번호가 바뀌었어요. 다음 로그인부터 새 비밀번호를 쓰세요." };
+        });
+        if (!done) return;
+        // 서버가 요청마다 비밀번호를 확인하는 동안에도 계속 쓸 수 있도록 새 비밀번호로 바꿔 둔다
+        if (loginCredentials && loginCredentials.id === currentUser) loginCredentials.pw = newPw;
+        alert(done.ok);
+        ['staffCurrentPw', 'staffNewPw', 'staffConfirmPw'].forEach(id => { document.getElementById(id).value = ''; });
+    }
+    async function setOtherPassword() {
+        if ((db.users[currentUser] || {}).role !== 'admin') return;
+        const id = document.getElementById('otherPwAccount').value;
+        const newPw = document.getElementById('otherPwNew').value.trim();
+        if (!id) return alert("계정을 골라 주세요.");
+        if (newPw.length < 4) return alert("새 비밀번호는 4글자 이상으로 해 주세요.");
+        if (newPw === id) return alert("계정 번호와 같은 비밀번호는 쓸 수 없어요.");
+        const name = db.users[id] ? db.users[id].name : id;
+        if (!confirm(`${id} · ${name} 의 비밀번호를 바꿀까요?`)) return;
+        const done = await runAction(() => {
+            const user = db.users[id];
+            if (!user) return { stop: "그 계정을 찾지 못했어요." };
+            user.password = newPw;
+            return { ok: `${id} · ${user.name} 의 비밀번호를 바꿨어요.\n새 비밀번호: ${newPw}` };
+        });
+        if (!done) return;
+        alert(done.ok);
+        document.getElementById('otherPwNew').value = '';
+    }
+
     const ADMIN_SECTION_RENDERERS = {
+        password: renderPasswordSection,
         main: renderAccessBar,
         notice: renderNotice,
         usage: renderUsageRequests,
