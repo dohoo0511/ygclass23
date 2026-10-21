@@ -63,9 +63,14 @@ function makeD1() {
             if (!made.has(table)) throw new Error(table + ' 표를 만들기 전에 접근했어요');
         } else if (!(made.has('state') && made.has('backups'))) throw new Error('표를 만들기 전에 접근했어요');
         if (/^SELECT value FROM settings/.test(sql)) {
-            return { first: self.settings.has('access') ? { value: self.settings.get('access') } : null };
+            const key = sql.match(/key = '(\w+)'/)[1];
+            return { first: self.settings.has(key) ? { value: self.settings.get(key) } : null };
         }
-        if (/^INSERT INTO settings/.test(sql)) { self.settings.set('access', args[0]); return { meta: { changes: 1 } }; }
+        if (/^INSERT INTO settings/.test(sql)) {
+            const key = sql.match(/VALUES \('(\w+)'/)[1];
+            self.settings.set(key, args[0]);
+            return { meta: { changes: 1 } };
+        }
 
         if (/^SELECT rev, record FROM state/.test(sql)) {
             const row = self.state ? { rev: self.state.rev, record: self.state.record } : null;
@@ -237,18 +242,18 @@ const check = (name, cond) => results.push([name, !!cond]);
 
     /* ── 저장: 판번호가 맞을 때만 ──
        (lastSave.build 는 화면 버전. 이게 없거나 낮으면 아래 '예전 화면 차단' 에서 거부된다) */
-    const good = { users: { admin: {}, '1': { pi: 6 } }, note: '새 내용', lastSave: { build: 29 } };
+    const good = { users: { admin: {}, '1': { pi: 6 } }, note: '새 내용', lastSave: { build: 30 } };
     r = await call('PUT', '', { baseRev: 10, record: good });
     check('판번호가 맞으면 저장됨', r.status === 200 && r.body.rev === 11);
     check('저장소에 반영되고 판번호가 올라감', storage.rev === 11 && storage.note === '새 내용');
 
     const before = JSON.stringify(storage);
-    r = await call('PUT', '', { baseRev: 10, record: { users: { admin: {} }, note: '오래된 화면', lastSave: { build: 29 } } });
+    r = await call('PUT', '', { baseRev: 10, record: { users: { admin: {} }, note: '오래된 화면', lastSave: { build: 30 } } });
     check('오래된 판번호로 저장하면 409', r.status === 409);
     check('409 일 때 저장소가 바뀌지 않음', JSON.stringify(storage) === before);
     check('409 가 최신 내용을 함께 돌려줌', r.body.rev === 11 && !!r.body.record);
 
-    r = await call('PUT', '', { baseRev: 11, record: { note: '학생 정보 없음', lastSave: { build: 29 } } });
+    r = await call('PUT', '', { baseRev: 11, record: { note: '학생 정보 없음', lastSave: { build: 30 } } });
     check('학생 정보 없는 저장은 400 으로 거부', r.status === 400);
     check('거부 후 저장소 그대로', JSON.stringify(storage) === before);
 
@@ -314,8 +319,8 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('빌드 번호가 아예 없으면 거부', r.status === 426 && r.body.gotBuild === null);
     check('그때도 저장소 그대로', JSON.stringify(storage) === keepStorage);
 
-    r = await call('PUT', '', { baseRev: 200, record: withBuild(29) });
-    check('현재 빌드(29)의 저장은 통과', r.status === 200 && storage.users['1'].pi === 2);
+    r = await call('PUT', '', { baseRev: 200, record: withBuild(30) });
+    check('현재 빌드(30)의 저장은 통과', r.status === 200 && storage.users['1'].pi === 2);
 
     storage = { rev: 300, users: { admin: {}, '1': { pi: 3 } } };
     r = await call('PUT', '', { baseRev: 300, record: withBuild(99) });
@@ -351,14 +356,14 @@ const check = (name, cond) => results.push([name, !!cond]);
     r = await call('GET', '?check=1');
     check('백업이 아직 없으면 그렇게 알려줌', r.body.backups.available === true && r.body.backups.count === 0);
 
-    r = await call('PUT', '', { baseRev: 100, record: { users: { admin: { password: 'pw!' }, '1': { pi: 11 } }, note: '첫 저장', lastSave: { build: 29 } } });
+    r = await call('PUT', '', { baseRev: 100, record: { users: { admin: { password: 'pw!' }, '1': { pi: 11 } }, note: '첫 저장', lastSave: { build: 30 } } });
     check('저장하면 자동으로 사본이 남음', r.status === 200 && KV.store.size === 2);
 
     r = await call('GET', '?check=1');
     check('백업 목록에 오늘 날짜가 있음', r.body.backups.count === 1 && /^\d{4}-\d{2}-\d{2}$/.test(r.body.backups.dates[0]));
 
     const kvSizeAfterFirst = KV.store.size;
-    r = await call('PUT', '', { baseRev: 101, record: { users: { admin: { password: 'pw!' }, '1': { pi: 12 } }, lastSave: { build: 29 } } });
+    r = await call('PUT', '', { baseRev: 101, record: { users: { admin: { password: 'pw!' }, '1': { pi: 12 } }, lastSave: { build: 30 } } });
     check('같은 날 또 저장해도 사본은 하나 (저장 횟수 아낌)', KV.store.size === kvSizeAfterFirst);
 
     // 백업에서 되돌리기
@@ -387,7 +392,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     const savedKV = KV;
     KV = null;
     storage = { rev: 900, users: { admin: {}, '1': { pi: 1 } } };
-    r = await call('PUT', '', { baseRev: 900, record: { users: { admin: {} }, note: 'KV 없음', lastSave: { build: 29 } } });
+    r = await call('PUT', '', { baseRev: 900, record: { users: { admin: {} }, note: 'KV 없음', lastSave: { build: 30 } } });
     check('백업이 꺼져 있어도 저장은 정상', r.status === 200 && storage.note === 'KV 없음');
     r = await call('GET', '?check=1');
     check('백업이 꺼져 있으면 설정 방법을 안내', r.body.backups.available === false && /D1/.test(r.body.backups.hint));
@@ -414,7 +419,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     const QUIET = makeD1();
     const QUIETENV = { get DB() { return QUIET.db; } };
     QUIET.hideChanges();
-    const qrec = (pi) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build: 29 } });
+    const qrec = (pi) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build: 30 } });
 
     r = await call('PUT', '', { baseRev: 0, record: qrec(1) }, QUIETENV);
     check('D1(조용): 진짜 저장됐으면 성공으로 답함', r.status === 200 && QUIET.record().users['1'].pi === 1);
@@ -436,7 +441,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('D1: 비어 있으면 빈 내용을 돌려줌', r.status === 200 && Object.keys(r.body.record).length === 0 && r.body.rev === 0);
     check('D1: 표를 알아서 만듦', D1.tablesMade === 2);
 
-    const rec = (pi, build = 29) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build } });
+    const rec = (pi, build = 30) => ({ users: { admin: { password: 'pw!' }, '1': { pi } }, lastSave: { build } });
 
     r = await call('PUT', '', { baseRev: 0, record: rec(10) }, D1ENV);
     check('D1: 첫 저장이 들어감', r.status === 200 && r.body.rev === 1 && D1.record().users['1'].pi === 10);
@@ -464,11 +469,11 @@ const check = (name, cond) => results.push([name, !!cond]);
 
     // 예전 화면 차단은 D1 에서도 그대로
     const beforeBuild = JSON.stringify(D1.state);
-    r = await call('PUT', '', { baseRev: 5, record: rec(1, 28) }, D1ENV);
-    check('D1: 예전 빌드는 426 으로 거부', r.status === 426 && r.body.needBuild === 29);
+    r = await call('PUT', '', { baseRev: 5, record: rec(1, 29) }, D1ENV);
+    check('D1: 예전 빌드는 426 으로 거부', r.status === 426 && r.body.needBuild === 30);
     check('D1: 그때도 저장소 그대로', JSON.stringify(D1.state) === beforeBuild);
 
-    r = await call('PUT', '', { baseRev: 5, record: { note: '학생 정보 없음', lastSave: { build: 29 } } }, D1ENV);
+    r = await call('PUT', '', { baseRev: 5, record: { note: '학생 정보 없음', lastSave: { build: 30 } } }, D1ENV);
     check('D1: 학생 정보 없는 저장은 거부', r.status === 400 && JSON.stringify(D1.state) === beforeBuild);
 
     /* ── D1 자동 백업 ── */
@@ -583,10 +588,10 @@ const check = (name, cond) => results.push([name, !!cond]);
             '30': { name: '박삼십', pi: p30, password: '30' }
         });
         const DEV = { 'X-Device-Id': 'dev-aaa', 'X-Account': '1', 'CF-Connecting-IP': '203.0.113.7', 'User-Agent': 'Mozilla/5.0 (iPhone)' };
-        await callA('PUT', '', { baseRev: 0, record: { users: users(100, 0), bank: { logs: [] }, lastSave: { build: 29 } } }, DEV);
+        await callA('PUT', '', { baseRev: 0, record: { users: users(100, 0), bank: { logs: [] }, lastSave: { build: 30 } } }, DEV);
         const before = A.audit.length;
         r = await callA('PUT', '', { baseRev: 1, record: {
-            users: users(80, 20), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, lastSave: { build: 29, by: '김일' }
+            users: users(80, 20), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, lastSave: { build: 30, by: '김일' }
         } }, DEV);
         check('기록: 송금 저장 성공', r.status === 200);
         const row = A.audit[A.audit.length - 1];
@@ -601,12 +606,12 @@ const check = (name, cond) => results.push([name, !!cond]);
 
         const n = A.audit.length;
         r = await callA('PUT', '', { baseRev: 2, record: {
-            users: users(80, 20), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, stocks: { tick: 5 }, lastSave: { build: 29 }
+            users: users(80, 20), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, stocks: { tick: 5 }, lastSave: { build: 30 }
         } }, DEV);
         check('기록: 돈이 안 움직인 저장(주가 등)은 안 남김', r.status === 200 && A.audit.length === n);
 
         r = await callA('PUT', '', { baseRev: 3, record: {
-            users: users(80, 20, 'secret-new'), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, lastSave: { build: 29 }
+            users: users(80, 20, 'secret-new'), bank: { logs: [{ id: 'L1', text: '김일 → 박삼십 20π 송금' }] }, lastSave: { build: 30 }
         } }, DEV);
         const pwRow = A.audit[A.audit.length - 1];
         check('기록: 비밀번호가 바뀌면 남김', JSON.parse(pwRow.detail).includes('1(김일) 비밀번호 바뀜'));
@@ -673,9 +678,9 @@ const check = (name, cond) => results.push([name, !!cond]);
         check('선생님만: 관리자라도 비밀번호 틀리면 막힘', r.status === 503 && /틀림/.test(G.audit[G.audit.length - 1].detail));
         r = await callG('GET', '', null, as('admin', '선생님비번'));
         check('선생님만: 관리자는 읽을 수 있음 (한글 비밀번호도)', r.status === 200 && r.body.record.users['1'].pi === 50);
-        r = await callG('PUT', '', { baseRev: 3, record: { users: { ...r.body.record.users, '1': { ...r.body.record.users['1'], pi: 0 } }, bank: { logs: [] }, lastSave: { build: 29 } } }, as('1', '1'));
+        r = await callG('PUT', '', { baseRev: 3, record: { users: { ...r.body.record.users, '1': { ...r.body.record.users['1'], pi: 0 } }, bank: { logs: [] }, lastSave: { build: 30 } } }, as('1', '1'));
         check('선생님만: 학생 저장은 막힘', r.status === 503 && G.record().users['1'].pi === 50);
-        r = await callG('PUT', '', { baseRev: 3, record: { users: { admin: { name: '관리자', role: 'admin', password: '선생님비번' }, '1': { name: '김일', role: 'student', pi: 70, password: '1' } }, bank: { logs: [] }, lastSave: { build: 29 } } }, as('admin', '선생님비번'));
+        r = await callG('PUT', '', { baseRev: 3, record: { users: { admin: { name: '관리자', role: 'admin', password: '선생님비번' }, '1': { name: '김일', role: 'student', pi: 70, password: '1' } }, bank: { logs: [] }, lastSave: { build: 30 } } }, as('admin', '선생님비번'));
         check('선생님만: 관리자 저장은 됨', r.status === 200 && G.record().users['1'].pi === 70);
         r = await callG('POST', '', { record: { users: { admin: { role: 'admin', password: 'x' } } }, password: '2323' });
         check('선생님만: 아이디 없는 되돌리기는 막힘', r.status === 503);
@@ -723,7 +728,7 @@ const check = (name, cond) => results.push([name, !!cond]);
         check('스위치: 켠 상태가 남음', r.body.access === 'open');
         r = await callS('GET', '', null, {});
         check('스위치: 켜면 학생도 읽을 수 있음', r.status === 200 && r.body.record.users['1'].pi === 5);
-        r = await callS('PUT', '', { baseRev: 2, record: { users: { ...r.body.record.users, '1': { ...r.body.record.users['1'], pi: 6 } }, lastSave: { build: 29 } } }, {});
+        r = await callS('PUT', '', { baseRev: 2, record: { users: { ...r.body.record.users, '1': { ...r.body.record.users['1'], pi: 6 } }, lastSave: { build: 30 } } }, {});
         check('스위치: 켜면 학생도 저장할 수 있음', r.status === 200 && S.record().users['1'].pi === 6);
         check('스위치: 저장 데이터에 스위치 값이 섞이지 않음 (학생이 저장으로 못 바꿈)', !('siteAccess' in S.record()) && S.settings.get('access') === 'open');
         r = await callS('POST', '?access=1', { mode: 'admin' }, as('admin', 'tpw'));
@@ -736,6 +741,56 @@ const check = (name, cond) => results.push([name, !!cond]);
         S.settings.set('access', '이상한값');
         r = await callS('GET', '', null, {});
         check('스위치: 이상한 값이면 기본값(선생님만)', r.status === 503);
+    }
+
+
+    /* ── 계정 정지: 학생 접속이 켜져 있어도 그 계정은 못 씀 ── */
+    {
+        const B = makeD1();
+        const BENV = { get DB() { return B.db; }, RECOVERY_PASSWORD: undefined };
+        B.setRaw(2, { rev: 2, users: {
+            admin: { name: '관리자', role: 'admin', password: 'tpw' },
+            m1: { name: '매니저', role: 'manager', password: 'mpw' },
+            '7': { name: '한진우', role: 'student', pi: 5, password: '7' },
+            '3': { name: '피해자', role: 'student', pi: 9, password: '3' }
+        } });
+        B.settings.set('access', 'open');
+        const fn = (await import('file://' + tmpAdmin)).onRequest;
+        const as = (id, pw) => ({ 'X-Login-Id': encodeURIComponent(id), 'X-Login-Key': encodeURIComponent(pw), 'X-Device-Id': 'dev-j' });
+        const callB = async (method, query, body, headers) => {
+            const res = await fn({ request: req(method, query, body, headers), env: BENV });
+            return { status: res.status, body: await res.json() };
+        };
+        r = await callB('POST', '?ban=1', { account: '7', banned: true }, as('7', '7'));
+        check('정지: 학생은 정지 못 함', r.status === 403 && !B.settings.has('banned'));
+        r = await callB('POST', '?ban=1', { account: '7', banned: true }, as('m1', 'mpw'));
+        check('정지: 매니저도 정지 못 함', r.status === 403);
+        r = await callB('GET', '?ban=1', null, as('7', '7'));
+        check('정지: 학생은 목록도 못 봄', r.status === 403);
+        r = await callB('POST', '?ban=1', { account: 'admin', banned: true }, as('admin', 'tpw'));
+        check('정지: 관리자 계정은 정지 못 함 (잠기면 아무도 못 품)', r.status === 400);
+        r = await callB('POST', '?ban=1', { account: '없는계정', banned: true }, as('admin', 'tpw'));
+        check('정지: 없는 계정은 거부', r.status === 400);
+        r = await callB('GET', '', null, as('7', '7'));
+        check('정지 전: 켜져 있으면 들어옴', r.status === 200);
+        r = await callB('POST', '?ban=1', { account: '7', banned: true, reason: '계정 도용' }, as('admin', 'tpw'));
+        check('정지: 관리자는 정지할 수 있음', r.status === 200 && r.body.banned.some(b => b.id === '7' && b.reason === '계정 도용'));
+        check('정지: 기록에 남음', B.audit.some(x => x.kind === 'ban' && /한진우/.test(x.detail) && /정지/.test(x.detail)));
+        r = await callB('GET', '', null, as('7', '7'));
+        check('정지: 학생 접속이 켜져 있어도 정지 계정은 못 읽음', r.status === 503 && r.body.banned === true && !r.body.record);
+        check('정지: 정지 안내 문구', /정지/.test(r.body.error));
+        check('정지: 접속 시도가 기록됨 (기기 포함)', B.audit.some(x => x.kind === 'login_blocked' && x.account === '7' && x.device === 'dev-j'));
+        r = await callB('PUT', '', { baseRev: 2, record: { users: { admin: { role: 'admin', password: 'tpw' }, '7': { pi: 999 } }, lastSave: { build: 30 } } }, { 'X-Account': '7' });
+        check('정지: 로그인한 채로 열어 둔 화면의 저장도 막힘', r.status === 503 && B.record().users['7'].pi === 5);
+        r = await callB('GET', '', null, as('3', '3'));
+        check('정지: 다른 학생은 그대로 씀', r.status === 200);
+        r = await callB('GET', '?ban=1', null, as('admin', 'tpw'));
+        check('정지: 관리자는 목록을 봄', r.status === 200 && r.body.banned.length === 1);
+        check('정지: 목록은 학급 기록과 따로 (저장으로 못 풂)', !JSON.stringify(B.record()).includes('banned'));
+        r = await callB('POST', '?ban=1', { account: '7', banned: false }, as('admin', 'tpw'));
+        check('정지: 해제할 수 있음', r.status === 200 && r.body.banned.length === 0);
+        r = await callB('GET', '', null, as('7', '7'));
+        check('정지: 해제하면 다시 들어옴', r.status === 200);
     }
 
     /* ── 사이트 닫기: 점검 말고는 아무것도 읽거나 쓸 수 없어야 함 ── */

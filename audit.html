@@ -32,6 +32,7 @@
     .k-login_fail { background: #ffebee; color: #b71c1c; }
     .k-login_blocked { background: #fff3e0; color: #e65100; }
     .k-access { background: #ede7f6; color: #311b92; }
+    .k-ban { background: #ffcdd2; color: #b71c1c; }
     .k-restore { background: #f3e5f5; color: #4a148c; }
     .suspect { background: #fff8e1; }
     .minus { color: #c62828; }
@@ -81,7 +82,7 @@
     let deviceNames = new Map();
     let deviceFilter = null;
 
-    const KIND_LABELS = { save: '저장', login: '로그인', login_fail: '로그인 실패', login_blocked: '막힌 로그인', access: '접속 설정', restore: '되돌리기' };
+    const KIND_LABELS = { save: '저장', login: '로그인', login_fail: '로그인 실패', login_blocked: '막힌 로그인', access: '접속 설정', ban: '계정 정지', restore: '되돌리기' };
 
     function esc(value) {
         return String(value == null ? '' : value)

@@ -574,7 +574,7 @@
                 <button class="menu-card" data-section="students" onclick="openAdminSection('students')"><span class="menu-emoji">📊</span>학생 현황</button>
                 <button class="menu-card" data-section="stock" onclick="openAdminSection('stock')"><span class="menu-emoji">📈</span>주식 관리</button>
                 <button class="menu-card" data-section="shop" onclick="openAdminSection('shop')"><span class="menu-emoji">🎫</span>쿠폰 가격</button>
-                <button class="menu-card" data-section="password" onclick="openAdminSection('password')"><span class="menu-emoji">🔒</span>비밀번호</button>
+                <button class="menu-card" data-section="password" onclick="openAdminSection('password')"><span class="menu-emoji">🔒</span>비밀번호 · 계정</button>
             </div>
         </div>
 
@@ -699,6 +699,15 @@
                     <input type="text" id="otherPwNew" placeholder="새 비밀번호" autocomplete="off">
                     <button onclick="setOtherPassword()" style="margin-top: 8px;">이 계정 비밀번호 바꾸기</button>
                 </div>
+
+                <h3 style="margin-top: 24px;">🚫 계정 정지</h3>
+                <p style="font-size:14px; color:#666; margin-top:0;">정지된 계정은 학생 접속이 켜져 있어도 로그인할 수 없어요. 해제하기 전까지 계속 정지돼요.</p>
+                <div style="display: flex; flex-direction: column; max-width: 280px; background: #FFEBEE; padding: 15px; border-radius: 16px;">
+                    <select id="banAccount"></select>
+                    <input type="text" id="banReason" placeholder="정지 이유 (선생님만 봐요)" autocomplete="off">
+                    <button onclick="banAccount()" style="margin-top: 8px; background:#e53935;">이 계정 정지하기</button>
+                </div>
+                <div id="bannedList" style="margin-top: 12px;"></div>
             </div>
         </div>
 
@@ -1465,9 +1474,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-10-20-manager-access';
+    const APP_VERSION = '2026-10-21-account-ban';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 29;
+    const APP_BUILD = 30;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -3113,17 +3122,81 @@
     /* --- 비밀번호 (관리자·매니저) ---
        학생 화면에만 있던 비밀번호 바꾸기를 관리자 화면에도 둔다.
        관리자는 다른 계정(학생·매니저)의 비밀번호도 새로 정할 수 있다 (도용된 계정 되찾기) */
+    function fillAccountSelect(selectId, ids) {
+        const select = document.getElementById(selectId);
+        const keep = select.value;
+        select.innerHTML = '<option value="">계정을 고르세요</option>' + ids.map(id =>
+            `<option value="${esc(id)}">${esc(id)} · ${esc(db.users[id].name || '')}${db.users[id].role === 'manager' ? ' (매니저)' : ''}</option>`).join('');
+        if (ids.includes(keep)) select.value = keep;
+    }
     function renderPasswordSection() {
         const isAdmin = (db.users[currentUser] || {}).role === 'admin';
         document.getElementById('otherPwBox').hidden = !isAdmin;
         if (!isAdmin) return;
-        const select = document.getElementById('otherPwAccount');
-        const keep = select.value;
         const ids = Object.keys(db.users).filter(id => id !== currentUser)
             .sort((a, b) => (Number(a) || 1e9) - (Number(b) || 1e9) || a.localeCompare(b));
-        select.innerHTML = '<option value="">계정을 고르세요</option>' + ids.map(id =>
-            `<option value="${esc(id)}">${esc(id)} · ${esc(db.users[id].name || '')}${db.users[id].role === 'manager' ? ' (매니저)' : ''}</option>`).join('');
-        if (ids.includes(keep)) select.value = keep;
+        fillAccountSelect('otherPwAccount', ids);
+        fillAccountSelect('banAccount', ids.filter(id => db.users[id].role !== 'admin'));
+        loadBannedList();
+    }
+
+    /* --- 계정 정지 (관리자만) ---
+       목록은 서버에 따로 있어서, 학생 화면이 저장으로 풀 수 없다 */
+    let bannedAccounts = [];
+    async function banRequest(init) {
+        const response = await fetch(DATA_ENDPOINT + '?ban=1', {
+            cache: 'no-store', ...init,
+            headers: { 'Content-Type': 'application/json', ...auditHeaders() }
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body) throw new Error((body && body.error) || `HTTP ${response.status}`);
+        return body;
+    }
+    function paintBannedList(errorText) {
+        const box = document.getElementById('bannedList');
+        if (errorText) { box.innerHTML = `<p style="color:#c62828;">정지 목록을 읽지 못했어요: ${esc(errorText)}</p>`; return; }
+        box.innerHTML = bannedAccounts.length === 0
+            ? '<p style="color:#888;">정지된 계정이 없어요.</p>'
+            : '<b>정지된 계정</b>' + bannedAccounts.map(b => {
+                const u = db.users[b.id];
+                return `<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #eee;">
+                    <span>🚫 ${esc(b.id)} · ${esc(u ? u.name : '')}<br><small style="color:#888;">${esc(fmtDate(b.at))}${b.reason ? ' · ' + esc(b.reason) : ''}</small></span>
+                    <button class="small-btn" data-unban="${esc(b.id)}">해제</button></div>`;
+            }).join('');
+        box.querySelectorAll('[data-unban]').forEach(btn => btn.addEventListener('click', () => unbanAccount(btn.dataset.unban)));
+    }
+    async function loadBannedList() {
+        try {
+            bannedAccounts = (await banRequest({ method: 'GET' })).banned || [];
+            paintBannedList();
+        } catch (error) {
+            paintBannedList(error.message);
+        }
+    }
+    async function banAccount() {
+        const id = document.getElementById('banAccount').value;
+        const reason = document.getElementById('banReason').value.trim();
+        if (!id) return alert("계정을 골라 주세요.");
+        const name = db.users[id] ? db.users[id].name : id;
+        if (!confirm(`${id} · ${name} 계정을 정지할까요?\n해제하기 전까지 이 계정으로는 로그인할 수 없어요.`)) return;
+        try {
+            bannedAccounts = (await banRequest({ method: 'POST', body: JSON.stringify({ account: id, banned: true, reason }) })).banned || [];
+            document.getElementById('banReason').value = '';
+            paintBannedList();
+            alert(`🚫 ${id} · ${name} 계정을 정지했어요.`);
+        } catch (error) {
+            alert('정지하지 못했어요: ' + error.message);
+        }
+    }
+    async function unbanAccount(id) {
+        const name = db.users[id] ? db.users[id].name : id;
+        if (!confirm(`${id} · ${name} 계정의 정지를 풀까요?`)) return;
+        try {
+            bannedAccounts = (await banRequest({ method: 'POST', body: JSON.stringify({ account: id, banned: false }) })).banned || [];
+            paintBannedList();
+        } catch (error) {
+            alert('해제하지 못했어요: ' + error.message);
+        }
     }
     async function changeStaffPassword() {
         const currentPw = document.getElementById('staffCurrentPw').value.trim();

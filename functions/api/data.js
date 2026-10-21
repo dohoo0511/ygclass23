@@ -21,7 +21,7 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 29;
+const MIN_CLIENT_BUILD = 30;
 
 // 사이트 문 열기.
 //   "open"  : 평소처럼 모두 사용
@@ -640,6 +640,74 @@ async function handleAccess(request, env) {
   return json({ ok: true, access: mode });
 }
 
+/* ===================== 계정 정지 =====================
+   정지된 계정은 학생 접속이 켜져 있어도 읽기·저장을 할 수 없다.
+   목록은 학급 기록이 아니라 settings 표에 따로 둔다 (학생 화면이 저장으로 풀 수 없게). */
+
+const BANNED_KEY = "banned";
+const BANNED_MESSAGE = "🚫 이 계정은 사용이 정지됐어요.\n선생님께 문의하세요.";
+
+async function bannedList(env) {
+  if (!hasD1(env)) return [];
+  try {
+    await ensureSettings(env);
+    const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'banned'").first();
+    const list = row && row.value ? JSON.parse(row.value) : [];
+    return Array.isArray(list) ? list.filter(b => b && typeof b.id === "string") : [];
+  } catch (error) {
+    console.error("정지 목록을 읽지 못함:", error);
+    return [];
+  }
+}
+
+async function saveBannedList(env, list) {
+  await ensureSettings(env);
+  await env.DB.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('banned', ?1, ?2)
+     ON CONFLICT(key) DO UPDATE SET value = ?1, updated_at = ?2`
+  ).bind(JSON.stringify(list), new Date().toISOString()).run();
+}
+
+// /api/data?ban=1  GET: 정지 목록 / POST {account, banned}: 정지·해제 (둘 다 관리자만)
+async function handleBan(request, env) {
+  if (!hasD1(env)) return json({ error: "D1 저장소가 있어야 쓸 수 있어요." }, 400);
+  let current;
+  try {
+    current = await readLatest(env);
+  } catch (error) {
+    return json({ error: error.message }, 502);
+  }
+  const gate = adminGate(request, current);
+  if (!gate.ok) return json({ error: "관리자만 쓸 수 있어요." }, 403);
+  if (request.method === "GET") return json({ banned: await bannedList(env) });
+  if (request.method !== "POST") return json({ error: "GET, POST 만 받을 수 있어요." }, 405);
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: "요청 형식이 올바르지 않아요." }, 400);
+  }
+  const account = clip(String((payload && payload.account) || ""), 30);
+  const users = current.users || {};
+  if (!account || !Object.prototype.hasOwnProperty.call(users, account)) return json({ error: "그 계정을 찾지 못했어요." }, 400);
+  if (users[account].role === "admin" || account === "admin") return json({ error: "관리자 계정은 정지할 수 없어요." }, 400);
+  const ban = !!(payload && payload.banned);
+  const list = (await bannedList(env)).filter(b => b.id !== account);
+  if (ban) list.push({ id: account, at: Date.now(), reason: clip(String((payload && payload.reason) || ""), 200) });
+  try {
+    await saveBannedList(env, list);
+  } catch (error) {
+    return json({ error: error.message }, 502);
+  }
+  const origin = requestOrigin(request);
+  await auditSafely(env, {
+    kind: "ban", account: gate.account, name: userLabel(users, gate.account),
+    ip: origin.ip, device: origin.device, ua: origin.ua,
+    detail: [`${userLabel(users, account)} ${ban ? "계정 정지" : "정지 해제"}`],
+  });
+  return json({ ok: true, banned: list });
+}
+
 /* ===================== 활동 기록 (누가, 어느 기기에서) =====================
    돈이 움직이거나 비밀번호가 바뀐 저장, 로그인 시도를 한 줄씩 남깁니다.
    - IP 와 브라우저 종류는 서버가 직접 보고 적으므로 화면에서 속일 수 없습니다.
@@ -937,6 +1005,22 @@ export async function onRequest({ request, env }) {
 
   // 문 상태 보기·바꾸기 (관리자 화면의 '학생 접속' 스위치)
   if (url.searchParams.has("access")) return handleAccess(request, env);
+
+  if (url.searchParams.has("ban")) return handleBan(request, env);
+
+  // 정지된 계정으로 들어온 요청은 학생 접속이 켜져 있어도 막는다
+  const loginId = clip(headerText(request, "X-Login-Id"), 30) || clip(request.headers.get("X-Account") || "", 30);
+  if (loginId) {
+    const banned = await bannedList(env);
+    if (banned.some(b => b.id === loginId)) {
+      const origin = requestOrigin(request);
+      await auditSafely(env, {
+        kind: "login_blocked", account: loginId, name: loginId, ip: origin.ip, device: origin.device, ua: origin.ua,
+        detail: ["정지된 계정으로 접속 시도"],
+      });
+      return json({ error: BANNED_MESSAGE, banned: true }, 503);
+    }
+  }
 
   const access = await siteAccess(env);
   if (access === "closed") {
