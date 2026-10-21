@@ -1474,9 +1474,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-10-21-account-ban';
+    const APP_VERSION = '2026-10-21-theft-restitution';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 30;
+    const APP_BUILD = 31;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1905,6 +1905,7 @@
             if (clearStuckAiFails(db.stocks)) changed = true;
             if (rescaleStockPrices(db)) changed = true;
             if (refundAllStocksOnce(db)) changed = true;
+            if (applyTheftRestitutionOnce(db)) changed = true;
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
             if (resetStockHistoryOnce(db.stocks)) changed = true;
@@ -4126,6 +4127,52 @@
             const refund = shares * perShare;
             user.pi = (user.pi || 0) + refund;
             notifyStudent(id, { k: 'grant', a: refund, x: `주식 ${shares}주 환불 (1주 ${perShare}π)` });
+        });
+        return true;
+    }
+
+    /* 10월 계정 도용 피해 복구 (한 번만).
+       10/16 백업과 10/21 22:44 백업을 대조해 확인된 것만 바로잡는다.
+       - 24번: 대출 취소 + 보상 10π 를 받았지만, 빼앗긴 자기 돈 9π 는 아직 → +9π
+       - 10번: 송금 2π 는 보상받았고, 랜덤상자로 날아간 35π 는 아직 → +35π
+       - 30번: 도용된 돈 21π (10번 2π + 24번 19π) 를 받음 → 회수
+       - 3번·7번: 10/10 00:00·00:01 에 도용으로 생긴 10π 대출 → 원금을 빼지 않고 취소
+         (대출금은 도용한 사람이 썼으므로 학생에게서 회수하지 않는다. 혹시 갚은 게 있으면 돌려준다) */
+    const THEFT_RESTITUTION_VERSION = 1;
+    const THEFT_ADJUSTMENTS = [
+        { id: '24', a: 9, x: '도용 피해 복구 (빼앗긴 돈)' },
+        { id: '10', a: 35, x: '도용 피해 복구 (랜덤상자)' },
+        { id: '30', a: -21, x: '도용으로 받은 돈 회수' }
+    ];
+    const THEFT_LOAN_WINDOW = { from: Date.UTC(2026, 9, 9, 15, 0), to: Date.UTC(2026, 9, 9, 15, 5) };  // 10/10 00:00~00:05 (한국 시간)
+    const THEFT_LOAN_STUDENTS = ['3', '7'];
+    function applyTheftRestitutionOnce(data) {
+        if (data.theftRestitution === THEFT_RESTITUTION_VERSION) return false;
+        // 우리 반 자료가 맞는지 확인: 10/16 23:37~23:40 에 생겼다가 취소된 24번 대출이 있어야 한다
+        // (새로 만든 자료나 다른 반 자료에는 손대지 않는다)
+        const loans = (data.bank && data.bank.loans) || [];
+        const evidence = loans.some(l => l && l.studentId === '24' && l.status === 'canceled'
+            && l.startAt >= Date.UTC(2026, 9, 16, 14, 37) && l.startAt < Date.UTC(2026, 9, 16, 14, 40));
+        data.theftRestitution = THEFT_RESTITUTION_VERSION;
+        if (!evidence) return false;
+        THEFT_ADJUSTMENTS.forEach(({ id, a, x }) => {
+            const user = data.users && data.users[id];
+            if (!user) return;
+            user.pi = (user.pi || 0) + a;
+            notifyStudent(id, { k: 'grant', a, x });
+            addBankLog('grant', `🛠️ ${user.name} ${x} ${signed(a)}π`, [id]);
+        });
+        loans.forEach(loan => {
+            if (!loan || loan.status !== 'active' || !THEFT_LOAN_STUDENTS.includes(loan.studentId)) return;
+            if (!(loan.startAt >= THEFT_LOAN_WINDOW.from && loan.startAt < THEFT_LOAN_WINDOW.to)) return;
+            const user = data.users[loan.studentId];
+            if (!user) return;
+            const refund = loan.paid || 0;
+            user.pi = (user.pi || 0) + refund;
+            loan.status = 'canceled';
+            loan.closedAt = Date.now();
+            addBankLog('loan', `❌ ${user.name} 도용으로 생긴 대출 취소 (원금 회수 없음${refund ? `, 갚은 ${refund}π 돌려줌` : ''})`, [loan.studentId]);
+            notifyStudent(loan.studentId, { k: 'bank', a: refund, x: '도용으로 생긴 대출이 취소됐어요' });
         });
         return true;
     }

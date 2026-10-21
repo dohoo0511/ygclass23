@@ -43,6 +43,15 @@
     </div>
 
     <div class="card">
+        <h3 style="margin-top:0;">관리자 로그인</h3>
+        <div class="sub">학생 접속이 꺼져 있을 때는 관리자 아이디와 비밀번호를 넣어야 백업을 보고 내려받을 수 있어요.</div>
+        <div class="actions">
+            <input type="text" id="loginId" placeholder="관리자 아이디" value="admin" autocomplete="username">
+            <input type="password" id="loginPw" placeholder="관리자 비밀번호" autocomplete="current-password">
+        </div>
+    </div>
+
+    <div class="card">
         <h3 style="margin-top:0;">자동 백업에서 되돌리기</h3>
         <div class="sub">서버가 하루 한 번 알아서 남겨 둔 사본입니다. <b>미리 해둘 일이 없습니다.</b><br>
             <b>내용 보기</b> 와 <b>내려받기</b> 는 아무것도 바꾸지 않습니다. 되돌리기 전에 먼저 확인해보세요.</div>
@@ -125,7 +134,15 @@
     const DATA_ENDPOINT = '/api/data';
 
     async function api(path, opts = {}) {
-        const res = await fetch(DATA_ENDPOINT + path, { ...opts, cache: 'no-store' });
+        // 학생 접속이 꺼진 동안은 서버가 요청마다 관리자 아이디·비밀번호를 확인한다 (한글도 실을 수 있게 인코딩)
+        const headers = { ...(opts.headers || {}) };
+        const loginId = $('loginId').value.trim();
+        const loginPw = $('loginPw').value;
+        if (loginId && loginPw) {
+            headers['X-Login-Id'] = encodeURIComponent(loginId);
+            headers['X-Login-Key'] = encodeURIComponent(loginPw);
+        }
+        const res = await fetch(DATA_ENDPOINT + path, { ...opts, headers, cache: 'no-store' });
         const body = await res.json().catch(() => null);
         if (res.status === 404) throw new Error('서버 기능(/api/data)이 배포되지 않았습니다. Cloudflare 배포를 확인해주세요.');
         if (!res.ok) throw new Error((body && body.error) || `HTTP ${res.status}`);

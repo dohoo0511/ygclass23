@@ -21,7 +21,7 @@ const JSONBIN = "https://api.jsonbin.io/v3/b";
 // 새 버전이 다시 고치는 일이 끝없이 반복됩니다 (그래프가 계속 1시간치에서 멈추던 원인).
 // 예전 버전의 저장을 아예 막아서, 모든 기기가 같은 버전으로 모이게 합니다.
 // 화면을 크게 바꿀 때만 올리세요. 올리면 예전 화면은 저장할 수 없고 스스로 새로고침합니다.
-const MIN_CLIENT_BUILD = 30;
+const MIN_CLIENT_BUILD = 31;
 
 // 사이트 문 열기.
 //   "open"  : 평소처럼 모두 사용
@@ -444,7 +444,7 @@ const DEFAULT_RECOVERY_PASSWORD = "2323";
    아무도 아무것도 누르지 않아도 최근 며칠치가 남아 있어, 날짜를 골라 되돌릴 수 있습니다.
    D1 이 있으면 D1 의 backups 표에, 없으면 예전처럼 KV(BACKUPS)에 남깁니다.
    예전에 KV 에 남겨 둔 사본도 그대로 목록에 나오고 되돌릴 수 있습니다. */
-const BACKUP_KEEP_DAYS = 14;
+const BACKUP_KEEP_DAYS = 45;
 const BACKUP_INDEX_KEY = "backup:index";
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 
