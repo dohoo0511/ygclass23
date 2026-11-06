@@ -72,7 +72,7 @@ eval(script + `
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, TOTAL: STOCK_MAX_HOLD_TOTAL,
             PER: STOCK_MAX_HOLD_PER_COMPANY, ORDER: STOCK_MAX_ORDER };
   app.load = () => loadData({ silent: true });
-  app.buyItem = buyItem; app.buyLotto = buyLotto; app.transfer = sendTransfer;
+  app.buyItem = buyItem; app.buyLotto = buyLotto; app.buyLottoAuto = buyLottoAuto; app.drawTicket = drawLottoTicket; app.transfer = sendTransfer;
   app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox;
   app.COUPONS = COUPONS; app.couponPriceFor = couponPriceFor;
   app.repay = repayLoan; app.loanInterest = loanInterest;
@@ -274,6 +274,87 @@ const check = (name, cond) => results.push([name, !!cond]);
         check(`로또: 보너스가 '${bad}' 면 사지 않음`, student().lottoTickets.length === 0);
     }
 
+    // ── 로또 자동 구매 ──
+    {
+        const okTicket = t => t && Array.isArray(t.n) && t.n.length === 5 && new Set(t.n).size === 5
+            && t.n.every(n => Number.isInteger(n) && n >= 1 && n <= 25) && t.n.every((n, i) => i === 0 || t.n[i - 1] < n)
+            && Number.isInteger(t.b) && t.b >= 1 && t.b <= 10;
+
+        // 뽑기 도우미: 항상 올바른 표가 나오고, 이미 가진 표와는 겹치지 않는다
+        let allOk = true;
+        for (let i = 0; i < 300; i++) allOk = allOk && okTicket(app.drawTicket([]));
+        check('자동 로또: 뽑은 표는 번호 5개(오름차순·중복 없음)와 보너스가 올바르다', allOk);
+        const seen = [];
+        for (let i = 0; i < 200; i++) seen.push(app.drawTicket(seen));
+        check('자동 로또: 이미 가진 표와 똑같은 조합은 뽑지 않는다', new Set(seen.map(t => t.n.join(',') + '|' + t.b)).size === 200);
+
+        // 한 장
+        server = freshServer(20, 500);
+        alerts = []; setInputs({ lottoAutoCount: 1 });
+        await openScreen();
+        beforeNextSave = () => { server.rev += 1; };
+        await app.buyLottoAuto();
+        beforeNextSave = null;
+        check('자동 로또: 한 장 사면 표가 하나 생긴다', student().lottoTickets.length === 1 && okTicket(student().lottoTickets[0]));
+        check('자동 로또: 겹쳐도 파이가 정확히 빠진다', student().pi === 500 - 4);
+        check('자동 로또: 겹쳐도 당첨금이 쌓이고 경험치가 오른다', server.lotto.currentPot >= 4 && student().exp === 4);
+        check('자동 로또: 산 번호를 알려준다', alerts.some(m => /자동으로 1장/.test(m) && /보너스/.test(m)));
+
+        // 여러 장
+        server = freshServer(20, 500);
+        alerts = []; setInputs({ lottoAutoCount: 5 });
+        await openScreen();
+        await app.buyLottoAuto();
+        const t5 = student().lottoTickets;
+        check('자동 로또: 5장을 사면 표가 5장', t5.length === 5 && t5.every(okTicket));
+        check('자동 로또: 5장 값이 정확히 빠진다', student().pi === 500 - 20);
+        check('자동 로또: 5장의 경험치와 당첨금', student().exp === 20 && server.lotto.currentPot === (freshServer().lotto.currentPot || 0) + 20);
+        check('자동 로또: 같은 표가 두 장 생기지 않는다', new Set(t5.map(t => t.n.join(',') + '|' + t.b)).size === 5);
+        check('자동 로또: 산 번호를 모두 알려준다', (alerts.find(m => /5장/.test(m)) || '').split('\n').filter(l => /보너스/.test(l)).length === 5);
+
+        // 확인창에서 취소하면 사지 않는다
+        server = freshServer(20, 500);
+        alerts = []; setInputs({ lottoAutoCount: 3 });
+        await openScreen();
+        const realConfirm = global.confirm;
+        global.confirm = () => false;
+        await app.buyLottoAuto();
+        global.confirm = realConfirm;
+        check('자동 로또: 여러 장은 확인창에서 취소하면 사지 않는다', student().lottoTickets.length === 0 && student().pi === 500);
+
+        // 장 수가 이상하면 사지 않는다
+        for (const bad of ['', 0, -1, 16, 'x', 1.5]) {
+            server = freshServer(20, 500);
+            alerts = []; setInputs({ lottoAutoCount: bad });
+            await openScreen();
+            await app.buyLottoAuto();
+            check(`자동 로또: 장 수가 '${bad}' 면 사지 않음`, student().lottoTickets.length === 0 && student().pi === 500 && alerts.length > 0);
+        }
+
+        // 파이가 모자라면 하나도 사지 않는다 (4π 짜리 3장 = 12π, 가진 건 11π)
+        server = freshServer(20, 11);
+        alerts = []; setInputs({ lottoAutoCount: 3 });
+        await openScreen();
+        await app.buyLottoAuto();
+        check('자동 로또: 파이가 모자라면 한 장도 사지 않는다', student().lottoTickets.length === 0 && student().pi === 11);
+        check('자동 로또: 모자란다고 알려준다', alerts.some(m => /파이가 부족/.test(m)));
+
+        // 주간 한도: 13장을 가진 상태에서 3장은 못 사고, 2장은 산다
+        server = freshServer(20, 500);
+        server.users['7'].lottoTickets = Array.from({ length: 13 }, (_, i) => ({ n: [1, 2, 3, 4, 5 + (i % 20)], b: 1 + (i % 10) }));
+        alerts = []; setInputs({ lottoAutoCount: 3 });
+        await openScreen();
+        await app.buyLottoAuto();
+        check('자동 로또: 한도를 넘기는 주문은 한 장도 사지 않는다', student().lottoTickets.length === 13 && student().pi === 500);
+        check('자동 로또: 남은 장 수를 알려준다', alerts.some(m => /2장만 더/.test(m)));
+        alerts = []; setInputs({ lottoAutoCount: 2 });
+        await app.buyLottoAuto();
+        check('자동 로또: 남은 장 수만큼은 산다', student().lottoTickets.length === 15 && student().pi === 500 - 8);
+        alerts = []; setInputs({ lottoAutoCount: 1 });
+        await app.buyLottoAuto();
+        check('자동 로또: 한도가 차면 더 못 산다', student().lottoTickets.length === 15 && alerts.some(m => /한도/.test(m)));
+    }
+
     // ── 대출 ──
     server = freshServer(20, 500);
     alerts = []; setInputs({ loanAmountInput: 10 });   // 브론즈 등급 한도
@@ -401,6 +482,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     };
     await tryLocked('쿠폰 구매', () => setInputs({}), () => app.buyItem(0));
     await tryLocked('로또 구매', () => setInputs({ lottoNumbersInput: '1,2,3,4,5', lottoBonusInput: 3 }), () => app.buyLotto());
+    await tryLocked('로또 자동 구매', () => setInputs({ lottoAutoCount: 1 }), () => app.buyLottoAuto());
     await tryLocked('랜덤상자', () => setInputs({}), () => app.box());
     await tryLocked('주식 사기', () => setOrderQty(1), () => app.buy(CO));
     await tryLocked('적금 가입', () => setInputs({ savingsAmountInput: 50, savingsTermSelect: 2 }), () => app.openSavings(),

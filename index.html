@@ -431,6 +431,11 @@
             <input type="text" id="lottoNumbersInput" placeholder="예: 3, 9, 14, 20, 24" style="width: 250px;">
             <input type="number" id="lottoBonusInput" min="1" max="10" placeholder="보너스" style="width: 90px;">
             <button onclick="buyLotto()">구매하기</button>
+            <div style="margin-top: 14px; padding: 12px 14px; background: #fff3e0; border-radius: 14px;">
+                <b>🎲 자동 선택</b> <span style="font-size: 14px; color: #555;">번호와 보너스를 컴퓨터가 알아서 골라 줘요.</span><br>
+                <input type="number" id="lottoAutoCount" min="1" max="15" value="1" style="width: 70px; margin-top: 8px;"> 장
+                <button onclick="buyLottoAuto()">자동으로 구매하기</button>
+            </div>
             <div id="myLottoList" style="margin-top: 15px; background: #FFF8F0; padding: 15px; border-radius: 16px; font-size: 14px; box-shadow: inset 0 2px 6px rgba(230,81,0,0.06);"></div>
         </div>
 
@@ -1474,7 +1479,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-10-22-theft-restitution-3';
+    const APP_VERSION = '2026-11-06-lotto-auto';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 33;
 
@@ -2438,16 +2443,10 @@
                 user.pi += reward.amount;
                 resultText = `${reward.name} 획득!`;
             } else if (reward.type === 'lotto') {
-                const numbers = [];
-                while (numbers.length < 5) {
-                    const n = Math.floor(Math.random() * LOTTO_NUMBER_MAX) + 1;
-                    if (!numbers.includes(n)) numbers.push(n);
-                }
-                numbers.sort((a, b) => a - b);
-                const bonus = Math.floor(Math.random() * LOTTO_BONUS_MAX) + 1;
-                user.lottoTickets.push({ n: numbers, b: bonus });
+                const ticket = drawLottoTicket(user.lottoTickets);
+                user.lottoTickets.push(ticket);
                 db.lotto.currentPot += LOTTO_TICKET_PRICE;
-                resultText = `로또 1장 획득! (번호: ${numbers.join(', ')} + 보너스 ${bonus})`;
+                resultText = `로또 1장 획득! (번호: ${ticket.n.join(', ')} + 보너스 ${ticket.b})`;
             } else {
                 user.inventory.push(reward.name);
                 resultText = `${reward.name} 획득!`;
@@ -2501,6 +2500,24 @@
     }
 
     /* ===================== 학생: 로또 ===================== */
+    // 번호 5개(작은 수부터)와 보너스 1개를 무작위로 뽑는다. 이미 가진 표와 똑같은 조합은 피한다.
+    // 랜덤상자에서 나오는 로또와 '자동으로 구매하기' 가 함께 쓴다
+    function drawLottoTicket(owned = []) {
+        const taken = new Set(owned.map(ticketKey));
+        let ticket;
+        for (let attempt = 0; attempt < 50; attempt++) {
+            const numbers = [];
+            while (numbers.length < 5) {
+                const n = Math.floor(Math.random() * LOTTO_NUMBER_MAX) + 1;
+                if (!numbers.includes(n)) numbers.push(n);
+            }
+            numbers.sort((a, b) => a - b);
+            ticket = { n: numbers, b: Math.floor(Math.random() * LOTTO_BONUS_MAX) + 1 };
+            if (!taken.has(ticketKey(ticket))) break;
+        }
+        return ticket;
+    }
+
     function renderLottoSection() {
         document.getElementById('lottoPriceLabel').innerHTML = priceHtml(LOTTO_TICKET_PRICE, lottoPriceFor(currentUser));
         renderLottoRewardInfo();
@@ -2544,6 +2561,50 @@
         alert(done.ok);
         document.getElementById('lottoNumbersInput').value = '';
         document.getElementById('lottoBonusInput').value = '';
+        renderStudentSection();
+    }
+
+    // 번호를 컴퓨터가 골라서 사 준다. 여러 장이면 전부 사거나 하나도 사지 않는다 (한도·파이가 모자라면 아무것도 사지 않음)
+    async function buyLottoAuto() {
+        if (blockedByOverdue()) return;
+        // 1.5 같은 소수나 빈칸을 한 장으로 어림해서 사지 않도록, 정수가 아니면 그대로 돌려보낸다
+        const raw = String(document.getElementById('lottoAutoCount').value).trim();
+        const count = raw === '' ? NaN : Number(raw);
+        if (!Number.isInteger(count) || count < 1 || count > LOTTO_WEEKLY_LIMIT) {
+            alert(`자동으로 살 장 수는 1부터 ${LOTTO_WEEKLY_LIMIT} 사이의 숫자로 정해주세요.`);
+            return;
+        }
+        const unit = lottoPriceFor(currentUser);
+        if (count > 1 && !confirm(`번호를 자동으로 골라 ${count}장을 살까요?\n${count}장 × ${unit}π = ${count * unit}π`)) return;
+
+        const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
+            const user = db.users[currentUser];
+            const price = lottoPriceFor(currentUser);
+            const room = LOTTO_WEEKLY_LIMIT - user.lottoTickets.length;
+            if (room <= 0) return { stop: `주간 구매 한도(${LOTTO_WEEKLY_LIMIT}장)를 초과했습니다.` };
+            if (count > room) return { stop: `이번 주에는 ${room}장만 더 살 수 있어요. (주 최대 ${LOTTO_WEEKLY_LIMIT}장)` };
+            if (user.pi < price * count) {
+                return { stop: `파이가 부족해요. (${count}장 = ${price * count}π, 지금 ${user.pi}π)` };
+            }
+
+            const bought = [];
+            let promoted = null;
+            for (let i = 0; i < count; i++) {
+                const ticket = drawLottoTicket(user.lottoTickets);
+                user.pi -= price;
+                db.lotto.currentPot += LOTTO_TICKET_PRICE;
+                user.lottoTickets.push(ticket);
+                promoted = addExp(currentUser, LOTTO_TICKET_PRICE, '로또 구매') || promoted;
+                bought.push(ticket);
+            }
+            const lines = bought.map(t => `${t.n.join(', ')} + 보너스 ${t.b}`).join('\n');
+            return { ok: `🎲 자동으로 ${count}장을 샀어요! (${price * count}π · 경험치 +${LOTTO_TICKET_PRICE * count})\n\n${lines}` + promotionText(promoted) };
+        });
+        if (!done) return;
+        alert(done.ok);
+        document.getElementById('lottoAutoCount').value = 1;
         renderStudentSection();
     }
 
