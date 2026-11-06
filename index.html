@@ -844,8 +844,7 @@
         { name: '3일 자리 선택권',  price: 25 },
         { name: '청소 면제권',      price: 10 },
         { name: '반장 간식 갈취권', price: 7 },
-        { name: '간식 교환권',      price: 5 },
-        { name: '음악 우선 신청권', price: 3 }
+        { name: '간식 교환권',      price: 5 }
     ];
 
     /* ===================== 설정: 파이 지급 / 차감 사유 ===================== */
@@ -881,7 +880,7 @@
         { key: 'silver',  name: '실버',     icon: '🥈', minExp: 30,  loanLimit: 20, benefit: '' },
         { key: 'gold',    name: '골드',     icon: '🥇', minExp: 80,  loanLimit: 30, benefit: '' },
         { key: 'diamond', name: '다이아',   icon: '💎', minExp: 180, loanLimit: 50, benefit: '모든 쿠폰 1π 할인' },
-        { key: 'emerald', name: '에메랄드', icon: '💚', minExp: 350, loanLimit: 80, benefit: '음악 우선 신청권 1π · 나머지 쿠폰 2π 할인, 랜덤상자 · 로또 1π 할인' }
+        { key: 'emerald', name: '에메랄드', icon: '💚', minExp: 350, loanLimit: 80, benefit: '쿠폰 2π 할인, 랜덤상자 · 로또 1π 할인' }
     ];
     const DIAMOND_INDEX = 3;
     const EMERALD_INDEX = 4;
@@ -914,7 +913,7 @@
 
     /* ===================== 설정: 랜덤상자 ===================== */
     const RANDOM_BOX_PRICE = 3;
-    // 가중치 합계 100 = 확률(%). 꽝·1파이·2파이·음악 우선 신청권 합계 70, 나머지 합계 30
+    // 꽝·1파이·2파이는 확률이 고정이고, 나머지는 값어치에 따라 남은 몫을 나눠 가진다 (아래 설명 참고)
     // 실질 가치(파이 금액 또는 상점 판매가)가 클수록 확률이 낮아지도록 설계
     /* 상자 확률은 표에 적어 두지 않고, 보상의 '값어치' 에서 그때그때 계산한다 (boxOdds).
        쿠폰의 값어치는 관리자가 상점에서 정한 '지금 가격' 이다.
@@ -922,12 +921,15 @@
 
        share 가 적힌 것(꽝·1파이·2파이)은 확률이 고정이다. 값이 싸서 어차피 자주 나와야 하고,
        이 셋이 '파이가 새로 생기는 양' 을 거의 결정하기 때문에 손으로 잡아 둔다.
-       나머지는 남은 몫(20%)을 값어치에 따라 나눠 갖는다. */
+       나머지는 남은 몫(13%)을 값어치에 따라 나눠 갖는다.
+
+       음악 우선 신청권을 없애면서 꽝을 33% → 40% 로 올렸다. 가장 싼 쿠폰이 가져가던 몫(약 9%)이
+       다른 상품으로 흘러 들어가면 상자가 파이를 더 만들어 내기 때문이다 (현금 창출 0.92π → 1.11π).
+       꽝을 올려서 기대값 1.51π · 현금 0.96π 로 예전 수준에 맞췄다. */
     const RANDOM_BOX_REWARDS = [
-        { name: '꽝',              share: 0.33,  tier: 'none',      type: 'none' },
+        { name: '꽝',              share: 0.40,  tier: 'none',      type: 'none' },
         { name: '1파이',           share: 0.26,  tier: 'common',    type: 'pi',   amount: 1 },
         { name: '2파이',           share: 0.21,  tier: 'common',    type: 'pi',   amount: 2 },
-        { name: '음악 우선 신청권',                tier: 'common',    type: 'item' },
         { name: '로또 1장',                       tier: 'common',    type: 'lotto' },
         { name: '간식 교환권',                     tier: 'common',    type: 'item' },
         { name: '6파이',                          tier: 'rare',      type: 'pi',   amount: 6 },
@@ -1202,7 +1204,7 @@
     function couponPriceFor(userId, coupon) {
         const idx = gradeIndexOf(db.users[userId].exp);
         let discount = 0;
-        if (idx >= EMERALD_INDEX) discount = coupon.name === '음악 우선 신청권' ? 1 : 2;
+        if (idx >= EMERALD_INDEX) discount = 2;
         else if (idx >= DIAMOND_INDEX) discount = 1;
         return Math.max(0, couponBasePrice(coupon) - discount);
     }
@@ -1479,9 +1481,9 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-11-06-lotto-auto';
+    const APP_VERSION = '2026-11-06-no-music-coupon';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
-    const APP_BUILD = 33;
+    const APP_BUILD = 34;
 
     let dataLoadedAt = 0;   // 마지막으로 읽기에 성공한 시각 (0이면 한 번도 성공하지 못함 → 저장 금지)
     let loadedRev = null;   // 그때 서버에 있던 판번호. 저장할 때마다 1씩 올라감
@@ -1911,6 +1913,7 @@
             if (rescaleStockPrices(db)) changed = true;
             if (refundAllStocksOnce(db)) changed = true;
             if (applyTheftRestitutionOnce(db)) changed = true;
+            if (removeMusicCouponOnce(db)) changed = true;
             if (migrateStockTicks(db.stocks)) changed = true;
             if (migrateStockTickSize(db.stocks)) changed = true;
             if (resetStockHistoryOnce(db.stocks)) changed = true;
@@ -4189,6 +4192,50 @@
             user.pi = (user.pi || 0) + refund;
             notifyStudent(id, { k: 'grant', a: refund, x: `주식 ${shares}주 환불 (1주 ${perShare}π)` });
         });
+        return true;
+    }
+
+    /* 음악 우선 신청권을 없앴다. 가진 것은 한 번만 모두 환불한다.
+       - 환불 값: 상점에 걸려 있던 기본 가격 (관리자가 바꿔 둔 값이 있으면 그 값, 없으면 3π). 등급 할인은 넣지 않는다
+       - 선생님 확인을 기다리던 사용 요청도 취소하고 같은 값으로 환불한다 (이미 쿠폰을 내놓은 상태라서)
+       - 은행 알림은 한 줄만 남긴다 (학생마다 남기면 80개짜리 알림이 한꺼번에 밀려난다) */
+    const MUSIC_COUPON_NAME = '음악 우선 신청권';
+    const MUSIC_COUPON_DEFAULT_PRICE = 3;
+    const MUSIC_COUPON_REMOVED_VERSION = 1;
+    function removeMusicCouponOnce(data) {
+        if (data.musicCouponRemoved === MUSIC_COUPON_REMOVED_VERSION) return false;
+        data.musicCouponRemoved = MUSIC_COUPON_REMOVED_VERSION;
+        const saved = data.couponPrices && data.couponPrices[MUSIC_COUPON_NAME];
+        const price = Number.isInteger(saved) && saved >= 0 ? saved : MUSIC_COUPON_DEFAULT_PRICE;
+        if (data.couponPrices) delete data.couponPrices[MUSIC_COUPON_NAME];
+
+        const owed = {};   // 학생 번호 → { qty, pending }
+        const add = (id, key) => { (owed[id] = owed[id] || { qty: 0, pending: 0 })[key] += 1; };
+        Object.keys(data.users || {}).forEach(id => {
+            const user = data.users[id];
+            if (!user || !Array.isArray(user.inventory)) return;
+            const kept = user.inventory.filter(name => name !== MUSIC_COUPON_NAME);
+            for (let i = 0; i < user.inventory.length - kept.length; i++) add(id, 'qty');
+            user.inventory = kept;
+        });
+        (data.usageRequests || []).forEach(req => {
+            if (!req || req.item !== MUSIC_COUPON_NAME || req.status !== 'pending') return;
+            req.status = 'canceled';
+            req.canceledAt = new Date().toISOString();
+            add(req.studentId, 'pending');
+        });
+
+        let students = 0, total = 0;
+        Object.keys(owed).forEach(id => {
+            const user = data.users && data.users[id];
+            if (!user) return;
+            const count = owed[id].qty + owed[id].pending;
+            const refund = count * price;
+            students += 1; total += refund;
+            if (refund > 0) user.pi = (user.pi || 0) + refund;
+            notifyStudent(id, { k: 'grant', a: refund, x: `음악 우선 신청권 ${count}장 환불 (1장 ${price}π)` });
+        });
+        if (students > 0) addBankLog('grant', `🎵 음악 우선 신청권 폐지 → ${students}명에게 총 ${total}π 환불 (1장 ${price}π)`, Object.keys(owed));
         return true;
     }
 

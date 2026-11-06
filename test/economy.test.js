@@ -40,7 +40,7 @@ eval(script + `
   app.OVERDUE = LOAN_OVERDUE_EXP_PENALTY;
   app.REASONS = NEWS_REASONS;
   app.rescale = rescaleStockPrices; app.refundAll = refundAllStocksOnce; app.PER_SHARE = STOCK_REFUND_PER_SHARE; app.SCALE = STOCK_PRICE_SCALE_VERSION;
-  app.clearStuck = clearStuckAiFails; app.AI_RESET = AI_FAILS_RESET_VERSION;
+  app.removeMusic = removeMusicCouponOnce; app.getDb = () => db; app.clearStuck = clearStuckAiFails; app.AI_RESET = AI_FAILS_RESET_VERSION;
   app.taxPeriodOf = taxPeriodOf; app.taxFor = taxFor; app.taxableAssets = taxableAssets; app.taxBrackets = taxBrackets;
   app.TAX = { DAYS: TAX_PERIOD_DAYS, WIDTH: TAX_BRACKET_WIDTH, STEP: TAX_STEP_PCT, MAX: TAX_MAX_PCT };
   app.matchCount = lottoMatchCount; app.ticketNums = ticketNumbers; app.ticketBonus = ticketBonus;
@@ -1101,6 +1101,55 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
         listed.every(x => app.COUPONS[x.idx] === x.coupon));
     check('빠지거나 겹치는 쿠폰 없음',
         listed.length === app.COUPONS.length && new Set(listed.map(x => x.idx)).size === app.COUPONS.length);
+
+    /* ── 음악 우선 신청권 폐지 ── */
+    check('음악 우선 신청권이 상점에서 사라짐', !app.COUPONS.some(c => c.name === '음악 우선 신청권'));
+    check('음악 우선 신청권이 상자 보상에서 사라짐', !app.boxOdds().some(o => o.reward.name === '음악 우선 신청권'));
+    check(`상자 확률 합계는 여전히 100% — ${(app.boxOdds().reduce((a, o) => a + o.p, 0) * 100).toFixed(3)}%`,
+        Math.abs(app.boxOdds().reduce((a, o) => a + o.p, 0) - 1) < 1e-9);
+    {
+        const mk = (inv, pi = 5) => ({ name: 'x', role: 'student', password: '1', pi, exp: 0, inventory: inv, lottoTickets: [], stocks: {}, notices: [] });
+        const data = {
+            users: {
+                admin: { name: '관리자', role: 'admin', pi: 0, inventory: [] },
+                '1': mk(['음악 우선 신청권', '간식 교환권', '음악 우선 신청권', '음악 우선 신청권']),
+                '2': mk(['간식 교환권']),
+                '3': mk(['음악 우선 신청권'], 0),
+                '4': mk([])
+            },
+            usageRequests: [
+                { id: 'a', studentId: '4', item: '음악 우선 신청권', status: 'pending' },
+                { id: 'b', studentId: '4', item: '청소 면제권', status: 'pending' },
+                { id: 'c', studentId: '3', item: '음악 우선 신청권', status: 'completed' }
+            ],
+            couponPrices: { '간식 교환권': 15, '음악 우선 신청권': 3 },
+            bank: { loans: [], savings: [], logs: [] }
+        };
+        app.setDb(data);
+        check('음악권 환불: 처음엔 적용됨', app.removeMusic(data) === true);
+        check('음악권 환불: 3장 가진 학생은 3장 × 3π = 9π 받음', data.users['1'].pi === 5 + 9);
+        check('음악권 환불: 다른 쿠폰은 그대로', JSON.stringify(data.users['1'].inventory) === JSON.stringify(['간식 교환권']));
+        check('음악권 환불: 한 장 가진 학생(파이 0)은 3π', data.users['3'].pi === 3 && data.users['3'].inventory.length === 0);
+        check('음악권 환불: 없는 학생은 그대로', data.users['2'].pi === 5 && data.users['2'].notices.length === 0);
+        check('음악권 환불: 기다리던 사용 요청은 취소하고 환불', data.usageRequests[0].status === 'canceled' && data.users['4'].pi === 5 + 3);
+        check('음악권 환불: 다른 쿠폰 요청과 끝난 요청은 건드리지 않음', data.usageRequests[1].status === 'pending' && data.usageRequests[2].status === 'completed' && data.users['3'].pi === 3);
+        check('음악권 환불: 알림에 장 수와 값이 적힘', /3장 환불/.test(data.users['1'].notices[0].x) && data.users['1'].notices[0].a === 9);
+        check('음악권 환불: 상점 가격 기록에서도 지움', !('음악 우선 신청권' in data.couponPrices) && data.couponPrices['간식 교환권'] === 15);
+        check('음악권 환불: 은행 알림은 한 줄만 (알림이 밀려나지 않게)', data.bank.logs.length === 1 && /3명에게 총 15π/.test(data.bank.logs[0].text));
+        const snapshot = JSON.stringify(data);
+        check('음악권 환불: 두 번째는 아무것도 하지 않음', app.removeMusic(data) === false && JSON.stringify(data) === snapshot);
+
+        // 관리자가 가격을 바꿔 둔 경우에는 그 값으로 환불
+        const d2 = { users: { '1': mk(['음악 우선 신청권', '음악 우선 신청권'], 0) }, usageRequests: [], couponPrices: { '음악 우선 신청권': 5 }, bank: { logs: [] } };
+        app.setDb(d2);
+        app.removeMusic(d2);
+        check('음악권 환불: 가격을 바꿔 뒀으면 그 값으로 (2장 × 5π)', d2.users['1'].pi === 10);
+
+        // 쓸모없는 자료에도 멈추지 않음
+        const d3 = { users: { '1': { name: 'x', role: 'student', pi: 1 } }, bank: {} };
+        app.setDb(d3);
+        check('음악권 환불: 쿠폰 칸이 없는 계정이 있어도 멈추지 않음', app.removeMusic(d3) === true && d3.users['1'].pi === 1);
+    }
 
     // 터무니없는 값이 저장돼 있어도 버텨야 함
     [-5, 1.5, '20', null, NaN].forEach(bad => {
