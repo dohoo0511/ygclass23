@@ -73,7 +73,7 @@ eval(script + `
             PER: STOCK_MAX_HOLD_PER_COMPANY, ORDER: STOCK_MAX_ORDER };
   app.load = () => loadData({ silent: true });
   app.buyItem = buyItem; app.buyLotto = buyLotto; app.buyLottoAuto = buyLottoAuto; app.drawTicket = drawLottoTicket; app.transfer = sendTransfer;
-  app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox;
+  app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox; app.box5 = buyRandomBox5; app.MULTI = RANDOM_BOX_MULTI; app.BOXPRICE = RANDOM_BOX_PRICE;
   app.COUPONS = COUPONS; app.couponPriceFor = couponPriceFor;
   app.repay = repayLoan; app.loanInterest = loanInterest;
   app.cancelSavings = cancelSavingsByStudent; app.open = openStudentSection; app.section = () => currentStudentSection;
@@ -406,6 +406,81 @@ const check = (name, cond) => results.push([name, !!cond]);
     check('랜덤상자 로또도 번호 5개',
         boxTickets.every(t => Array.isArray(t.n) && new Set(t.n).size === 5));
 
+    // ── 랜덤상자 5개 한 번에 열기 ──
+    {
+        // 상자 하나가 나눠 주는 것: 파이·쿠폰·로또 중 하나 또는 꽝. 5개를 열면 낸 돈과 받은 것이 정확히 맞아야 한다
+        const gained = u0 => {
+            const u = student();
+            return { pi: u.pi - u0.pi, items: u.inventory.length - u0.inventory.length, lotto: u.lottoTickets.length - u0.lottoTickets.length };
+        };
+        let allBalanced = true, sawFive = true;
+        for (let round = 0; round < 40; round++) {
+            server = freshServer(20, 500);
+            alerts = []; setInputs({});
+            await openScreen();
+            const before = JSON.parse(JSON.stringify(server.users['7']));
+            const potBefore = server.lotto.currentPot;
+            await app.box5();
+            const g = gained(before);
+            const opened = g.items + g.lotto + (student().pi !== before.pi ? 1 : 0);
+            // 5 × 3π 를 냈다. 받은 파이는 0 이상이고, 로또가 나오면 당첨금도 그만큼 쌓인다
+            const piBack = g.pi + app.MULTI * app.BOXPRICE;
+            if (piBack < 0 || g.items + g.lotto > app.MULTI) allBalanced = false;
+            if (server.lotto.currentPot - potBefore !== g.lotto * 4) allBalanced = false;
+            if (g.items + g.lotto > app.MULTI) sawFive = false;
+        }
+        check('5개 열기: 낸 돈(15π)과 받은 것이 맞고, 쿠폰·로또가 5개를 넘지 않음', allBalanced && sawFive);
+
+        // 상자 하나씩 꽝/파이/쿠폰/로또 중 하나만 나오는지: 많이 열어서 '받은 것 개수' 가 상자 수를 넘지 않는지 본다
+        server = freshServer(20, 3000);
+        alerts = []; setInputs({});
+        await openScreen();
+        for (let i = 0; i < 30; i++) await app.box5();
+        const u = student();
+        check(`5개 열기 30번: 150개를 열고 파이가 정확히 빠짐 (남은 ${u.pi}π)`,
+            u.pi <= 3000 - 150 * app.BOXPRICE + 150 * 30 && u.pi >= 0);
+        check('5개 열기: 상자에서 나온 로또도 보너스 번호가 붙음',
+            u.lottoTickets.every(t => Number.isInteger(t.b) && t.b >= 1 && t.b <= 10 && new Set(t.n).size === 5));
+
+        // 겹쳐도 다섯 개가 모두 저장된다
+        server = freshServer(20, 500);
+        alerts = []; setInputs({});
+        await openScreen();
+        beforeNextSave = () => { server.rev += 1; };
+        await app.box5();
+        beforeNextSave = null;
+        const g2 = gained({ pi: 500, inventory: [], lottoTickets: [] });
+        check('5개 열기: 겹쳐도 결과가 저장된다', g2.pi !== 0 || g2.items > 0 || g2.lotto > 0);
+
+        // 끝내 저장이 안 되면 하나도 열지 않은 것으로 둔다
+        server = freshServer(20, 500);
+        alerts = []; setInputs({});
+        await openScreen();
+        const bump5 = () => { server.rev += 1; beforeNextSave = bump5; };
+        beforeNextSave = bump5;
+        await app.box5();
+        beforeNextSave = null;
+        check('5개 열기: 끝내 안 되면 하나도 열지 않은 것으로 둔다',
+            student().pi === 500 && student().inventory.length === 0 && student().lottoTickets.length === 0);
+
+        // 파이가 모자라면 (5개 = 15π, 가진 건 14π) 하나도 열지 않는다
+        server = freshServer(20, 14);
+        alerts = []; setInputs({});
+        await openScreen();
+        await app.box5();
+        check('5개 열기: 파이가 모자라면 하나도 열지 않는다',
+            student().pi === 14 && student().inventory.length === 0 && student().lottoTickets.length === 0);
+        check('5개 열기: 모자라다고 알려준다', alerts.some(m => /15π/.test(m) && /부족/.test(m)));
+
+        // 딱 15π 면 연다
+        server = freshServer(20, 15);
+        alerts = []; setInputs({});
+        await openScreen();
+        await app.box5();
+        const g3 = gained({ pi: 15, inventory: [], lottoTickets: [] });
+        check('5개 열기: 딱 맞는 파이(15π)면 연다', g3.pi < 0 || g3.items > 0 || g3.lotto > 0);
+    }
+
     // ── 할 수 없는 일은 예전처럼 그대로 막아야 한다 ──
     server = freshServer(20, 1);
     alerts = []; setInputs({ transferTo: '8', transferAmount: 30 });
@@ -484,6 +559,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     await tryLocked('로또 구매', () => setInputs({ lottoNumbersInput: '1,2,3,4,5', lottoBonusInput: 3 }), () => app.buyLotto());
     await tryLocked('로또 자동 구매', () => setInputs({ lottoAutoCount: 1 }), () => app.buyLottoAuto());
     await tryLocked('랜덤상자', () => setInputs({}), () => app.box());
+    await tryLocked('랜덤상자 5개', () => setInputs({}), () => app.box5());
     await tryLocked('주식 사기', () => setOrderQty(1), () => app.buy(CO));
     await tryLocked('적금 가입', () => setInputs({ savingsAmountInput: 50, savingsTermSelect: 2 }), () => app.openSavings(),
         () => server.bank.savings.length === 0);

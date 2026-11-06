@@ -251,6 +251,31 @@
             animation-name: rb-confetti-fall; animation-timing-function: ease-in; animation-fill-mode: forwards;
         }
         @keyframes rb-confetti-fall { to { transform: translateY(150px) rotate(360deg); opacity: 0; } }
+        /* 5개 한 번에 열기: 다섯 상자가 함께 흔들리다가 따라락 차례로 열린다 */
+        .random-box-multi { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+        .random-box-stage [hidden] { display: none !important; }   /* 큰 상자 / 5칸 중 안 쓰는 쪽을 숨김 */
+        .rb-slot {
+            background: rgba(255, 255, 255, .7); border-radius: 14px; padding: 8px 2px; min-height: 84px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+            transition: background .25s, box-shadow .25s;
+        }
+        .rb-slot-icon { font-size: 30px; display: inline-block; }
+        .rb-slot-icon.shaking { animation: rb-shake .22s infinite; }
+        .rb-slot-icon.opened { animation: rb-pop .4s ease; }
+        .rb-slot-text {
+            font-family: 'Jua', 'Malgun Gothic', sans-serif; font-size: 12px; line-height: 1.25;
+            word-break: keep-all; opacity: 0; min-height: 15px; padding: 0 2px;
+        }
+        .rb-slot.revealed .rb-slot-text { animation: rb-result-in .4s cubic-bezier(.34,1.56,.64,1) forwards; }
+        .rb-slot.tier-none .rb-slot-text { color: #9e9e9e; }
+        .rb-slot.tier-common .rb-slot-text { color: #EF6C00; }
+        .rb-slot.tier-rare { background: #F3E5F5; box-shadow: 0 0 10px rgba(106,27,154,.35); }
+        .rb-slot.tier-rare .rb-slot-text { color: #6A1B9A; }
+        .rb-slot.tier-legendary { background: linear-gradient(135deg, #FFF8E1, #FFE082); box-shadow: 0 0 14px rgba(255,109,0,.55); }
+        .rb-slot.tier-legendary .rb-slot-text { color: #E65100; }
+        .rb-slot.tier-hidden { background: linear-gradient(135deg, #EDE7F6, #FCE4EC, #E0F7FA); box-shadow: 0 0 18px rgba(224,64,251,.6); }
+        .rb-slot.tier-hidden .rb-slot-text { color: #7C4DFF; }
+        .random-box-summary { margin-top: 10px; font-family: 'Jua', 'Malgun Gothic', sans-serif; font-size: 15px; color: #5D4037; min-height: 20px; }
         .random-box-prob-table { width: 100%; margin-top: 4px; font-size: 13px; }
         .random-box-prob-table td, .random-box-prob-table th { padding: 8px; }
 
@@ -452,8 +477,11 @@
                 <div class="random-box-icon" id="randomBoxIcon">🎁</div>
                 <div class="random-box-reel" id="randomBoxReel"></div>
                 <div class="random-box-result" id="randomBoxResult"></div>
+                <div class="random-box-multi" id="randomBoxMulti" hidden></div>
+                <div class="random-box-summary" id="randomBoxSummary"></div>
             </div>
             <button id="randomBoxBtn" onclick="buyRandomBox()">랜덤상자 열기 (3 π)</button>
+            <button id="randomBox5Btn" onclick="buyRandomBox5()">5개 한 번에 열기 (15 π)</button>
             <button class="small-btn" style="background-color: #FFCC80;" onclick="toggleRandomBoxProbs()">확률표 보기</button>
             <div id="randomBoxProbTable" style="display: none; margin-top: 12px;"></div>
         </div>
@@ -920,6 +948,7 @@
 
     /* ===================== 설정: 랜덤상자 ===================== */
     const RANDOM_BOX_PRICE = 3;
+    const RANDOM_BOX_MULTI = 5;   // '한 번에 열기' 로 여는 상자 수
     // 꽝·1파이·2파이는 확률이 고정이고, 나머지는 값어치에 따라 남은 몫을 나눠 가진다 (아래 설명 참고)
     // 실질 가치(파이 금액 또는 상점 판매가)가 클수록 확률이 낮아지도록 설계
     /* 상자 확률은 표에 적어 두지 않고, 보상의 '값어치' 에서 그때그때 계산한다 (boxOdds).
@@ -1506,7 +1535,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-11-07-ruby';
+    const APP_VERSION = '2026-11-07-box5';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 34;
 
@@ -2349,6 +2378,7 @@
         const price = randomBoxPriceFor(currentUser);
         document.getElementById('randomBoxPriceLabel').innerHTML = priceHtml(RANDOM_BOX_PRICE, price);
         document.getElementById('randomBoxBtn').textContent = `랜덤상자 열기 (${price} π)`;
+        document.getElementById('randomBox5Btn').textContent = `${RANDOM_BOX_MULTI}개 한 번에 열기 (${price * RANDOM_BOX_MULTI} π)`;
         const table = document.getElementById('randomBoxProbTable');
         if (table.style.display !== 'none') renderRandomBoxProbTable();
     }
@@ -2473,54 +2503,100 @@
         }
     }
 
-    async function buyRandomBox() {
+    // 상자 하나에서 나온 보상을 학생에게 준다. 화면에 보여줄 글도 함께 돌려준다
+    function giveBoxReward(user, reward) {
+        let text, short;
+        if (reward.type === 'none') {
+            text = '😢 꽝! 다음 기회에...';
+            short = '꽝';
+        } else if (reward.type === 'pi') {
+            user.pi += reward.amount;
+            text = `${reward.name} 획득!`;
+            short = `+${reward.amount}π`;
+        } else if (reward.type === 'lotto') {
+            const ticket = drawLottoTicket(user.lottoTickets);
+            user.lottoTickets.push(ticket);
+            db.lotto.currentPot += LOTTO_TICKET_PRICE;
+            text = `로또 1장 획득! (번호: ${ticket.n.join(', ')} + 보너스 ${ticket.b})`;
+            short = '로또 1장';
+        } else {
+            user.inventory.push(reward.name);
+            text = `${reward.name} 획득!`;
+            short = reward.name;
+        }
+        if (reward.tier === 'hidden') { text = `🌟 히든 보상! ${text}`; short = `🌟 ${short}`; }
+        return { text, short, tier: reward.tier, type: reward.type, amount: reward.amount || 0, name: reward.name };
+    }
+
+    const BOX_TIER_ICONS = { none: '💨', common: '🎉', rare: '🎉', legendary: '🏆', hidden: '🌟' };
+    const BOX_TIER_RANK = { none: 0, common: 1, rare: 2, legendary: 3, hidden: 4 };
+
+    function setBoxButtons(disabled) {
+        ['randomBoxBtn', 'randomBox5Btn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = disabled; });
+    }
+
+    async function buyRandomBox() { await openRandomBoxes(1); }
+    async function buyRandomBox5() { await openRandomBoxes(RANDOM_BOX_MULTI); }
+
+    async function openRandomBoxes(count) {
         if (blockedByOverdue()) return;
-        const btn = document.getElementById('randomBoxBtn');
+        const btn = document.getElementById(count === 1 ? 'randomBoxBtn' : 'randomBox5Btn');
         if (btn.disabled) return;
-        btn.disabled = true;
+        setBoxButtons(true);
 
         // 연출을 하는 동안 백그라운드 새로고침이 끼어들어 보상이 사라지지 않도록, 결과를 먼저 저장하고 연출은 그 뒤에 함.
-        // 저장이 다른 사람과 겹치면 상자를 다시 뽑는다. 아직 학생에게 아무것도 보여주지 않았으므로 공정하다
+        // 저장이 다른 사람과 겹치면 상자를 다시 뽑는다. 아직 학생에게 아무것도 보여주지 않았으므로 공정하다.
+        // 여러 개는 전부 열거나 하나도 열지 않는다 (파이가 모자라면 아무것도 열지 않음)
         const done = await runAction(() => {
             const locked = overdueMessage(currentUser);
             if (locked) return { stop: locked };
             const user = db.users[currentUser];
             const price = randomBoxPriceFor(currentUser);
-            if (user.pi < price) return { stop: "파이(π)가 부족합니다." };
-
-            const reward = drawRandomBoxReward();
-            user.pi -= price;
-            let resultText = '';
-            if (reward.type === 'none') {
-                resultText = '😢 꽝! 다음 기회에...';
-            } else if (reward.type === 'pi') {
-                user.pi += reward.amount;
-                resultText = `${reward.name} 획득!`;
-            } else if (reward.type === 'lotto') {
-                const ticket = drawLottoTicket(user.lottoTickets);
-                user.lottoTickets.push(ticket);
-                db.lotto.currentPot += LOTTO_TICKET_PRICE;
-                resultText = `로또 1장 획득! (번호: ${ticket.n.join(', ')} + 보너스 ${ticket.b})`;
-            } else {
-                user.inventory.push(reward.name);
-                resultText = `${reward.name} 획득!`;
+            if (user.pi < price * count) {
+                return { stop: count === 1 ? "파이(π)가 부족합니다." : `파이가 부족해요. (${count}개 = ${price * count}π, 지금 ${user.pi}π)` };
             }
-            if (reward.tier === 'hidden') resultText = `🌟 히든 보상! ${resultText}`;
-            return { ok: resultText, tier: reward.tier };
+            const results = [];
+            for (let i = 0; i < count; i++) {
+                user.pi -= price;
+                results.push(giveBoxReward(user, drawRandomBoxReward()));
+            }
+            return { ok: results, paid: price * count };
         });
         // 저장되지 않았으면 연출도 하지 않는다. 열지 않은 상자로 되돌아간다
-        if (!done) { btn.disabled = false; return; }
-        const resultText = done.ok;
-        const tier = done.tier;
+        if (!done) { setBoxButtons(false); return; }
+        if (count === 1) playSingleBox(done.ok[0]);
+        else playMultiBox(done.ok, done.paid);
+    }
 
+    function resetBoxStage() {
         const stage = document.getElementById('randomBoxStage');
+        stage.classList.remove('hidden-hit');
+        stage.querySelectorAll('.confetti-piece').forEach(el => el.remove());
+        document.getElementById('randomBoxSummary').textContent = '';
+        return stage;
+    }
+
+    function celebrate(stage, tier) {
+        if (tier === 'hidden') {
+            stage.classList.add('hidden-hit');
+            spawnConfetti(stage, 40, ['🌟', '💎', '✨', '👑', '🎊']);
+        } else if (tier === 'legendary' || tier === 'rare') {
+            spawnConfetti(stage, tier === 'legendary' ? 24 : 12);
+        }
+    }
+
+    function playSingleBox(result) {
+        const stage = resetBoxStage();
         const icon = document.getElementById('randomBoxIcon');
         const reel = document.getElementById('randomBoxReel');
         const resultEl = document.getElementById('randomBoxResult');
+        document.getElementById('randomBoxMulti').hidden = true;
+        icon.hidden = false;
+        reel.hidden = false;
+        resultEl.hidden = false;
 
         resultEl.className = 'random-box-result';
         resultEl.textContent = '';
-        stage.classList.remove('hidden-hit');
         icon.className = 'random-box-icon shaking';
         icon.textContent = '🎁';
 
@@ -2534,23 +2610,59 @@
         setTimeout(() => {
             clearInterval(reelTimer);
             reel.textContent = '';
-
-            const icons = { none: '💨', common: '🎉', rare: '🎉', legendary: '🏆', hidden: '🌟' };
             icon.className = 'random-box-icon opened';
-            icon.textContent = icons[tier];
-            resultEl.textContent = resultText;
-            resultEl.className = `random-box-result tier-${tier} show`;
-
-            if (tier === 'hidden') {
-                stage.classList.add('hidden-hit');
-                spawnConfetti(stage, 40, ['🌟', '💎', '✨', '👑', '🎊']);
-            } else if (tier === 'legendary' || tier === 'rare') {
-                spawnConfetti(stage, tier === 'legendary' ? 24 : 12);
-            }
-
+            icon.textContent = BOX_TIER_ICONS[result.tier];
+            resultEl.textContent = result.text;
+            resultEl.className = `random-box-result tier-${result.tier} show`;
+            celebrate(stage, result.tier);
             updateHeader();
-            btn.disabled = false;
+            setBoxButtons(false);
         }, 1200);
+    }
+
+    // 다섯 상자가 함께 흔들리다가, 왼쪽부터 따라락 하나씩 열린다
+    function playMultiBox(results, paid) {
+        const stage = resetBoxStage();
+        document.getElementById('randomBoxIcon').hidden = true;
+        document.getElementById('randomBoxReel').hidden = true;
+        document.getElementById('randomBoxResult').hidden = true;
+        const grid = document.getElementById('randomBoxMulti');
+        grid.hidden = false;
+        grid.innerHTML = results.map(() => `
+            <div class="rb-slot"><span class="rb-slot-icon shaking">🎁</span><span class="rb-slot-text"></span></div>`).join('');
+        const slots = Array.from(grid.querySelectorAll('.rb-slot'));
+
+        const SHAKE_MS = 900, STEP_MS = 170;
+        results.forEach((r, i) => {
+            setTimeout(() => {
+                const slot = slots[i];
+                if (!slot) return;
+                const icon = slot.querySelector('.rb-slot-icon');
+                icon.className = 'rb-slot-icon opened';
+                icon.textContent = BOX_TIER_ICONS[r.tier];
+                slot.querySelector('.rb-slot-text').textContent = r.short;
+                slot.className = `rb-slot revealed tier-${r.tier}`;
+            }, SHAKE_MS + i * STEP_MS);
+        });
+
+        setTimeout(() => {
+            const best = results.reduce((a, r) => (BOX_TIER_RANK[r.tier] > BOX_TIER_RANK[a] ? r.tier : a), 'none');
+            celebrate(stage, best);
+            document.getElementById('randomBoxSummary').textContent = boxSummaryText(results, paid);
+            updateHeader();
+            setBoxButtons(false);
+        }, SHAKE_MS + results.length * STEP_MS + 150);
+    }
+
+    // 예: "낸 돈 15π · 받은 파이 +3π · 로또 1장 · 간식 교환권"
+    function boxSummaryText(results, paid) {
+        const pi = results.reduce((s, r) => s + (r.type === 'pi' ? r.amount : 0), 0);
+        const lotto = results.filter(r => r.type === 'lotto').length;
+        const items = results.filter(r => r.type === 'item').map(r => r.name);
+        const parts = [`낸 돈 ${paid}π`, `받은 파이 +${pi}π`];
+        if (lotto) parts.push(`로또 ${lotto}장`);
+        if (items.length) parts.push(items.join(', '));
+        return parts.join(' · ');
     }
 
     /* ===================== 학생: 로또 ===================== */
