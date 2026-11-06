@@ -482,6 +482,7 @@
             </div>
             <button id="randomBoxBtn" onclick="buyRandomBox()">랜덤상자 열기 (3 π)</button>
             <button id="randomBox5Btn" onclick="buyRandomBox5()">5개 한 번에 열기 (15 π)</button>
+            <button id="randomBox10Btn" onclick="buyRandomBox10()">10개 한 번에 열기 (30 π)</button>
             <button class="small-btn" style="background-color: #FFCC80;" onclick="toggleRandomBoxProbs()">확률표 보기</button>
             <div id="randomBoxProbTable" style="display: none; margin-top: 12px;"></div>
         </div>
@@ -948,7 +949,8 @@
 
     /* ===================== 설정: 랜덤상자 ===================== */
     const RANDOM_BOX_PRICE = 3;
-    const RANDOM_BOX_MULTI = 5;   // '한 번에 열기' 로 여는 상자 수
+    const RANDOM_BOX_MULTI = 5;       // '한 번에 열기' 로 여는 상자 수
+    const RANDOM_BOX_MULTI_BIG = 10;  // 더 큰 '한 번에 열기' (5칸씩 두 줄)
     // 꽝·1파이·2파이는 확률이 고정이고, 나머지는 값어치에 따라 남은 몫을 나눠 가진다 (아래 설명 참고)
     // 실질 가치(파이 금액 또는 상점 판매가)가 클수록 확률이 낮아지도록 설계
     /* 상자 확률은 표에 적어 두지 않고, 보상의 '값어치' 에서 그때그때 계산한다 (boxOdds).
@@ -1535,7 +1537,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-11-07-box5';
+    const APP_VERSION = '2026-11-07-box10';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 34;
 
@@ -2379,6 +2381,7 @@
         document.getElementById('randomBoxPriceLabel').innerHTML = priceHtml(RANDOM_BOX_PRICE, price);
         document.getElementById('randomBoxBtn').textContent = `랜덤상자 열기 (${price} π)`;
         document.getElementById('randomBox5Btn').textContent = `${RANDOM_BOX_MULTI}개 한 번에 열기 (${price * RANDOM_BOX_MULTI} π)`;
+        document.getElementById('randomBox10Btn').textContent = `${RANDOM_BOX_MULTI_BIG}개 한 번에 열기 (${price * RANDOM_BOX_MULTI_BIG} π)`;
         const table = document.getElementById('randomBoxProbTable');
         if (table.style.display !== 'none') renderRandomBoxProbTable();
     }
@@ -2532,15 +2535,16 @@
     const BOX_TIER_RANK = { none: 0, common: 1, rare: 2, legendary: 3, hidden: 4 };
 
     function setBoxButtons(disabled) {
-        ['randomBoxBtn', 'randomBox5Btn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = disabled; });
+        ['randomBoxBtn', 'randomBox5Btn', 'randomBox10Btn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = disabled; });
     }
 
     async function buyRandomBox() { await openRandomBoxes(1); }
     async function buyRandomBox5() { await openRandomBoxes(RANDOM_BOX_MULTI); }
+    async function buyRandomBox10() { await openRandomBoxes(RANDOM_BOX_MULTI_BIG); }
 
     async function openRandomBoxes(count) {
         if (blockedByOverdue()) return;
-        const btn = document.getElementById(count === 1 ? 'randomBoxBtn' : 'randomBox5Btn');
+        const btn = document.getElementById(count === 1 ? 'randomBoxBtn' : count === RANDOM_BOX_MULTI ? 'randomBox5Btn' : 'randomBox10Btn');
         if (btn.disabled) return;
         setBoxButtons(true);
 
@@ -2620,7 +2624,7 @@
         }, 1200);
     }
 
-    // 다섯 상자가 함께 흔들리다가, 왼쪽부터 따라락 하나씩 열린다
+    // 상자들이 함께 흔들리다가, 왼쪽 위부터 따라락 하나씩 열린다 (5칸씩 한 줄, 10개면 두 줄)
     function playMultiBox(results, paid) {
         const stage = resetBoxStage();
         document.getElementById('randomBoxIcon').hidden = true;
@@ -2632,7 +2636,8 @@
             <div class="rb-slot"><span class="rb-slot-icon shaking">🎁</span><span class="rb-slot-text"></span></div>`).join('');
         const slots = Array.from(grid.querySelectorAll('.rb-slot'));
 
-        const SHAKE_MS = 900, STEP_MS = 170;
+        // 10개는 한 칸씩 조금 더 빨리 열어서, 다 열릴 때까지 너무 기다리지 않게 한다
+        const SHAKE_MS = 900, STEP_MS = results.length > RANDOM_BOX_MULTI ? 120 : 170;
         results.forEach((r, i) => {
             setTimeout(() => {
                 const slot = slots[i];
