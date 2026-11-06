@@ -45,7 +45,7 @@ eval(script + `
   app.TAX = { DAYS: TAX_PERIOD_DAYS, WIDTH: TAX_BRACKET_WIDTH, STEP: TAX_STEP_PCT, MAX: TAX_MAX_PCT };
   app.matchCount = lottoMatchCount; app.ticketNums = ticketNumbers; app.ticketBonus = ticketBonus;
   app.ticketKey = ticketKey; app.HIDDEN = HIDDEN_REWARD;
-  app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
+  app.synthPlan = synthPlan; app.SYNTH = { MIN: SYNTH_MIN, MAX: SYNTH_MAX, FAIL: SYNTH_FAIL_LOWER, CAP: SYNTH_MAX_CHANCE }; app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
   app.BOX = { PRICE: RANDOM_BOX_PRICE, MIN: BOX_PRIZE_MIN_SHARE, MAX: BOX_PRIZE_MAX_SHARE,
               HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD, CAP: BOX_CASH_CAP };
   app.boxPrice = randomBoxPriceFor; app.lottoPrice = lottoPriceFor;
@@ -1195,6 +1195,51 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
         const WEEK = 7 * 24 * 3600 * 1000, t0 = Date.now() - 2 * WEEK - 1000;
         check('이율이 적힌 대출은 그 이율로 이자가 붙음 (100π 2주 · 6% = 12π)', app.loanInterest({ principal: 100, startAt: t0, paid: 0, ratePct: 6 }) === 12);
         check('이율이 없는 예전 대출은 주 10% 그대로 (100π 2주 = 20π)', app.loanInterest({ principal: 100, startAt: t0, paid: 0 }) === 20);
+    }
+
+    /* ── 쿠폰 합성: 되풀이해도 쿠폰 값이 늘어나면 안 된다 ── */
+    {
+        const LIVE = { '짝꿍 선택권': 200, '자리 지정권': 160, '3일 자리 선택권': 60, '청소 면제권': 36, '반장 간식 갈취권': 37, '간식 교환권': 25 };
+        const price = n => app.basePrice(app.COUPONS.find(c => c.name === n));
+        const names = app.COUPONS.map(c => c.name);
+        let worst = 0, worstPick = '', checked = 0, bad = 0;
+        for (const prices of [{}, LIVE, { '간식 교환권': 1, '짝꿍 선택권': 300 }]) {
+            app.setDb({ users: {}, couponPrices: prices });
+            // 2~4장의 모든 조합 + 같은 쿠폰 5~10장
+            const picks = [];
+            const rec = (start, left, cur) => {
+                if (Object.values(cur).reduce((a, b) => a + b, 0) >= 2) picks.push({ ...cur });
+                if (left === 0) return;
+                for (let i = start; i < names.length; i++) { cur[names[i]] = (cur[names[i]] || 0) + 1; rec(i, left - 1, cur); cur[names[i]] -= 1; if (!cur[names[i]]) delete cur[names[i]]; }
+            };
+            rec(0, 4, {});
+            names.forEach(n => { for (let q = 5; q <= 10; q++) picks.push({ [n]: q }); });
+            for (const pick of picks) {
+                const plan = app.synthPlan(pick);
+                if (plan.error) continue;
+                checked++;
+                const ev = plan.chance * price(plan.target.name) + (1 - plan.chance) * (plan.lower ? app.SYNTH.FAIL * price(plan.lower.name) : 0);
+                if (ev > plan.value + 1e-9) bad++;
+                if (plan.value > 0 && ev / plan.value > worst) { worst = ev / plan.value; worstPick = JSON.stringify(pick); }
+            }
+        }
+        check(`합성: 어떤 조합도 평균적으로 넣은 값보다 많이 돌려주지 않음 — ${checked}가지 중 최대 ${(worst * 100).toFixed(0)}% ${worstPick}`, bad === 0 && checked > 100);
+
+        app.setDb({ users: {}, couponPrices: LIVE });
+        // 3일 자리 선택권(60π)으로 자리 지정권(160π)에 도전: 간식 교환권을 더 넣을수록 확률이 오른다
+        const tries = [0, 1, 2, 4].map(n => app.synthPlan(n ? { '3일 자리 선택권': 1, '간식 교환권': n } : { '3일 자리 선택권': 2 }).chance);
+        check(`합성: 많이 넣을수록 성공 확률이 오름 — ${tries.map(c => (c * 100).toFixed(0) + '%').join(' → ')}`,
+            tries[2] > tries[1] && tries[3] > tries[2]);
+        check('합성: 목표는 가장 좋은 쿠폰보다 한 단계 위', app.synthPlan({ '간식 교환권': 1, '3일 자리 선택권': 1 }).target.name === '자리 지정권');
+        check('합성: 실패하면 받는 쿠폰은 가장 좋은 쿠폰보다 한 단계 아래', app.synthPlan({ '간식 교환권': 1, '3일 자리 선택권': 1 }).lower.name === '반장 간식 갈취권');
+        check('합성: 가장 싼 쿠폰만 넣으면 실패 시 받을 쿠폰이 없음', app.synthPlan({ '간식 교환권': 3 }).lower === null);
+        check(`합성: 성공 확률은 ${app.SYNTH.CAP * 100}% 를 넘지 않음`, app.synthPlan({ '자리 지정권': 10 }).chance <= app.SYNTH.CAP);
+        check('합성: 1장은 안 됨', !!app.synthPlan({ '간식 교환권': 1 }).error);
+        check('합성: 11장은 안 됨', !!app.synthPlan({ '간식 교환권': 11 }).error);
+        check('합성: 가장 좋은 쿠폰(짝꿍)은 넣을 수 없음', !!app.synthPlan({ '짝꿍 선택권': 1, '간식 교환권': 1 }).error);
+        check('합성: 없는 쿠폰 이름은 무시', app.synthPlan({ '음악 우선 신청권': 5 }).count === 0);
+        app.setDb({ users: {}, couponPrices: { '간식 교환권': 0 } });
+        check('합성: 값이 0π 인 쿠폰만 넣으면 성공할 수 없어 막음', !!app.synthPlan({ '간식 교환권': 3 }).error);
     }
 
     // 터무니없는 값이 저장돼 있어도 버텨야 함

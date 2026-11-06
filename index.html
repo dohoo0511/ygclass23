@@ -277,6 +277,29 @@
         .rb-slot.tier-hidden .rb-slot-text { color: #7C4DFF; }
         .random-box-summary { margin-top: 10px; font-family: 'Jua', 'Malgun Gothic', sans-serif; font-size: 15px; color: #5D4037; min-height: 20px; }
         .random-box-prob-table { width: 100%; margin-top: 4px; font-size: 13px; }
+        /* 쿠폰 합성 */
+        .synth-card { margin-top: 22px; padding: 16px; background: #F3E5F5; border-radius: 20px; }
+        .synth-card h3 { margin-top: 0; }
+        .synth-rules { font-size: 13px; color: #5D4037; margin: 0 0 10px; padding-left: 18px; }
+        .synth-row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid #E1BEE7; }
+        .synth-row:last-child { border-bottom: none; }
+        .synth-name { flex: 1; font-size: 14px; }
+        .synth-name small { color: #8D6E63; }
+        .synth-qty { min-width: 26px; text-align: center; font-weight: bold; font-size: 16px; }
+        .synth-row button { width: 34px; height: 34px; padding: 0; margin: 0; border-radius: 10px; font-size: 18px; line-height: 1; }
+        .synth-row.off { opacity: .45; }
+        .synth-preview { margin: 12px 0 8px; padding: 10px 12px; background: #fff; border-radius: 14px; font-size: 14px; line-height: 1.6; }
+        .synth-preview .chance { font-size: 20px; font-weight: bold; color: #6A1B9A; }
+        .synth-stage { position: relative; text-align: center; padding: 16px 10px; margin-top: 10px; background: #fff; border-radius: 16px; overflow: hidden; min-height: 70px; }
+        .synth-stage[hidden] { display: none; }
+        .synth-icon { font-size: 44px; display: inline-block; }
+        .synth-icon.shaking { animation: rb-shake .18s infinite; }
+        .synth-icon.opened { animation: rb-pop .45s ease; }
+        .synth-result { font-family: 'Jua', 'Malgun Gothic', sans-serif; font-size: 1.15em; margin-top: 6px; opacity: 0; }
+        .synth-result.show { animation: rb-result-in .5s cubic-bezier(.34,1.56,.64,1) forwards; }
+        .synth-result.success { color: #6A1B9A; }
+        .synth-result.lower { color: #EF6C00; }
+        .synth-result.lost { color: #9e9e9e; }
         .random-box-prob-table td, .random-box-prob-table th { padding: 8px; }
 
         /* 공지사항 */
@@ -485,6 +508,18 @@
             <button id="randomBox10Btn" onclick="buyRandomBox10()">10개 한 번에 열기 (30 π)</button>
             <button class="small-btn" style="background-color: #FFCC80;" onclick="toggleRandomBoxProbs()">확률표 보기</button>
             <div id="randomBoxProbTable" style="display: none; margin-top: 12px;"></div>
+
+            <div class="synth-card">
+                <h3>⚗️ 쿠폰 합성</h3>
+                <ul class="synth-rules" id="synthRules"></ul>
+                <div id="synthList"></div>
+                <div class="synth-preview" id="synthPreview"></div>
+                <button id="synthBtn" onclick="synthesizeCoupons()">합성하기</button>
+                <div class="synth-stage" id="synthStage" hidden>
+                    <div class="synth-icon" id="synthIcon">⚗️</div>
+                    <div class="synth-result" id="synthResult"></div>
+                </div>
+            </div>
         </div>
 
         <!-- 은행 -->
@@ -951,6 +986,18 @@
     const RANDOM_BOX_PRICE = 3;
     const RANDOM_BOX_MULTI = 5;       // '한 번에 열기' 로 여는 상자 수
     const RANDOM_BOX_MULTI_BIG = 10;  // 더 큰 '한 번에 열기' (5칸씩 두 줄)
+
+    /* ===================== 설정: 쿠폰 합성 =====================
+       쿠폰 여러 장을 넣으면 '넣은 것 중 가장 좋은 쿠폰보다 한 단계 위' 쿠폰을 노린다.
+       성공 확률 = 넣은 쿠폰 값의 합 ÷ 목표 쿠폰 값 × 70% (최대 90%). 많이 넣을수록, 비싼 쿠폰일수록 올라간다.
+       실패하면 절반은 '가장 좋은 쿠폰보다 한 단계 아래' 쿠폰 1장, 절반은 아무것도 없다 (넣은 쿠폰은 모두 사라짐).
+       값은 선생님이 상점에 정한 지금 가격이다. 평균적으로 넣은 값보다 조금 적게 돌아오게 해서
+       합성을 되풀이하는 것만으로 쿠폰이 늘어나지 않게 했다 (테스트로 확인). */
+    const SYNTH_MIN = 2;
+    const SYNTH_MAX = 10;
+    const SYNTH_RATE = 0.7;
+    const SYNTH_MAX_CHANCE = 0.9;
+    const SYNTH_FAIL_LOWER = 0.5;   // 실패했을 때 한 단계 아래 쿠폰이라도 받을 확률
     // 꽝·1파이·2파이는 확률이 고정이고, 나머지는 값어치에 따라 남은 몫을 나눠 가진다 (아래 설명 참고)
     // 실질 가치(파이 금액 또는 상점 판매가)가 클수록 확률이 낮아지도록 설계
     /* 상자 확률은 표에 적어 두지 않고, 보상의 '값어치' 에서 그때그때 계산한다 (boxOdds).
@@ -1537,7 +1584,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-11-07-box10';
+    const APP_VERSION = '2026-11-07-synthesis';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 34;
 
@@ -2384,6 +2431,7 @@
         document.getElementById('randomBox10Btn').textContent = `${RANDOM_BOX_MULTI_BIG}개 한 번에 열기 (${price * RANDOM_BOX_MULTI_BIG} π)`;
         const table = document.getElementById('randomBoxProbTable');
         if (table.style.display !== 'none') renderRandomBoxProbTable();
+        renderSynthesis();
     }
 
     // 보상 하나의 값어치(π). 쿠폰은 지금 상점 가격을 그대로 쓴다
@@ -2668,6 +2716,166 @@
         if (lotto) parts.push(`로또 ${lotto}장`);
         if (items.length) parts.push(items.join(', '));
         return parts.join(' · ');
+    }
+
+    /* ===================== 학생: 쿠폰 합성 ===================== */
+    let synthPick = {};   // 쿠폰 이름 → 넣을 장 수
+
+    function ownedCouponCounts(user) {
+        const counts = {};
+        (user.inventory || []).forEach(name => { if (couponByName(name)) counts[name] = (counts[name] || 0) + 1; });
+        return counts;
+    }
+
+    // 넣은 쿠폰으로 무엇을 노리는지, 성공 확률은 얼마인지 계산한다. 합성할 수 없으면 error 에 이유
+    function synthPlan(pick) {
+        const entries = Object.entries(pick).filter(([name, q]) => q > 0 && couponByName(name));
+        const count = entries.reduce((s, [, q]) => s + q, 0);
+        const value = entries.reduce((s, [name, q]) => s + q * couponBasePrice(couponByName(name)), 0);
+        const plan = { count, value, top: null, target: null, lower: null, chance: 0, error: null };
+        if (count < SYNTH_MIN) { plan.error = `쿠폰을 ${SYNTH_MIN}장 이상 넣어 주세요.`; return plan; }
+        if (count > SYNTH_MAX) { plan.error = `한 번에 ${SYNTH_MAX}장까지만 넣을 수 있어요.`; return plan; }
+
+        const priceOf = c => couponBasePrice(c);
+        plan.top = entries.map(([name]) => couponByName(name)).reduce((a, c) => (priceOf(c) > priceOf(a) ? c : a));
+        const topPrice = priceOf(plan.top);
+        // 한 단계 위 = 가장 좋은 쿠폰보다 비싼 것 중 가장 싼 것, 한 단계 아래 = 더 싼 것 중 가장 비싼 것
+        const byPrice = couponsByPrice().map(x => x.coupon);
+        plan.target = byPrice.filter(c => priceOf(c) > topPrice).pop() || null;
+        plan.lower = byPrice.find(c => priceOf(c) < topPrice) || null;
+        if (!plan.target) { plan.error = `${plan.top.name}보다 좋은 쿠폰이 없어서 더 좋게 만들 수 없어요. ${plan.top.name}을(를) 빼 주세요.`; return plan; }
+        plan.chance = Math.min(SYNTH_MAX_CHANCE, SYNTH_RATE * value / Math.max(1, priceOf(plan.target)));
+        if (plan.chance <= 0) plan.error = '넣은 쿠폰의 값이 0π 라서 성공할 수 없어요.';
+        return plan;
+    }
+
+    // 결과 뽑기: 성공 → 목표 쿠폰, 실패 → 절반은 한 단계 아래 쿠폰, 절반은 없음
+    function drawSynthOutcome(plan) {
+        if (Math.random() < plan.chance) return { kind: 'success', coupon: plan.target };
+        if (plan.lower && Math.random() < SYNTH_FAIL_LOWER) return { kind: 'lower', coupon: plan.lower };
+        return { kind: 'lost', coupon: null };
+    }
+
+    function pct(x) {
+        const v = x * 100;
+        return v >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
+    }
+
+    function renderSynthesis() {
+        const user = db.users[currentUser];
+        if (!user) return;
+        const owned = ownedCouponCounts(user);
+        // 가진 것보다 많이 넣어 둔 것은 줄인다 (그 사이 쿠폰을 썼을 수 있음)
+        Object.keys(synthPick).forEach(name => { synthPick[name] = Math.min(synthPick[name], owned[name] || 0); if (!synthPick[name]) delete synthPick[name]; });
+
+        document.getElementById('synthRules').innerHTML = `
+            <li>쿠폰을 ${SYNTH_MIN}~${SYNTH_MAX}장 넣으면, 넣은 것 중 <b>가장 좋은 쿠폰보다 한 단계 위</b> 쿠폰에 도전해요.</li>
+            <li>많이 넣을수록(비싼 쿠폰일수록) 성공 확률이 올라가요. (최대 ${Math.round(SYNTH_MAX_CHANCE * 100)}%)</li>
+            <li>실패하면 절반은 <b>한 단계 아래 쿠폰</b> 1장이 나오고, 절반은 <b>아무것도 남지 않아요</b>.</li>
+            <li>넣은 쿠폰은 성공해도 실패해도 모두 사라져요.</li>`;
+
+        const topPrice = Math.max(...COUPONS.map(c => couponBasePrice(c)));
+        const rows = couponsByPrice().map(({ coupon, idx }) => {
+            const have = owned[coupon.name] || 0;
+            const put = synthPick[coupon.name] || 0;
+            // 가장 비싼 쿠폰은 더 좋게 만들 수 없어서 넣지 못하게 한다
+            const isTop = couponBasePrice(coupon) >= topPrice;
+            const canAdd = !isTop && put < have;
+            return `<div class="synth-row ${have && !isTop ? '' : 'off'}">
+                <span class="synth-name">${esc(coupon.name)} <small>${couponBasePrice(coupon)}π · 보유 ${have}장${isTop ? ' · 최고 쿠폰이라 넣을 수 없어요' : ''}</small></span>
+                <button class="small-btn" onclick="changeSynth(${idx}, -1)" ${put ? '' : 'disabled'}>−</button>
+                <span class="synth-qty">${put}</span>
+                <button class="small-btn" onclick="changeSynth(${idx}, 1)" ${canAdd ? '' : 'disabled'}>+</button>
+            </div>`;
+        }).join('');
+        document.getElementById('synthList').innerHTML = rows;
+
+        const plan = synthPlan(synthPick);
+        const preview = document.getElementById('synthPreview');
+        if (plan.count === 0) {
+            preview.innerHTML = '합성할 쿠폰을 + 로 넣어 주세요.';
+        } else if (plan.error) {
+            preview.innerHTML = `넣은 쿠폰 ${plan.count}장 (값 ${plan.value}π)<br><span style="color:#c62828;">${esc(plan.error)}</span>`;
+        } else {
+            const failLower = plan.lower ? `${esc(plan.lower.name)} 1장 ${pct((1 - plan.chance) * SYNTH_FAIL_LOWER)}%` : '';
+            const failLost = pct((1 - plan.chance) * (plan.lower ? 1 - SYNTH_FAIL_LOWER : 1));
+            preview.innerHTML = `넣은 쿠폰 ${plan.count}장 (값 ${plan.value}π) → 목표: <b>${esc(plan.target.name)}</b> (${couponBasePrice(plan.target)}π)<br>
+                성공 확률 <span class="chance">${pct(plan.chance)}%</span><br>
+                <span style="font-size:13px; color:#6d4c41;">실패하면: ${failLower ? failLower + ' · ' : ''}모두 사라짐 ${failLost}%</span>`;
+        }
+        document.getElementById('synthBtn').disabled = !!plan.error || plan.count === 0;
+    }
+
+    function changeSynth(idx, delta) {
+        const coupon = COUPONS[idx];
+        if (!coupon) return;
+        const have = ownedCouponCounts(db.users[currentUser])[coupon.name] || 0;
+        const total = Object.values(synthPick).reduce((a, b) => a + b, 0);
+        const next = (synthPick[coupon.name] || 0) + delta;
+        if (next < 0 || next > have) return;
+        if (delta > 0 && total >= SYNTH_MAX) { alert(`한 번에 ${SYNTH_MAX}장까지만 넣을 수 있어요.`); return; }
+        synthPick[coupon.name] = next;
+        if (!next) delete synthPick[coupon.name];
+        renderSynthesis();
+    }
+
+    async function synthesizeCoupons() {
+        if (blockedByOverdue()) return;
+        const pick = { ...synthPick };
+        const plan = synthPlan(pick);
+        if (plan.error || plan.count === 0) { alert(plan.error || '합성할 쿠폰을 넣어 주세요.'); return; }
+        const list = Object.entries(pick).map(([n, q]) => `${n} ${q}장`).join(', ');
+        if (!confirm(`쿠폰을 합성할까요?\n\n넣는 쿠폰: ${list}\n목표: ${plan.target.name} (성공 ${pct(plan.chance)}%)\n\n넣은 쿠폰은 모두 사라져요.`)) return;
+        const btn = document.getElementById('synthBtn');
+        btn.disabled = true;
+
+        // 결과를 먼저 저장하고 연출은 그 뒤에. 저장이 겹치면 다시 뽑는다 (아직 아무것도 보여주지 않았으므로 공정함)
+        const done = await runAction(() => {
+            const locked = overdueMessage(currentUser);
+            if (locked) return { stop: locked };
+            const user = db.users[currentUser];
+            const owned = ownedCouponCounts(user);
+            if (Object.entries(pick).some(([n, q]) => (owned[n] || 0) < q)) return { stop: '그 사이 쿠폰이 바뀌었어요. 다시 골라 주세요.' };
+            const fresh = synthPlan(pick);   // 그 사이 선생님이 가격을 바꿨을 수 있다
+            if (fresh.error) return { stop: fresh.error };
+            Object.entries(pick).forEach(([name, q]) => {
+                for (let i = 0; i < q; i++) user.inventory.splice(user.inventory.indexOf(name), 1);
+            });
+            const outcome = drawSynthOutcome(fresh);
+            if (outcome.coupon) user.inventory.push(outcome.coupon.name);
+            return { ok: outcome };
+        });
+        if (!done) { renderSynthesis(); return; }
+        synthPick = {};
+        playSynthesis(done.ok);
+    }
+
+    function playSynthesis(outcome) {
+        const stage = document.getElementById('synthStage');
+        const icon = document.getElementById('synthIcon');
+        const resultEl = document.getElementById('synthResult');
+        stage.hidden = false;
+        stage.querySelectorAll('.confetti-piece').forEach(el => el.remove());
+        resultEl.className = 'synth-result';
+        resultEl.textContent = '';
+        icon.className = 'synth-icon shaking';
+        icon.textContent = '⚗️';
+        setTimeout(() => {
+            icon.className = 'synth-icon opened';
+            if (outcome.kind === 'success') {
+                icon.textContent = '✨';
+                resultEl.textContent = `성공! ${outcome.coupon.name} 획득!`;
+                spawnConfetti(stage, 18, ['✨', '🎉', '⭐', '🎊', '💜']);
+            } else if (outcome.kind === 'lower') {
+                icon.textContent = '💧';
+                resultEl.textContent = `실패… ${outcome.coupon.name}(으)로 바뀌었어요`;
+            } else {
+                icon.textContent = '💥';
+                resultEl.textContent = '실패… 쿠폰이 모두 사라졌어요';
+            }
+            resultEl.className = `synth-result ${outcome.kind} show`;
+            renderStudentSection();
+        }, 1100);
     }
 
     /* ===================== 학생: 로또 ===================== */

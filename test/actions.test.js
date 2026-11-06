@@ -73,7 +73,7 @@ eval(script + `
             PER: STOCK_MAX_HOLD_PER_COMPANY, ORDER: STOCK_MAX_ORDER };
   app.load = () => loadData({ silent: true });
   app.buyItem = buyItem; app.buyLotto = buyLotto; app.buyLottoAuto = buyLottoAuto; app.drawTicket = drawLottoTicket; app.transfer = sendTransfer;
-  app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox; app.box5 = buyRandomBox5; app.box10 = buyRandomBox10; app.MULTI_BIG = RANDOM_BOX_MULTI_BIG; app.MULTI = RANDOM_BOX_MULTI; app.BOXPRICE = RANDOM_BOX_PRICE;
+  app.takeLoan = takeLoan; app.openSavings = openSavings; app.box = buyRandomBox; app.box5 = buyRandomBox5; app.box10 = buyRandomBox10; app.synth = synthesizeCoupons; app.setPick = v => { synthPick = v; }; app.MULTI_BIG = RANDOM_BOX_MULTI_BIG; app.MULTI = RANDOM_BOX_MULTI; app.BOXPRICE = RANDOM_BOX_PRICE;
   app.COUPONS = COUPONS; app.couponPriceFor = couponPriceFor;
   app.repay = repayLoan; app.loanInterest = loanInterest;
   app.cancelSavings = cancelSavingsByStudent; app.open = openStudentSection; app.section = () => currentStudentSection;
@@ -516,6 +516,86 @@ const check = (name, cond) => results.push([name, !!cond]);
             student().pi === 500 && student().inventory.length === 0 && student().lottoTickets.length === 0);
     }
 
+    // ── 쿠폰 합성 ──
+    {
+        const realRandom = Math.random;
+        const withRandom = async (seq, fn) => { let i = 0; Math.random = () => seq[Math.min(i++, seq.length - 1)]; try { await fn(); } finally { Math.random = realRandom; } };
+        const count = (u, n) => u.inventory.filter(x => x === n).length;
+        const prep = inv => { server = freshServer(20, 50); server.users['7'].inventory = inv.slice(); alerts = []; setInputs({}); };
+
+        // 성공: 넣은 쿠폰은 사라지고 한 단계 위 쿠폰이 생긴다 (처음 가격: 간식 5 < 갈취 7 < 청소 10 < 3일 25 < 자리 65 < 짝꿍 80)
+        prep(['간식 교환권', '간식 교환권', '간식 교환권', '청소 면제권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 3 });
+        await withRandom([0], () => app.synth());
+        let u = student();
+        check('합성 성공: 넣은 쿠폰 3장이 사라짐', count(u, '간식 교환권') === 0);
+        check('합성 성공: 한 단계 위 쿠폰(반장 간식 갈취권)이 생김', count(u, '반장 간식 갈취권') === 1 && count(u, '청소 면제권') === 1 && u.inventory.length === 2);
+        check('합성은 파이를 쓰지 않음', u.pi === 50);
+
+        // 실패 → 한 단계 아래 쿠폰
+        prep(['간식 교환권', '3일 자리 선택권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 1, '3일 자리 선택권': 1 });
+        // 성공 확률 0.7 × 30 ÷ 65 ≈ 32% 보다 크고, '아래 쿠폰' 50% 보다 작은 값
+        await withRandom([0.45], () => app.synth());
+        u = student();
+        check('합성 실패(아래 쿠폰): 넣은 것은 사라지고 한 단계 아래(청소 면제권)가 생김', u.inventory.length === 1 && count(u, '청소 면제권') === 1);
+
+        // 실패 → 아무것도 없음
+        prep(['간식 교환권', '3일 자리 선택권', '짝꿍 선택권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 1, '3일 자리 선택권': 1 });
+        await withRandom([0.999], () => app.synth());
+        u = student();
+        check('합성 실패(사라짐): 넣은 쿠폰만 사라지고 나머지는 그대로', u.inventory.length === 1 && count(u, '짝꿍 선택권') === 1);
+
+        // 가진 것보다 많이 넣으려 하면 아무것도 안 함
+        prep(['간식 교환권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 2 });
+        await app.synth();
+        check('합성: 가진 것보다 많이 넣으면 아무것도 바뀌지 않음', count(student(), '간식 교환권') === 1);
+
+        // 확인창에서 취소
+        prep(['간식 교환권', '간식 교환권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 2 });
+        const realConfirm = global.confirm; global.confirm = () => false;
+        await app.synth();
+        global.confirm = realConfirm;
+        check('합성: 확인창에서 취소하면 그대로', count(student(), '간식 교환권') === 2);
+
+        // 저장이 겹쳐도 결과가 남는다
+        prep(['간식 교환권', '간식 교환권', '간식 교환권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 3 });
+        beforeNextSave = () => { server.rev += 1; };
+        await withRandom([0], () => app.synth());
+        beforeNextSave = null;
+        u = student();
+        check('합성: 겹쳐도 결과가 저장된다', count(u, '간식 교환권') === 0 && count(u, '반장 간식 갈취권') === 1);
+
+        // 끝내 저장이 안 되면 쿠폰을 잃지 않는다
+        prep(['간식 교환권', '간식 교환권', '간식 교환권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 3 });
+        const bumpS = () => { server.rev += 1; beforeNextSave = bumpS; };
+        beforeNextSave = bumpS;
+        await app.synth();
+        beforeNextSave = null;
+        check('합성: 끝내 저장이 안 되면 쿠폰을 잃지 않음', count(student(), '간식 교환권') === 3 && student().inventory.length === 3);
+
+        // 그 사이 다른 기기에서 쿠폰을 써 버렸으면 합성하지 않는다
+        prep(['간식 교환권', '간식 교환권']);
+        await openScreen();
+        app.setPick({ '간식 교환권': 2 });
+        server.users['7'].inventory = ['간식 교환권'];
+        server.rev += 1;
+        await app.synth();
+        check('합성: 그 사이 쿠폰이 줄었으면 합성하지 않음', student().inventory.length === 1 && alerts.some(m => /바뀌었/.test(m)));
+    }
+
     // ── 할 수 없는 일은 예전처럼 그대로 막아야 한다 ──
     server = freshServer(20, 1);
     alerts = []; setInputs({ transferTo: '8', transferAmount: 30 });
@@ -596,6 +676,7 @@ const check = (name, cond) => results.push([name, !!cond]);
     await tryLocked('랜덤상자', () => setInputs({}), () => app.box());
     await tryLocked('랜덤상자 5개', () => setInputs({}), () => app.box5());
     await tryLocked('랜덤상자 10개', () => setInputs({}), () => app.box10());
+    await tryLocked('쿠폰 합성', () => { setInputs({}); server.users['7'].inventory = ['간식 교환권', '간식 교환권']; app.setPick({ '간식 교환권': 2 }); }, () => app.synth());
     await tryLocked('주식 사기', () => setOrderQty(1), () => app.buy(CO));
     await tryLocked('적금 가입', () => setInputs({ savingsAmountInput: 50, savingsTermSelect: 2 }), () => app.openSavings(),
         () => server.bank.savings.length === 0);
