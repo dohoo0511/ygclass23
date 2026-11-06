@@ -1,0 +1,17 @@
+{
+  // 파티 게임 서버 설정 (Cloudflare Workers)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "party-games",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  // 무료 요금제에서도 쓸 수 있는 SQLite 기반 Durable Object
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "observability": { "enabled": true }
+}
