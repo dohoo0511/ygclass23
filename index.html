@@ -125,6 +125,7 @@
         .grade-badge.grade-gold { background: linear-gradient(135deg, #FFE082, #FFB300); color: #5D4037; }
         .grade-badge.grade-diamond { background: linear-gradient(135deg, #80D8FF, #2979FF); color: #fff; }
         .grade-badge.grade-emerald { background: linear-gradient(135deg, #69F0AE, #00A152); color: #fff; }
+        .grade-badge.grade-ruby { background: linear-gradient(135deg, #FF5252, #B71C1C); color: #fff; }
         .grade-card { background: linear-gradient(135deg, #FFF3E0, #FFE0B2); border-radius: 20px; padding: 16px 18px; box-shadow: 0 4px 12px rgba(230, 81, 0, .12); }
         .grade-card-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 15px; }
         .exp-bar { height: 12px; background: #fff; border-radius: 999px; overflow: hidden; margin: 10px 0 8px; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08); }
@@ -880,10 +881,16 @@
         { key: 'silver',  name: '실버',     icon: '🥈', minExp: 30,  loanLimit: 20, benefit: '' },
         { key: 'gold',    name: '골드',     icon: '🥇', minExp: 80,  loanLimit: 30, benefit: '' },
         { key: 'diamond', name: '다이아',   icon: '💎', minExp: 180, loanLimit: 50, benefit: '모든 쿠폰 1π 할인' },
-        { key: 'emerald', name: '에메랄드', icon: '💚', minExp: 350, loanLimit: 80, benefit: '쿠폰 2π 할인, 랜덤상자 · 로또 1π 할인' }
+        { key: 'emerald', name: '에메랄드', icon: '💚', minExp: 350, loanLimit: 80, benefit: '쿠폰 2π 할인, 랜덤상자 · 로또 1π 할인' },
+        // 루비: 쿠폰 6π, 랜덤상자 2π, 로또 1π 할인. 대출은 한도가 크고 이자가 낮고 기한이 길다
+        { key: 'ruby',    name: '루비',     icon: '❤️', minExp: 600, loanLimit: 120, loanRatePct: 6, loanTermDays: 21,
+          benefit: '모든 쿠폰 6π 할인, 랜덤상자 2π · 로또 1π 할인, 대출 한도 120π · 이자 주 6% · 상환 3주' }
     ];
     const DIAMOND_INDEX = 3;
     const EMERALD_INDEX = 4;
+    const RUBY_INDEX = 5;
+    const RUBY_COUPON_DISCOUNT = 6;   // 루비: 모든 쿠폰
+    const RUBY_BOX_DISCOUNT = 2;      // 루비: 랜덤상자
 
     /* ===================== 설정: 은행 ===================== */
     const LOAN_WEEKLY_INTEREST_PCT = 10;   // 1주마다 원금의 10%
@@ -921,15 +928,18 @@
 
        share 가 적힌 것(꽝·1파이·2파이)은 확률이 고정이다. 값이 싸서 어차피 자주 나와야 하고,
        이 셋이 '파이가 새로 생기는 양' 을 거의 결정하기 때문에 손으로 잡아 둔다.
-       나머지는 남은 몫(13%)을 값어치에 따라 나눠 갖는다.
+       나머지는 남은 몫(18%)을 값어치에 따라 나눠 갖는다.
 
-       음악 우선 신청권을 없애면서 꽝을 33% → 40% 로 올렸다. 가장 싼 쿠폰이 가져가던 몫(약 9%)이
-       다른 상품으로 흘러 들어가면 상자가 파이를 더 만들어 내기 때문이다 (현금 창출 0.92π → 1.11π).
-       꽝을 올려서 기대값 1.51π · 현금 0.96π 로 예전 수준에 맞췄다. */
+       좋은 상품이 나올 몫을 13% → 18% 로 늘렸다 (꽝 40% → 37%, 1파이 26% → 25%, 2파이 21% → 20%).
+       그리고 아무리 드문 상품도 1천 번에 한 번은 나오게 바닥을 올렸다 (아래 BOX_PRIZE_MIN_SHARE).
+
+       ★ 상자가 만들어 내는 파이의 평균은 BOX_CASH_CAP 을 넘지 못한다.
+         루비는 상자를 1π 에 열 수 있다. 그런데 상자 한 번에 평균 1π 넘게 나오면, 열기만 해도 파이가 늘어난다.
+         넘으면 파이로 주는 상품(6~30파이)의 몫을 줄이고, 그만큼을 쿠폰·로또가 가져간다. */
     const RANDOM_BOX_REWARDS = [
-        { name: '꽝',              share: 0.40,  tier: 'none',      type: 'none' },
-        { name: '1파이',           share: 0.26,  tier: 'common',    type: 'pi',   amount: 1 },
-        { name: '2파이',           share: 0.21,  tier: 'common',    type: 'pi',   amount: 2 },
+        { name: '꽝',              share: 0.37,  tier: 'none',      type: 'none' },
+        { name: '1파이',           share: 0.25,  tier: 'common',    type: 'pi',   amount: 1 },
+        { name: '2파이',           share: 0.20,  tier: 'common',    type: 'pi',   amount: 2 },
         { name: '로또 1장',                       tier: 'common',    type: 'lotto' },
         { name: '간식 교환권',                     tier: 'common',    type: 'item' },
         { name: '6파이',                          tier: 'rare',      type: 'pi',   amount: 6 },
@@ -948,7 +958,9 @@
     const BOX_RARITY_EXPONENT = 2.45;
     // 아무리 비싸도 이보다 드물지는 않게. 3천 번에 한 번(1년에 두 번쯤)은 나와야 상품이라 할 수 있다.
     // 이게 없으면 80π 쿠폰이 1만 6천 번에 한 번이 되어, 학생이 평생 한 번도 못 본다
-    const BOX_PRIZE_MIN_SHARE = 0.00035;
+    const BOX_PRIZE_MIN_SHARE = 0.001;
+    // 상자 한 번에 평균 이만큼보다 많은 '파이' 가 나오지 않게 한다 (쿠폰·로또는 파이로 세지 않음). 루비 가격 1π 보다 낮게
+    const BOX_CASH_CAP = 0.95;
     // 한 보상이 상품 몫을 통째로 삼키지 못하게 하는 안전장치 (쿠폰을 0π 로 만든 경우 등)
     const BOX_PRIZE_MAX_SHARE = 0.12;
     // hiddenTrigger 보상이 뽑혔을 때 이 확률로 히든 보상으로 바뀜 (확률표에는 ???로 표시)
@@ -1204,10 +1216,12 @@
     function couponPriceFor(userId, coupon) {
         const idx = gradeIndexOf(db.users[userId].exp);
         let discount = 0;
-        if (idx >= EMERALD_INDEX) discount = 2;
+        if (idx >= RUBY_INDEX) discount = RUBY_COUPON_DISCOUNT;
+        else if (idx >= EMERALD_INDEX) discount = 2;
         else if (idx >= DIAMOND_INDEX) discount = 1;
         return Math.max(0, couponBasePrice(coupon) - discount);
     }
+    // 에메랄드 이상 (루비 포함). 로또 할인에 쓴다
     function isEmerald(userId) {
         return gradeIndexOf(db.users[userId].exp) >= EMERALD_INDEX;
     }
@@ -1290,16 +1304,27 @@
         return LOTTO_TICKET_PRICE - (isEmerald(userId) ? 1 : 0);
     }
     function randomBoxPriceFor(userId) {
-        return RANDOM_BOX_PRICE - (isEmerald(userId) ? 1 : 0);
+        const idx = gradeIndexOf(db.users[userId].exp);
+        const discount = idx >= RUBY_INDEX ? RUBY_BOX_DISCOUNT : idx >= EMERALD_INDEX ? 1 : 0;
+        return Math.max(0, RANDOM_BOX_PRICE - discount);
     }
     function priceHtml(base, actual) {
         return actual < base ? `<s class="old-price">${base}</s> <b class="sale-price">${actual}</b>` : `${base}`;
     }
 
     /* ===================== 은행 계산 ===================== */
+    // 등급마다 이자와 상환 기한이 다를 수 있다 (루비는 이자가 낮고 기한이 길다). 대출을 받는 순간의 값이 그 대출에 붙는다
+    function gradeLoanRate(grade) {
+        return typeof grade.loanRatePct === 'number' ? grade.loanRatePct : LOAN_WEEKLY_INTEREST_PCT;
+    }
+    function gradeLoanTermDays(grade) {
+        return typeof grade.loanTermDays === 'number' ? grade.loanTermDays : LOAN_TERM_DAYS;
+    }
     function loanInterest(loan, now = Date.now()) {
         const weeks = Math.max(0, Math.floor((now - loan.startAt) / WEEK_MS));
-        return Math.round(loan.principal * LOAN_WEEKLY_INTEREST_PCT * weeks / 100);
+        // ratePct 가 없는 예전 대출은 처음 이율(주 10%)로 센다
+        const rate = typeof loan.ratePct === 'number' ? loan.ratePct : LOAN_WEEKLY_INTEREST_PCT;
+        return Math.round(loan.principal * rate * weeks / 100);
     }
     function loanRemaining(loan, now = Date.now()) {
         return Math.max(0, loan.principal + loanInterest(loan, now) - loan.paid);
@@ -1481,7 +1506,7 @@
     // 저장할 때마다 '누가·언제·어떤 버전으로' 저장했는지 남김.
     // 되돌린 내용이 또 사라졌을 때, 예전 코드를 쓰는 기기가 덮어썼는지 바로 알 수 있음
     // (예전 코드는 이 값을 남기지 않으므로, lastSave 가 없거나 시각이 뒤로 가면 예전 기기가 범인)
-    const APP_VERSION = '2026-11-06-no-music-coupon';
+    const APP_VERSION = '2026-11-07-ruby';
     // 서버가 이 번호로 예전 화면을 가려낸다. functions/api/data.js 의 MIN_CLIENT_BUILD 와 맞춰야 함
     const APP_BUILD = 34;
 
@@ -2339,13 +2364,15 @@
         return 0;
     }
 
-    // 보상별 확률(합이 1). 값어치가 클수록 귀하되, 바닥과 천장을 벗어나지 않게 다듬는다
-    function boxOdds() {
+    // 보상별 확률(합이 1). 값어치가 클수록 귀하되, 바닥과 천장을 벗어나지 않게 다듬는다.
+    // piWeight 는 '파이로 주는 상품' 에 곱하는 가중치 (1 이면 그대로, 줄이면 그 몫이 쿠폰·로또로 간다)
+    function boxProbabilities(piWeight) {
         const fixed = RANDOM_BOX_REWARDS.filter(r => typeof r.share === 'number');
         const prizes = RANDOM_BOX_REWARDS.filter(r => typeof r.share !== 'number');
         const prizeShare = Math.max(0, 1 - fixed.reduce((sum, r) => sum + r.share, 0));
 
-        const raw = prizes.map(r => 1 / Math.pow(Math.max(1, boxRewardValue(r)), BOX_RARITY_EXPONENT));
+        // 히든 보상(333파이)이 숨어 있는 상품도 '파이를 주는 쪽' 으로 센다. 그 쿠폰이 아주 싸지면 히든 몫만으로 상한을 넘을 수 있다
+        const raw = prizes.map(r => (r.type === 'pi' || r.hiddenTrigger ? piWeight : 1) / Math.pow(Math.max(1, boxRewardValue(r)), BOX_RARITY_EXPONENT));
         const rawSum = raw.reduce((a, b) => a + b, 0) || 1;
         let p = raw.map(w => w / rawSum * prizeShare);
 
@@ -2362,6 +2389,30 @@
         const odds = new Map();
         fixed.forEach(r => odds.set(r, r.share));
         prizes.forEach((r, i) => odds.set(r, p[i]));
+        return odds;
+    }
+
+    // 상자 한 번에 평균 몇 π 가 '파이로' 나오는가 (히든 보상 포함)
+    function boxCashOf(odds) {
+        let cash = 0;
+        odds.forEach((p, r) => {
+            if (r.type === 'pi') cash += p * r.amount;
+            if (r.hiddenTrigger && HIDDEN_REWARD.type === 'pi') cash += p * HIDDEN_REWARD_CHANCE * HIDDEN_REWARD.amount;
+        });
+        return cash;
+    }
+
+    function boxOdds() {
+        let odds = boxProbabilities(1);
+        if (boxCashOf(odds) > BOX_CASH_CAP) {
+            // 파이 상품의 몫을 이분법으로 줄여서 상한에 딱 맞춘다
+            let lo = 0, hi = 1;
+            for (let i = 0; i < 40; i++) {
+                const mid = (lo + hi) / 2;
+                if (boxCashOf(boxProbabilities(mid)) > BOX_CASH_CAP) hi = mid; else lo = mid;
+            }
+            odds = boxProbabilities(lo);
+        }
         // 값어치 순으로 늘어놓는다 (꽝이 맨 위, 그 뒤로 싼 것 → 비싼 것).
         // 쿠폰 값을 바꾸면 목록 순서도 따라 바뀌어, 상점과 늘 같은 차례가 된다
         return RANDOM_BOX_REWARDS
@@ -2782,8 +2833,8 @@
             <div class="card">
                 <div>${gradeBadge(user)} 등급 대출 한도: <b>${grade.loanLimit}π</b></div>
                 <ul class="rule-list">
-                    <li>1주일이 지날 때마다 이자가 빌린 금액의 ${LOAN_WEEKLY_INTEREST_PCT}%씩 늘어나요.</li>
-                    <li>상환 기한은 대출받은 날부터 ${LOAN_TERM_DAYS / 7}주예요. 일찍 갚을수록 이자가 적어요.</li>
+                    <li>1주일이 지날 때마다 이자가 빌린 금액의 ${gradeLoanRate(grade)}%씩 늘어나요.</li>
+                    <li>상환 기한은 대출받은 날부터 ${gradeLoanTermDays(grade) / 7}주예요. 일찍 갚을수록 이자가 적어요.</li>
                     <li>기한이 1주 지나면 경험치 -${LOAN_OVERDUE_EXP_PENALTY}, 2주째부터는 1주마다 회원 등급이 한 단계씩 내려가요.</li>
                     <li>대출은 한 번에 1건만 받을 수 있어요. 등급이 높을수록 더 많이 빌릴 수 있어요.</li>
                 </ul>
@@ -2835,8 +2886,9 @@
             return;
         }
 
-        const weeklyInterest = Math.round(amount * LOAN_WEEKLY_INTEREST_PCT / 100);
-        if (!await confirmThenReload(`${amount}π를 대출받을까요?\n\n상환 기한: ${fmtDate(Date.now() + LOAN_TERM_DAYS * DAY_MS)}\n1주일마다 이자가 약 ${weeklyInterest}π씩 늘어나요.`)) return;
+        const myGrade = getGrade(user);
+        const weeklyInterest = Math.round(amount * gradeLoanRate(myGrade) / 100);
+        if (!await confirmThenReload(`${amount}π를 대출받을까요?\n\n상환 기한: ${fmtDate(Date.now() + gradeLoanTermDays(myGrade) * DAY_MS)}\n1주일마다 이자가 약 ${weeklyInterest}π씩 늘어나요.`)) return;
 
         const done = await runAction(() => {
             const fresh = db.users[currentUser];
@@ -2844,10 +2896,12 @@
                 return { stop: '그 사이 대출 정보가 바뀌었어요. 다시 확인해주세요.' };
             }
             const now = Date.now();
-            const dueAt = now + LOAN_TERM_DAYS * DAY_MS;
+            const loanGrade = getGrade(fresh);
+            const dueAt = now + gradeLoanTermDays(loanGrade) * DAY_MS;
             db.bank.loans.push({
                 id: makeId(), studentId: currentUser, principal: amount, paid: 0,
-                startAt: now, dueAt, penaltiesApplied: 0, status: 'active'
+                startAt: now, dueAt, penaltiesApplied: 0, status: 'active',
+                ratePct: gradeLoanRate(loanGrade)
             });
             fresh.pi += amount;
             addBankLog('loan', `💸 ${fresh.name} ${amount}π 대출 (기한 ${fmtDate(dueAt)})`, [currentUser]);

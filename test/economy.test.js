@@ -47,7 +47,10 @@ eval(script + `
   app.ticketKey = ticketKey; app.HIDDEN = HIDDEN_REWARD;
   app.boxOdds = boxOdds; app.boxValue = boxRewardValue; app.byPrice = couponsByPrice;
   app.BOX = { PRICE: RANDOM_BOX_PRICE, MIN: BOX_PRIZE_MIN_SHARE, MAX: BOX_PRIZE_MAX_SHARE,
-              HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD };
+              HID_CH: HIDDEN_REWARD_CHANCE, HID: HIDDEN_REWARD, CAP: BOX_CASH_CAP };
+  app.boxPrice = randomBoxPriceFor; app.lottoPrice = lottoPriceFor;
+  app.gradeIdx = gradeIndexOf; app.loanInterest = loanInterest; app.loanRate = gradeLoanRate; app.loanTerm = gradeLoanTermDays;
+  app.GI = { DIAMOND: DIAMOND_INDEX, EMERALD: EMERALD_INDEX, RUBY: RUBY_INDEX };
   app.CONTRACT = { MIN_TICKS: CONTRACT_MIN_TICKS, MAX: CONTRACT_MAX,
                    COOLDOWN: CONTRACT_COOLDOWN_TICKS, END_CHANCE: CONTRACT_END_CHANCE };
   app.K = { MIN: STOCK_MIN_PRICE, LOCK: STOCK_BUY_LOCK_PRICE, PER: STOCK_MAX_HOLD_PER_COMPANY,
@@ -133,9 +136,10 @@ check(`그래도 1등은 귀함 — 주 ${(TICKETS * p1st).toFixed(2)}명`, TICK
 /* ── 쿠폰 가격을 관리자가 바꿀 수 있어야 함 ── */
 {
     const coupon = app.COUPONS.find(c => c.name === '청소 면제권');
-    const emeraldExp = app.GRADES[app.GRADES.length - 1].minExp;
+    const emeraldExp = app.GRADES[app.GI.EMERALD].minExp;
+    const rubyExp = app.GRADES[app.GI.RUBY].minExp;
     const setDb = prices => app.setDb({
-        users: { '1': { exp: 0, pi: 999 }, '2': { exp: emeraldExp, pi: 999 } },
+        users: { '1': { exp: 0, pi: 999 }, '2': { exp: emeraldExp, pi: 999 }, '3': { exp: rubyExp, pi: 999 } },
         couponPrices: prices, stocks: null
     });
 
@@ -146,13 +150,14 @@ check(`그래도 1등은 귀함 — 주 ${(TICKETS * p1st).toFixed(2)}명`, TICK
     check('관리자가 바꾼 가격이 우선', app.basePrice(coupon) === 25);
     check('브론즈 학생은 그 가격 그대로', app.priceFor('1', coupon) === 25);
     check('에메랄드 할인은 바뀐 가격에서 빠짐 — 25 - 2 = 23', app.priceFor('2', coupon) === 23);
+    check('루비 할인은 바뀐 가격에서 6π 빠짐 — 25 - 6 = 19', app.priceFor('3', coupon) === 19);
 
     setDb({ '청소 면제권': 0 });
     check('0π 로 두면 공짜', app.basePrice(coupon) === 0 && app.priceFor('1', coupon) === 0);
     check('할인 때문에 음수가 되지 않음', app.priceFor('2', coupon) === 0);
 
     setDb({ '청소 면제권': 1 });
-    check('할인이 가격보다 커도 0 밑으로 안 감', app.priceFor('2', coupon) === 0);
+    check('할인이 가격보다 커도 0 밑으로 안 감', app.priceFor('2', coupon) === 0 && app.priceFor('3', coupon) === 0);
 
     // 잘못된 값이 저장돼 있어도 처음 가격으로 버텨야 함
     [-5, 1.5, '20', null, undefined, NaN].forEach(bad => {
@@ -1044,9 +1049,22 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
     check(`상자 확률 합계가 100% — ${(base.total * 100).toFixed(3)}%`, Math.abs(base.total - 1) < 1e-9);
     check(`상자가 파이를 늘리지 않음 — ${app.BOX.PRICE}π 내고 ${base.cash.toFixed(2)}π 생김`,
         base.cash < app.BOX.PRICE);
-    // 예전 손으로 만든 표와 같은 수준이어야 물가가 흔들리지 않는다 (기대값 1.63π · 현금 0.92π 였다)
-    check(`기대값이 예전 수준 — ${base.ev.toFixed(2)}π (예전 1.63π)`, Math.abs(base.ev - 1.63) < 0.15);
-    check(`현금 창출이 예전 수준 — ${base.cash.toFixed(2)}π (예전 0.92π)`, Math.abs(base.cash - 0.92) < 0.08);
+    // 루비는 상자를 1π 에 연다. 평균 1π 넘게 나오면 열기만 해도 파이가 늘어난다 → 어떤 쿠폰 가격에서도 상한을 지켜야 한다
+    const RUBY_BOX_PRICE = app.BOX.PRICE - 2;
+    check(`상자가 만드는 파이가 상한 이하 — ${base.cash.toFixed(3)}π (상한 ${app.BOX.CAP}π)`, base.cash <= app.BOX.CAP + 1e-9);
+    for (const [name, prices] of [['처음 가격', {}], ['선생님이 올린 가격', { '짝꿍 선택권': 200, '자리 지정권': 160, '3일 자리 선택권': 60, '청소 면제권': 36, '반장 간식 갈취권': 37, '간식 교환권': 25 }],
+                                  ['모든 쿠폰 공짜', { '짝꿍 선택권': 0, '자리 지정권': 0, '3일 자리 선택권': 0, '청소 면제권': 0, '반장 간식 갈취권': 0, '간식 교환권': 0 }],
+                                  ['모든 쿠폰 1π', { '짝꿍 선택권': 1, '자리 지정권': 1, '3일 자리 선택권': 1, '청소 면제권': 1, '반장 간식 갈취권': 1, '간식 교환권': 1 }]]) {
+        const r = boxStats(prices);
+        check(`루비 가격 ${RUBY_BOX_PRICE}π 에서도 파이가 늘지 않음 (${name}) — 평균 ${r.cash.toFixed(3)}π`, r.cash < RUBY_BOX_PRICE);
+        check(`그때도 확률 합계 100% (${name})`, Math.abs(r.total - 1) < 1e-9);
+    }
+    // 좋은 상품(쿠폰·로또)이 나올 확률이 예전(약 9.8%)보다 올랐다
+    const goodNow = base.odds.filter(o => o.reward.type === 'item' || o.reward.type === 'lotto').reduce((s, o) => s + o.p, 0);
+    check(`좋은 상품(쿠폰·로또)이 나올 확률이 올랐음 — ${(goodNow * 100).toFixed(1)}% (예전 9.8%)`, goodNow > 0.12);
+    const prizeNow = base.odds.filter(o => o.reward.type !== 'none' && typeof o.reward.share !== 'number').reduce((s, o) => s + o.p, 0);
+    check(`꽝이 아닌 '상품' 몫이 18% 안팎 — ${(prizeNow * 100).toFixed(1)}%`, prizeNow > 0.17 && prizeNow < 0.19);
+    check('가장 비싼 쿠폰도 1천 번에 한 번은 나옴', base.at('짝꿍 선택권') >= 0.001 - 1e-12 && base.at('자리 지정권') >= 0.001 - 1e-12);
 
     // 비싼 쿠폰이 싼 쿠폰보다 흔하면 안 된다
     const couponNames = app.COUPONS.map(c => c.name).filter(n => base.odds.some(o => o.reward.name === n));
@@ -1086,10 +1104,10 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
     const vals = mine.odds.map(o => app.boxValue(o.reward));
     check('상자 목록이 값어치 오름차순 (꽝이 맨 위)',
         vals.every((v, i) => i === 0 || v >= vals[i - 1]));
-    // 값어치가 같으면 확률도 같아야 한다 (15파이와 15π 짜리 쿠폰)
-    const same = mine.odds.filter(o => app.boxValue(o.reward) === 15).map(o => o.p);
-    check(`값어치가 같으면 확률도 같음 — 15π 짜리 ${same.length}개`,
-        same.length >= 2 && Math.abs(same[0] - same[1]) < 1e-12);
+    // 값어치가 같은 쿠폰끼리는 확률도 같아야 한다 (파이 상품은 상한 때문에 따로 줄어들 수 있어 빼고 본다)
+    const tied = boxStats({ '청소 면제권': 12, '반장 간식 갈취권': 12 });
+    const tiedP = ['청소 면제권', '반장 간식 갈취권'].map(n => tied.at(n));
+    check(`값어치가 같은 쿠폰은 확률도 같음 — 12π 짜리 두 개 ${(tiedP[0] * 100).toFixed(3)}%`, Math.abs(tiedP[0] - tiedP[1]) < 1e-12);
 
     app.setDb({ users: {}, couponPrices: MINE });
     const listed = app.byPrice();
@@ -1149,6 +1167,34 @@ const M = app.K.MIN, X = app.K.MAX, Q = M + 15;
         const d3 = { users: { '1': { name: 'x', role: 'student', pi: 1 } }, bank: {} };
         app.setDb(d3);
         check('음악권 환불: 쿠폰 칸이 없는 계정이 있어도 멈추지 않음', app.removeMusic(d3) === true && d3.users['1'].pi === 1);
+    }
+
+    /* ── 루비 등급 ── */
+    {
+        const G = app.GRADES;
+        check('루비가 맨 위 등급 (에메랄드보다 경험치가 높음)', G[G.length - 1].key === 'ruby' && G[G.length - 1].minExp > G[G.length - 2].minExp && app.GI.RUBY === G.length - 1);
+        const rubyExp = G[app.GI.RUBY].minExp, emExp = G[app.GI.EMERALD].minExp;
+        app.setDb({ users: { e: { exp: emExp - 1, pi: 0 }, em: { exp: emExp, pi: 0 }, r1: { exp: rubyExp - 1, pi: 0 }, r: { exp: rubyExp, pi: 0 }, r2: { exp: rubyExp + 999, pi: 0 } }, couponPrices: { '청소 면제권': 20 } });
+        check('경험치로 루비가 됨', app.gradeIdx(rubyExp) === app.GI.RUBY && app.gradeIdx(rubyExp - 1) === app.GI.EMERALD);
+        const clean = app.COUPONS.find(c => c.name === '청소 면제권');
+        check('모든 쿠폰 6π 할인 (루비)', app.priceFor('r', clean) === 14 && app.priceFor('r2', clean) === 14);
+        check('에메랄드는 2π 할인 그대로', app.priceFor('em', clean) === 18 && app.priceFor('e', clean) === 19);
+        const allSix = app.COUPONS.every(c => app.priceFor('r', c) === Math.max(0, app.basePrice(c) - 6));
+        check('모든 쿠폰이 6π 씩 싸다 (0 밑으로는 안 감)', allSix);
+        check('랜덤상자: 루비 2π 할인 (3 → 1), 에메랄드 1π 할인, 그 아래는 그대로',
+            app.boxPrice('r') === app.BOX.PRICE - 2 && app.boxPrice('em') === app.BOX.PRICE - 1 && app.boxPrice('e') === app.BOX.PRICE);
+        check('로또: 루비도 1π 할인 (에메랄드와 같음)', app.lottoPrice('r') === app.lottoPrice('em') && app.lottoPrice('r') < app.lottoPrice('e'));
+
+        // 대출: 한도·이자·기한이 에메랄드보다 좋다
+        const em = G[app.GI.EMERALD], ruby = G[app.GI.RUBY];
+        check(`대출 한도가 에메랄드(${em.loanLimit}π)보다 큼 — ${ruby.loanLimit}π`, ruby.loanLimit > em.loanLimit);
+        check(`대출 이자가 에메랄드(${app.loanRate(em)}%)보다 낮음 — ${app.loanRate(ruby)}%`, app.loanRate(ruby) < app.loanRate(em));
+        check(`상환 기한이 에메랄드(${app.loanTerm(em)}일)보다 긺 — ${app.loanTerm(ruby)}일`, app.loanTerm(ruby) > app.loanTerm(em));
+        check('대출 이자는 적금 이자(주 5%)보다 낮아지지 않음 (빌려서 적금에 넣어 파이를 만들 수 없게)', app.loanRate(ruby) >= app.savingsRatePct(4));
+        check('다른 등급 대출은 예전과 같음 (주 10%, 14일)', G.slice(0, app.GI.RUBY).every(g => app.loanRate(g) === 10 && app.loanTerm(g) === 14));
+        const WEEK = 7 * 24 * 3600 * 1000, t0 = Date.now() - 2 * WEEK - 1000;
+        check('이율이 적힌 대출은 그 이율로 이자가 붙음 (100π 2주 · 6% = 12π)', app.loanInterest({ principal: 100, startAt: t0, paid: 0, ratePct: 6 }) === 12);
+        check('이율이 없는 예전 대출은 주 10% 그대로 (100π 2주 = 20π)', app.loanInterest({ principal: 100, startAt: t0, paid: 0 }) === 20);
     }
 
     // 터무니없는 값이 저장돼 있어도 버텨야 함
